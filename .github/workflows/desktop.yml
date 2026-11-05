@@ -85,6 +85,23 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+      # macOS: WKWebView has no CDP, so the test variant embeds an in-app harness
+      # (src/lib/e2e-harness.ts, compiled in only when VITE_E2E_PORT is set).
+      - name: Build E2E variant (in-app harness)
+        if: matrix.os == 'macos-latest'
+        env:
+          VITE_E2E_PORT: '9555'
+        run: npm run tauri -- build --target ${{ matrix.target }} --no-bundle
+
+      - name: Upload E2E variant
+        if: matrix.os == 'macos-latest'
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-app-macos
+          path: src-tauri/target/${{ matrix.target }}/release/rastavec
+          if-no-files-found: error
+          retention-days: 7
+
       # Cargo.lock is produced by the first build: keep it so it can be committed.
       - name: Upload Cargo.lock
         if: matrix.os == 'windows-latest'
@@ -162,9 +179,61 @@ jobs:
           path: e2e-out
           retention-days: 14
 
+  e2e-macos:
+    name: macOS end-to-end test
+    needs: build
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: rastavec-macos
+          path: installers
+
+      - name: Install RastaVec from the .dmg and check it starts
+        run: |
+          mkdir -p e2e-out
+          dmg=$(find installers -name '*.dmg' | head -1)
+          echo "Mounting $dmg"
+          mnt=$(hdiutil attach "$dmg" -nobrowse -readonly | grep -o '/Volumes/.*' | tail -1)
+          cp -R "$mnt/RastaVec.app" /Applications/
+          hdiutil detach "$mnt" -quiet
+          lipo -archs /Applications/RastaVec.app/Contents/MacOS/rastavec
+          open /Applications/RastaVec.app
+          sleep 12
+          screencapture -x e2e-out/00-installed-app.png || true
+          pgrep -x rastavec || { echo "Installed app is not running"; exit 1; }
+          echo "Installed app running"
+          pkill -x rastavec || true
+          sleep 2
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: e2e-app-macos
+          path: e2e-app
+
+      - name: Run end-to-end test
+        run: |
+          chmod +x e2e-app/rastavec
+          node e2e/desktop-mac.mjs --app e2e-app/rastavec --images assets/rastavec-path.png,assets/rastavec-logo.png --out e2e-out
+
+      - name: Upload screenshots and report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-desktop-macos
+          path: e2e-out
+          retention-days: 14
+
   release:
     name: Draft GitHub release
-    needs: [build, e2e-windows]
+    needs: [build, e2e-windows, e2e-macos]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:

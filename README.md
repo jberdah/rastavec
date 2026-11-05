@@ -109,7 +109,12 @@ translates, so the same core can serve a CLI. To add a language, add a dictionar
   checks that it starts, then drives a test variant of the app (same code, WebView2 debugging
   port via `e2e/tauri.e2e.conf.json`) with Playwright over CDP: import, vectorise, batch review,
   detail view, slider, metrics. Screenshots, a screen recording and `report.json` are in the
-  `e2e-desktop-windows` artifact, with a summary on the run page. The draft release waits for it.
+  `e2e-desktop-windows` artifact, with a summary on the run page.
+- **macOS end-to-end test**: installs the `.dmg`, checks the app starts, then runs a test
+  variant built with `VITE_E2E_PORT` (WKWebView cannot be driven over CDP): an in-app harness
+  (`src/lib/e2e-harness.ts`, absent from normal builds) drives the same UI and reports each step
+  to `e2e/desktop-mac.mjs`, which takes screenshots and checks the results (`e2e-desktop-macos`).
+  The draft release waits for both tests.
 
 Locally: `npm run tauri dev` / `npm run tauri build` (needs Rust and, on Windows, the C++
 build tools).

@@ -18,4 +18,7 @@ if (import.meta.env.DEV || new URLSearchParams(location.search).has('debug')) {
   })
 }
 
+// Desktop end-to-end test variant only (VITE_E2E_PORT set at build time); removed from normal builds.
+if (import.meta.env.VITE_E2E_PORT) import('./lib/e2e-harness')
+
 export default app
