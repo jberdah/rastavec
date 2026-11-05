@@ -16,11 +16,9 @@ for each image, traces it into real vector paths, then compares the SVG with the
 retries on its own when the result is not close enough or too heavy. You get a fidelity score
 for every file, a slider to check it by eye, and a zip ready to use.
 
-<p align="center">
-  <a href="https://youtu.be/fWIY1R1bUAc"><img src="docs/demo-video.jpg" alt="Watch the 1-minute RastaVec demo on YouTube" width="860"></a>
-  <br>
-  <sub>▶ <a href="https://youtu.be/fWIY1R1bUAc">Watch the 1-minute demo on YouTube</a></sub>
-</p>
+https://github.com/user-attachments/assets/1b9ad885-4589-423a-aafb-e8b841d84101
+
+<p align="center"><sub>Also on <a href="https://youtu.be/fWIY1R1bUAc">YouTube</a></sub></p>
 
 - **Real vectors, not a bitmap in disguise**: every SVG is made of paths you can edit, recolour and animate.
 - **Measured, not guessed**: visible difference, silhouette overlap and colour error for each image, with a magenta map of what changed.
