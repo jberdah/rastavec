@@ -27,6 +27,8 @@ export interface TraceParams {
   softLayers: number
   /** Trace the soft (semi-transparent) area in color instead of uniform bands. */
   softColor: boolean
+  /** Re-encode paths compactly (relative coordinates, baked translate, short numbers). Visually lossless. */
+  compactPaths: boolean
 }
 
 export interface Metrics {

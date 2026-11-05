@@ -22,6 +22,8 @@ src/lib/engine/core.ts             pure TS, no DOM: prepare (alpha floor, keying
                                    metrics, diff map, auto-tune grid, scoring, choice
 src/lib/engine/browser-backend.ts  TraceBackend for the browser: vtracer-webapp (wasm) + canvas
 src/lib/engine/presets.ts          presets, same parameter units as the raster-to-svg skill
+src/lib/engine/analyze.ts          image analysis (colours, gradients, alpha) -> Auto parameters
+src/lib/engine/compact.ts          compact path encoding (pure, deterministic)
 src/lib/pipeline.ts                per-image pipeline: decode → trace → render → measure → auto-tune
 src/lib/export.ts                  zip: svg/*.svg, metrics.csv, config.json (replays the batch)
 src/lib/views/*                    Import, Lot (batch), Detail screens (Svelte 5)
@@ -31,12 +33,18 @@ src/lib/views/*                    Import, Lot (batch), Detail screens (Svelte 5
   `vtracer-webapp` wasm build (MIT/Apache-2.0). It needs DOM elements, so it runs on the main
   thread, time-sliced to keep the UI responsive.
 - **Transparency**: transparent pixels are keyed, then the colour result is clipped by a
-  silhouette traced separately from the alpha channel (alpha ≥ 96), the two-pass technique
-  validated on the Brainclaw avatars. Semi-transparency is not preserved (made opaque) and
-  is flagged in the detail view.
+  silhouette traced separately from the alpha channel (alpha ≥ 128 by default, configurable),
+  the two-pass technique validated on the Brainclaw avatars. Soft edges / translucent areas
+  below the cut are traced in colour at their mean opacity (or as uniform alpha bands);
+  fully semi-transparent artwork keeps its mean opacity.
+- **Analysis & Auto preset**: dominant colours, gradients and alpha profile classify each image
+  (flat logo, shaded illustration, line art, pixel art, photo) and pick its parameters.
 - **Metrics** (identical to the skill's `compare.cjs`): silhouette IoU at alpha ≥ 128,
   mean colour difference on white and on #202020 (0–255), alpha difference, and
   `pct_pixels_diff_gt_32`, the share of visibly different pixels used for ranking.
+- **Compact output**: paths are re-encoded (translate baked in, relative coordinates computed
+  from rounded points, shortest numbers, implicit repeated commands): about 27 % smaller with
+  identical fidelity metrics (sub-pixel rounding only). See `src/lib/engine/compact.ts`.
 - **Auto-tune**: when an image exceeds the difference threshold or the size budget, a fixed
   grid of up to 6 parameter sets is tried; the best score (`% diff + 0.002 × KiB`) within the
   budget wins. Same input + same config → byte-identical SVG.

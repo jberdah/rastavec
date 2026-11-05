@@ -14,6 +14,7 @@ export const DEFAULT_PARAMS: TraceParams = {
   silhouetteCut: 128,
   softLayers: 2,
   softColor: false,
+  compactPaths: true,
 }
 
 export interface Preset {

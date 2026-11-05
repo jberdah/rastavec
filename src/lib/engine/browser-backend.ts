@@ -4,6 +4,7 @@
 // which we time-slice to keep the UI responsive.
 import type { Prepared, RGBAImage, TraceBackend } from './core'
 import { isKeyFill, normalizeHex } from './core'
+import { compactPath } from './compact'
 import type { TraceParams } from './types'
 
 type Wasm = typeof import('vtracer-webapp')
@@ -53,14 +54,17 @@ interface RawPath {
   transform: string | null
 }
 
-function collect(svg: SVGSVGElement): RawPath[] {
+function collect(svg: SVGSVGElement, compact: boolean, precision: number): RawPath[] {
   const out: RawPath[] = []
   for (const el of Array.from(svg.children)) {
     if (el.tagName.toLowerCase() !== 'path') continue
     const d = el.getAttribute('d')
     if (!d || !d.trim()) continue
     const raw = el.getAttribute('fill') || (el.getAttribute('style') || '').match(/fill:\s*([^;]+)/)?.[1] || '#000000'
-    out.push({ d: d.trim(), fill: normalizeHex(raw), transform: el.getAttribute('transform') })
+    const transform = el.getAttribute('transform')
+    // Bake the translation and re-encode compactly; keep the original if the path is unusual.
+    const small = compact ? compactPath(d.trim(), transform, precision) : null
+    out.push(small !== null ? { d: small, fill: normalizeHex(raw), transform: null } : { d: d.trim(), fill: normalizeHex(raw), transform })
   }
   return out
 }
@@ -157,7 +161,7 @@ async function runConverter(image: RGBAImage, p: TraceParams, binary: boolean): 
       } finally {
         conv.free()
       }
-      return collect(svg)
+      return collect(svg, p.compactPaths, p.pathPrecision)
     } finally {
       canvas.remove()
       svg.remove()
