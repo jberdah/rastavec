@@ -26,7 +26,7 @@ Node.js 18 or later. The beta is attached to the
 [GitHub releases](https://github.com/jberdah/rastavec/releases):
 
 ```bash
-npm install -g https://github.com/jberdah/rastavec/releases/download/v0.1.0-beta.1/rastavec-0.1.0.tgz
+npm install -g https://github.com/jberdah/rastavec/releases/download/v0.2.0-beta.1/rastavec-0.2.0.tgz
 ```
 
 ## Commands
@@ -66,7 +66,7 @@ npm install -g https://github.com/jberdah/rastavec/releases/download/v0.1.0-beta
 
 ```json
 {
-  "schemaVersion": 1, "tool": "rastavec", "version": "0.1.0",
+  "schemaVersion": 1, "tool": "rastavec", "version": "0.2.0",
   "engine": "vtracer 1.0.0-alpha.4 (node) + sharp",
   "settings": { "preset": "auto", "params": null, "autoTune": { "enabled": true, "threshold": 2, "maxKB": 700 } },
   "summary": { "total": 4, "ok": 2, "review": 2, "errors": 0, "seconds": 51.2 },
