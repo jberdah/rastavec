@@ -26,6 +26,8 @@
   --brand-red: #e74a3b;
   --brand-orange: #ff8a28;
   --brand-cream: #fff8e6;
+  /* Brand green lightened for text/strokes on the dark UI (contrast >= 4.5:1). */
+  --brand-green-on-dark: #2fb866;
   --checker: repeating-conic-gradient(#1c1f27 0 25%, #15171d 0 50%) 0 0 / 16px 16px;
   color-scheme: dark;
   font-family: 'Geist', system-ui, -apple-system, 'Segoe UI', sans-serif;

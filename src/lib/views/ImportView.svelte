@@ -66,10 +66,13 @@
 
 <div class="layout">
   <section class="main">
+    <div class="hero-row">
     <div class="hero">
       <span class="mono eyebrow">SMOOTH VECTORS. GOOD VIBES.</span>
       <h1>Du pixel au vecteur,<br />en un glisser-déposer.</h1>
       <p class="muted lead">Vectorisez une image ou un dossier entier. Chaque SVG est comparé à l'original et réglé automatiquement jusqu'à passer sous le seuil d'écart.</p>
+    </div>
+    <img class="hero-mascot" src="/brand/mascot-welcome.webp" alt="" width="220" height="220" />
     </div>
 
     <div
@@ -222,7 +225,10 @@
   .layout { display: flex; flex-wrap: wrap; gap: 32px; align-items: flex-start; }
   .main { flex: 999 1 620px; min-width: 0; display: flex; flex-direction: column; gap: 32px; }
   .side { flex: 1 1 340px; min-width: 0; display: flex; flex-direction: column; gap: 16px; }
-  .hero { display: flex; flex-direction: column; gap: 14px; }
+  .hero-row { display: flex; align-items: center; gap: 24px; }
+  .hero { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
+  .hero-mascot { flex: none; width: 200px; height: auto; filter: drop-shadow(0 18px 40px rgba(0, 0, 0, 0.45)); }
+  @media (max-width: 760px) { .hero-mascot { display: none; } }
   .eyebrow { font-size: 13px; color: var(--accent); letter-spacing: 0.08em; }
   h1 { font-size: clamp(34px, 5vw, 60px); line-height: 1.03; letter-spacing: -0.035em; }
   .lead { max-width: 620px; font-size: 18px; line-height: 1.5; }

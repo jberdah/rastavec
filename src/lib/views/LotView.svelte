@@ -15,6 +15,9 @@
   })
 
   const done = $derived(doneItems())
+  const mascot = $derived(
+    app.running ? '/brand/mascot-vibe.webp' : !done.length ? null : app.items.some(needsReview) ? '/brand/mascot-inspect.webp' : '/brand/mascot-cool.webp',
+  )
   const elapsed = $derived(((app.finishedAt || now) - app.startedAt) / 1000)
   const processed = $derived(app.items.filter((i) => i.status === 'done' || i.status === 'error').length)
   const fmt = (x: number, d = 2) => x.toFixed(d).replace('.', ',')
@@ -70,6 +73,8 @@
         {/if}
       </h1>
     </div>
+    <div class="row" style="gap: 14px">
+    {#if mascot}<img class="lot-mascot" class:bob={app.running} src={mascot} alt="" width="88" height="88" />{/if}
     {#if !app.running && done.length}
       <div class="banner" class:warn={stats.review > 0}>
         {#if stats.review}
@@ -79,6 +84,7 @@
         {/if}
       </div>
     {/if}
+    </div>
   </div>
 
   {#if app.running}
@@ -176,6 +182,10 @@
   .title { font-size: clamp(28px, 4vw, 42px); letter-spacing: -0.03em; }
   .small { font-size: 13px; }
   .h3 { font-size: 16px; }
+  .lot-mascot { width: 88px; height: auto; }
+  .bob { animation: bob 1.2s ease-in-out infinite; }
+  @keyframes bob { 0%, 100% { transform: translateY(0) rotate(-2deg); } 50% { transform: translateY(-6px) rotate(2deg); } }
+  @media (prefers-reduced-motion: reduce) { .bob { animation: none; } }
   .banner { font-size: 14px; background: var(--accent-bg); border: 1px solid var(--accent-line); border-radius: 12px; padding: 10px 14px; }
   .banner.warn { background: var(--warn-bg); border-color: var(--warn-line); color: var(--warn-text); }
   .progress { height: 6px; border-radius: 999px; background: var(--line); overflow: hidden; }

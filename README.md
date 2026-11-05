@@ -1,6 +1,8 @@
-# RastaVec
+<p align="center"><img src="assets/rastavec-logo.png" alt="RastaVec" width="420"></p>
 
-> Smooth vectors. Good vibes.
+<p align="center"><b>Smooth vectors. Good vibes.</b></p>
+
+# RastaVec
 
 *(Formerly "SVG Studio". The name RastaVec is provisional until domain and trademark checks are done.)*
 
@@ -86,3 +88,10 @@ npm run deploy     # build + wrangler pages deploy (needs a Cloudflare login)
 
 Put sample images in `.tmp/` (git-ignored). In dev (or with `?debug`), `window.rastavec` exposes `addFiles`,
 `processAll` and the app state for scripted checks.
+
+## License
+
+Code: [Apache License 2.0](LICENSE). Redistributions and derivative works must keep the
+[`NOTICE`](NOTICE) file, which credits RastaVec (https://github.com/jberdah/rastavec).
+The RastaVec name, logo, symbol and mascot are brand assets and are not licensed for use
+beyond referring to this project. Third-party components: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

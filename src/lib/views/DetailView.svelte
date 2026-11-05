@@ -51,7 +51,8 @@
 </script>
 
 {#if !item || !trial || !m}
-  <div class="card stack">
+  <div class="card stack" style="max-width: 560px; align-items: flex-start">
+    <img src="/brand/mascot-inspect.webp" alt="" width="160" height="160" style="width: 160px; height: auto" />
     <h1>Aucune image vectorisée</h1>
     <button type="button" class="btn" onclick={() => go('import')}>Importer des images</button>
   </div>
