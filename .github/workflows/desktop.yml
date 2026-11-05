@@ -110,8 +110,12 @@ jobs:
           path: installers
           merge-multiple: true
 
-      - name: Drop build-only files
-        run: rm -f installers/Cargo.lock && ls -la installers
+      - name: Flatten installers
+        run: |
+          find installers -mindepth 2 -type f -exec mv -t installers {} +
+          find installers -mindepth 1 -type d -delete
+          rm -f installers/Cargo.lock
+          ls -la installers
 
       - uses: softprops/action-gh-release@v2
         with:
