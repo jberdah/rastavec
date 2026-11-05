@@ -21,6 +21,17 @@ npm run build      # static site in dist/
 npm run check      # svelte-check + tsc
 ```
 
+## Command line (for scripts and AI agents)
+
+The [`cli/`](cli) package provides `rastavec trace | analyze | slice` with a JSON report
+(`report.json`, `--json`), comparison images (`--compare`) and stable exit codes
+(0 ok, 1 needs review, 2 error). It reuses the same engine as the web app. See [cli/README.md](cli/README.md).
+
+```bash
+cd cli && npm install && npm run build
+node dist/rastavec.cjs trace ../assets -o out --threshold 2 --max-size 700 --compare --json
+```
+
 ## How it works
 
 ```
@@ -30,6 +41,8 @@ src/lib/engine/browser-backend.ts  TraceBackend for the browser: vtracer-webapp 
 src/lib/engine/presets.ts          presets, same parameter units as the raster-to-svg skill
 src/lib/engine/analyze.ts          image analysis (colours, gradients, alpha) -> Auto parameters
 src/lib/engine/compact.ts          compact path encoding (pure, deterministic)
+src/lib/engine/compose.ts          SVG assembly shared by backends (silhouette clip, soft layers, binary)
+src/lib/engine/vectorize.ts        shared loop: analysis -> trace -> measure -> auto-tune -> choice
 src/lib/engine/slice.ts            sprite-sheet / brand-board slicing into elements (pure)
 src/lib/i18n.svelte.ts             FR / EN dictionaries, locale detection, number / size formatting
 src/lib/pipeline.ts                per-image pipeline: decode → trace → render → measure → auto-tune

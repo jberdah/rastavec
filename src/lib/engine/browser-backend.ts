@@ -3,7 +3,8 @@
 // up by id in the document, so it must run on the main thread. It works incrementally (tick),
 // which we time-slice to keep the UI responsive.
 import type { Prepared, RGBAImage, TraceBackend } from './core'
-import { isKeyFill, normalizeHex } from './core'
+import { normalizeHex } from './core'
+import { composeSvg, type RawPath } from './compose'
 import { compactPath } from './compact'
 import type { TraceParams } from './types'
 
@@ -48,12 +49,6 @@ function runTicks(conv: { tick(): boolean }): Promise<void> {
   })
 }
 
-interface RawPath {
-  d: string
-  fill: string
-  transform: string | null
-}
-
 function collect(svg: SVGSVGElement, compact: boolean, precision: number): RawPath[] {
   const out: RawPath[] = []
   for (const el of Array.from(svg.children)) {
@@ -69,40 +64,11 @@ function collect(svg: SVGSVGElement, compact: boolean, precision: number): RawPa
   return out
 }
 
-const pathTag = (p: RawPath, fill = true) =>
-  `<path d="${esc(p.d)}"${fill ? ` fill="${p.fill}"` : ''}${p.transform ? ` transform="${esc(p.transform)}"` : ''}/>`
-
 export const browserBackend: TraceBackend = {
   name: 'vtracer-webapp 0.4.0 (wasm) + canvas',
 
-  async trace(prep: Prepared, p: TraceParams) {
-    const { width: w, height: h } = prep.image
-    const head = `<svg xmlns="${SVG_NS}" version="1.1" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">`
-    if (p.colormode === 'binary') {
-      // Ink paths in their real mean color, over the paper color when the source is opaque.
-      const ink = await runConverter(prep.image, p, true)
-      const paper = prep.paper ? `<rect width="${w}" height="${h}" fill="${prep.paper}"/>\n` : ''
-      return `${head}\n${paper}<g fill="${prep.ink}">\n${ink.map((x) => pathTag(x, false)).join('\n')}\n</g>\n</svg>\n`
-    }
-    const color = (await runConverter(prep.image, p, false)).filter((x) => !isKeyFill(x.fill, prep.keyHex))
-    const body = color.map((x) => pathTag(x)).join('\n')
-    if (!prep.mask) return `${head}\n${body}\n</svg>\n`
-    // Silhouette pass: binary trace of the alpha mask, used as a clip path.
-    const sil = await runConverter(prep.mask, { ...p, colormode: 'binary', speckle: Math.max(2, Math.min(p.speckle, 8)) }, true)
-    if (!sil.length) return `${head}\n${body}\n</svg>\n`
-    const clip = sil.map((x) => pathTag(x, false)).join('')
-    // Soft edges: semi-transparent silhouettes (or a color trace of the soft area) under the clipped artwork.
-    let soft = ''
-    if (prep.softColor) {
-      const sc = prep.softColor
-      const paths = (await runConverter(sc.image, { ...p, speckle: Math.min(p.speckle, 2) }, false)).filter((x) => !isKeyFill(x.fill, sc.keyHex))
-      if (paths.length) soft += `<g id="soft-color" fill-opacity="${sc.opacity.toFixed(3)}">${paths.map((x) => pathTag(x)).join('')}</g>\n`
-    }
-    for (const [k, layer] of prep.soft.entries()) {
-      const paths = await runConverter(layer.mask, { ...p, colormode: 'binary', speckle: Math.max(2, Math.min(p.speckle, 8)) }, true)
-      if (paths.length) soft += `<g id="soft-${k + 1}" fill="${layer.fill}" fill-opacity="${layer.opacity.toFixed(3)}">${paths.map((x) => pathTag(x, false)).join('')}</g>\n`
-    }
-    return `${head}\n<defs><clipPath id="silhouette" clipPathUnits="userSpaceOnUse">${clip}</clipPath></defs>\n${soft}<g clip-path="url(#silhouette)"${prep.opacity < 1 ? ` opacity="${prep.opacity.toFixed(3)}"` : ''}>\n${body}\n</g>\n</svg>\n`
+  trace(prep: Prepared, p: TraceParams) {
+    return composeSvg(prep, p, runConverter)
   },
 
   async rasterize(svg: string, width: number, height: number) {

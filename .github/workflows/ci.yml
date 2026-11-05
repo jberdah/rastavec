@@ -38,3 +38,36 @@ jobs:
           name: rastavec-web
           path: dist
           retention-days: 7
+
+  cli:
+    name: CLI build & smoke test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cli
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: cli/package-lock.json
+
+      - run: npm ci
+
+      - name: Type-check (CLI + shared engine)
+        run: npm run check
+
+      - name: Build
+        run: npm run build
+
+      - name: Smoke test (trace + analyze + slice, JSON contract)
+        run: |
+          node dist/rastavec.cjs --version
+          node dist/rastavec.cjs trace ../assets/rastavec-path.png -o "$RUNNER_TEMP/out" --compare --json > "$RUNNER_TEMP/report.json"
+          node -e "const r=require(process.argv[1]); if (r.schemaVersion!==1||r.summary.total!==1||r.summary.errors!==0||r.items[0].status!=='ok') { console.error(JSON.stringify(r.summary)); process.exit(1) } console.log('trace ok', r.items[0].metrics)" "$RUNNER_TEMP/report.json"
+          test -f "$RUNNER_TEMP/out/rastavec-path.svg" && test -f "$RUNNER_TEMP/out/rastavec-path.comparison.png"
+          node dist/rastavec.cjs analyze ../assets --json > /dev/null
+          set +e; node dist/rastavec.cjs trace does-not-exist.png; code=$?; set -e
+          test "$code" = "2"

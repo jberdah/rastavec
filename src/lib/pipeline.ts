@@ -1,8 +1,9 @@
-import { alphaStats, candidates, choose, computeMetrics, prepare, score, type TraceBackend } from './engine/core'
+import { alphaStats, type TraceBackend } from './engine/core'
 import { browserBackend, decodeFile, toPngFile } from './engine/browser-backend'
 import { crop, keyBackground, sliceSheet } from './engine/slice'
-import { analyze, recommend } from './engine/analyze'
-import type { Item, TraceParams, Trial } from './engine/types'
+import { analyze } from './engine/analyze'
+import { vectorize } from './engine/vectorize'
+import type { Item, TraceParams } from './engine/types'
 import { app, clone, forgetUrls, sources } from './store.svelte'
 
 const backend: TraceBackend = browserBackend
@@ -117,15 +118,6 @@ export async function filesFromDrop(dt: DataTransfer): Promise<File[]> {
   return out
 }
 
-async function runTrial(itemId: string, params: TraceParams, base: boolean): Promise<Trial> {
-  const src = sources.get(itemId)!
-  const t0 = performance.now()
-  const svg = await backend.trace(prepare(src, params), params)
-  const render = await backend.rasterize(svg, src.width, src.height)
-  const metrics = computeMetrics(src, render, svg)
-  return { base, params: { ...params }, svg, metrics, score: score(metrics), ms: performance.now() - t0 }
-}
-
 async function processItem(item: Item) {
   item.status = 'tracing'
   item.progress = ''
@@ -139,29 +131,16 @@ async function processItem(item: Item) {
     const src = sources.get(item.id)!
     item.semiPct = alphaStats(src).semiPct
 
-    let base = clone(app.params) as TraceParams
     item.notes = undefined
-    if (app.presetId === 'auto' && item.analysis) {
-      const rec = recommend(item.analysis)
-      base = rec.params
-      item.notes = rec.notes
-    }
-    const auto = clone(app.auto)
-    const transparent = src.data.some((v, k) => (k & 3) === 3 && v < 255)
-    const grid = candidates(base, { transparent })
-    const total = auto.enabled ? grid.length + 1 : 1
-    item.progress = `1/${total}`
-    const first = await runTrial(item.id, base, true)
-    item.trials.push(first)
-    const over = first.metrics.pctDiff > auto.threshold || first.metrics.bytes > auto.maxKB * 1024
-    if (auto.enabled && over) {
-      for (const [k, c] of grid.entries()) {
-        item.progress = `${k + 2}/${total}`
-        item.trials.push(await runTrial(item.id, c.params, false))
-      }
-    }
-    item.chosen = choose(item.trials, auto.maxKB * 1024)
-    item.autoTuned = item.chosen !== 0
+    const settings = { presetId: app.presetId, params: clone(app.params) as TraceParams, auto: clone(app.auto) }
+    const res = await vectorize(src, settings, backend, {
+      analysis: item.analysis,
+      onProgress: (k, total) => (item.progress = `${k}/${total}`),
+    })
+    item.notes = res.notes
+    item.trials = res.trials
+    item.chosen = res.chosen
+    item.autoTuned = res.autoTuned
     item.status = 'done'
   } catch (e) {
     item.status = 'error'
