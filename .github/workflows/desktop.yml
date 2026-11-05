@@ -88,22 +88,49 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: cli/package-lock.json
+
+      - name: Pack CLI
+        working-directory: cli
+        run: |
+          npm ci
+          npm run build
+          mkdir -p ../installers
+          npm pack --pack-destination ../installers
+
       - uses: actions/download-artifact@v4
         with:
           pattern: rastavec-*
           path: installers
           merge-multiple: true
 
+      - name: Drop build-only files
+        run: rm -f installers/Cargo.lock && ls -la installers
+
       - uses: softprops/action-gh-release@v2
         with:
           draft: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
           name: RastaVec ${{ github.ref_name }}
           files: installers/*
           body: |
-            RastaVec desktop app ${{ github.ref_name }}.
+            RastaVec ${{ github.ref_name }}: raster to SVG, deterministic and 100% local.
 
-            - Windows: `.msi` or `-setup.exe`
-            - macOS (Intel and Apple Silicon): `.dmg`
+            ## Desktop app
+            - Windows: `RastaVec_*_x64-setup.exe` (recommended) or `.msi`
+            - macOS (Intel and Apple Silicon): `RastaVec_*_universal.dmg`
 
-            These builds are not code-signed yet: Windows SmartScreen and macOS Gatekeeper
-            show a warning on first launch.
+            ## Command line
+            `rastavec-*.tgz`: `npm install -g ./rastavec-<version>.tgz`, then `rastavec trace logo.png`.
+            See `cli/README.md`.
+
+            ## Known limitations
+            - Builds are not code-signed yet: Windows SmartScreen ("More info" > "Run anyway")
+              and macOS Gatekeeper (right-click > Open) warn on first launch.
+            - Edit and Animate screens are not available yet.
