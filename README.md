@@ -83,6 +83,19 @@ translates, so the same core can serve a CLI. To add a language, add a dictionar
   beanie and headphones, no dreadlocks) is separate, for large formats, empty states and
   animation. Brand source images live in `assets/`.
 
+## CI and desktop builds (GitHub Actions)
+
+- **CI** (`.github/workflows/ci.yml`): on every push to `main` and every pull request,
+  type-check and web build on Linux.
+- **Desktop apps** (`.github/workflows/desktop.yml`): Tauri build for **Windows (x64)** and
+  **macOS (universal: Intel + Apple Silicon)**. Run it from the Actions tab ("Run workflow")
+  to get the installers as artifacts (`.msi`, `-setup.exe`, `.dmg`); push a tag `v*`
+  (e.g. `git tag v0.2.0 && git push --tags`) to also get a draft GitHub release.
+  Builds are not code-signed yet (SmartScreen / Gatekeeper warn on first launch).
+
+Locally: `npm run tauri dev` / `npm run tauri build` (needs Rust and, on Windows, the C++
+build tools).
+
 ## Distribution
 
 The engine core is environment-agnostic on purpose: the same `TraceBackend` contract can be

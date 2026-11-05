@@ -8,7 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.app.json && tsc -p tsconfig.node.json",
-    "deploy": "npm run build && npx wrangler pages deploy dist --project-name rastavec"
+    "deploy": "npm run build && npx wrangler pages deploy dist --project-name rastavec",
+    "tauri": "tauri"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^5.0.3",
