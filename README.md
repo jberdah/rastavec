@@ -9,8 +9,6 @@
 
 # RastaVec
 
-*(Formerly "SVG Studio". The name RastaVec is provisional until domain and trademark checks are done.)*
-
 Vectorise PNG/JPEG/WebP images into editable SVG, compare each result with its source and
 tune it automatically, deterministically, 100 % in the browser (images never leave the device).
 
