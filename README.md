@@ -31,6 +31,7 @@ src/lib/engine/presets.ts          presets, same parameter units as the raster-t
 src/lib/engine/analyze.ts          image analysis (colours, gradients, alpha) -> Auto parameters
 src/lib/engine/compact.ts          compact path encoding (pure, deterministic)
 src/lib/engine/slice.ts            sprite-sheet / brand-board slicing into elements (pure)
+src/lib/i18n.svelte.ts             FR / EN dictionaries, locale detection, number / size formatting
 src/lib/pipeline.ts                per-image pipeline: decode → trace → render → measure → auto-tune
 src/lib/export.ts                  zip: svg/*.svg, metrics.csv, config.json (replays the batch)
 src/lib/views/*                    Import, Lot (batch), Detail screens (Svelte 5)
@@ -59,6 +60,15 @@ src/lib/views/*                    Import, Lot (batch), Detail screens (Svelte 5
 - **Auto-tune**: when an image exceeds the difference threshold or the size budget, a fixed
   grid of up to 6 parameter sets is tried; the best score (`% diff + 0.002 × KiB`) within the
   budget wins. Same input + same config → byte-identical SVG.
+
+## Localisation
+
+The UI is available in French and English. The default follows the browser language; the
+FR / EN switch in the header remembers the choice (localStorage). Numbers, percentages and
+sizes are formatted per locale (`1,25 %` / `1.25%`, `Ko` / `KB`). The engine is
+language-neutral: analysis and Auto return codes (`kind`, `alpha`, note codes) that the UI
+translates, so the same core can serve a CLI. To add a language, add a dictionary in
+`src/lib/i18n.svelte.ts` (the `en` object is typed against the French keys).
 
 ## Brand
 

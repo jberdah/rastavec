@@ -2,7 +2,8 @@
   import { app, go } from '../store.svelte'
   import { PRESETS, presetById } from '../engine/presets'
   import { addFiles, addSheet, clearItems, filesFromDrop, processAll } from '../pipeline'
-  import { KIND_LABEL, type ImageKind } from '../engine/analyze'
+  import type { ImageKind } from '../engine/analyze'
+  import { kbUnit, kindLabel, num, pct, presetDesc, presetName, size, t } from '../i18n.svelte'
 
   let dragging = $state(false)
   let fileInput: HTMLInputElement
@@ -20,13 +21,9 @@
     sheetInfo = null
     try {
       const r = await addSheet(file)
-      sheetInfo = r.count
-        ? `${r.name} : ${r.count} élément${r.count > 1 ? 's' : ''} découpé${r.count > 1 ? 's' : ''}` +
-          (r.background !== 'transparent' ? `, fond ${r.background} rendu transparent` : '') +
-          (r.dropped ? ` (${r.dropped} petit${r.dropped > 1 ? 's' : ''} détail${r.dropped > 1 ? 's' : ''} isolé${r.dropped > 1 ? 's' : ''} ignoré${r.dropped > 1 ? 's' : ''})` : '')
-        : `${r.name} : aucun élément trouvé`
+      sheetInfo = t('sheet.result', r.name, r.count, r.background !== 'transparent' ? r.background : null, r.dropped)
     } catch (err) {
-      sheetInfo = `Découpage impossible : ${err instanceof Error ? err.message : String(err)}`
+      sheetInfo = t('sheet.error', err instanceof Error ? err.message : String(err))
     } finally {
       slicing = false
     }
@@ -52,7 +49,6 @@
     go('lot')
     processAll()
   }
-  const sizeLabel = (b: number) => (b > 1048576 ? (b / 1048576).toFixed(1).replace('.', ',') + ' Mo' : Math.round(b / 1024) + ' Ko')
   const total = $derived(app.items.reduce((s, i) => s + i.srcBytes, 0))
   const analysed = $derived(app.items.filter((i) => i.analysis))
   const kinds = $derived.by(() => {
@@ -68,9 +64,9 @@
   <section class="main">
     <div class="hero-row">
     <div class="hero">
-      <span class="mono eyebrow">SMOOTH VECTORS. GOOD VIBES.</span>
-      <h1>Du pixel au vecteur,<br />en un glisser-déposer.</h1>
-      <p class="muted lead">Vectorisez une image ou un dossier entier. Chaque SVG est comparé à l'original et réglé automatiquement jusqu'à passer sous le seuil d'écart.</p>
+      <span class="mono eyebrow">{t('import.eyebrow')}</span>
+      <h1>{t('import.title1')}<br />{t('import.title2')}</h1>
+      <p class="muted lead">{t('import.lead')}</p>
     </div>
     <img class="hero-mascot" src="/brand/mascot-welcome.webp" alt="" width="220" height="220" />
     </div>
@@ -79,24 +75,24 @@
       class="drop"
       class:dragging
       role="region"
-      aria-label="Zone de dépôt des images"
+      aria-label={t('drop.region')}
       ondragover={(e) => { e.preventDefault(); dragging = true }}
       ondragleave={() => (dragging = false)}
       ondrop={onDrop}
     >
       <div class="drop-inner">
         <div class="stack" style="flex: 1 1 320px">
-          <h2>Déposez vos images ici</h2>
-          <p class="muted">PNG, JPEG, WebP, GIF — fichiers isolés ou dossier complet. Les originaux ne sont jamais modifiés.</p>
+          <h2>{t('drop.title')}</h2>
+          <p class="muted">{t('drop.text')}</p>
           <div class="row" style="flex-wrap: wrap">
-            <button type="button" class="btn btn-primary" onclick={() => fileInput.click()}>Choisir des fichiers</button>
-            <button type="button" class="btn" onclick={() => folderInput.click()}>Choisir un dossier</button>
-            <button type="button" class="btn" onclick={() => sheetInput.click()} disabled={slicing || app.running} title="Sépare automatiquement les éléments d'une planche (fond transparent ou uni)">
+            <button type="button" class="btn btn-primary" onclick={() => fileInput.click()}>{t('drop.files')}</button>
+            <button type="button" class="btn" onclick={() => folderInput.click()}>{t('drop.folder')}</button>
+            <button type="button" class="btn" onclick={() => sheetInput.click()} disabled={slicing || app.running} title={t('drop.sheetHint')}>
               {#if slicing}<span class="spinner"></span>{/if}
-              Découper une planche
+              {t('drop.sheet')}
             </button>
             {#if app.items.length}
-              <button type="button" class="btn" onclick={clearItems} disabled={app.running}>Vider</button>
+              <button type="button" class="btn" onclick={clearItems} disabled={app.running}>{t('drop.clear')}</button>
             {/if}
           </div>
           <input bind:this={fileInput} class="sr-only" type="file" multiple accept="image/png,image/jpeg,image/webp,image/gif,image/bmp" onchange={onPick} tabindex="-1" />
@@ -111,14 +107,14 @@
                 <img src={it.srcUrl} alt={it.name} class="checker" />
               {/each}
             </div>
-            <span class="mono muted small">{app.items.length} image{app.items.length > 1 ? 's' : ''} · {sizeLabel(total)}</span>
+            <span class="mono muted small">{t('drop.count', app.items.length, size(total))}</span>
             {#if analysed.length < app.items.length}
-              <span class="row muted small"><span class="spinner"></span>Analyse {analysed.length}/{app.items.length}…</span>
+              <span class="row muted small"><span class="spinner"></span>{t('drop.analysing', analysed.length, app.items.length)}</span>
             {:else}
               <div class="row" style="flex-wrap: wrap; gap: 6px">
-                {#each kinds as [k, n] (k)}<span class="chip chip-ok">{n} × {KIND_LABEL[k]}</span>{/each}
-                {#if softCount}<span class="chip chip-warn">{softCount} avec transparence douce</span>{/if}
-                {#if photoCount}<span class="chip chip-warn">{photoCount} photo{photoCount > 1 ? 's' : ''} : résultat approximatif</span>{/if}
+                {#each kinds as [k, n] (k)}<span class="chip chip-ok">{n} × {kindLabel(k)}</span>{/each}
+                {#if softCount}<span class="chip chip-warn">{t('drop.soft', softCount)}</span>{/if}
+                {#if photoCount}<span class="chip chip-warn">{t('drop.photos', photoCount)}</span>{/if}
               </div>
             {/if}
           </div>
@@ -128,8 +124,8 @@
 
     <div class="stack">
       <div class="between">
-        <h2>Préréglage</h2>
-        <span class="muted small">Point de départ du réglage automatique</span>
+        <h2>{t('presets.title')}</h2>
+        <span class="muted small">{t('presets.hint')}</span>
       </div>
       <div class="presets">
         {#each PRESETS as p (p.id)}
@@ -138,10 +134,10 @@
               <span class="row" style="gap: 4px">
                 {#each p.swatches as c}<span class="dot" style:background={c}></span>{/each}
               </span>
-              {#if p.recommended}<span class="chip chip-accent">Validé</span>{/if}
+              {#if p.recommended}<span class="chip chip-accent">{t('presets.validated')}</span>{/if}
             </span>
-            <span class="pname">{p.name}</span>
-            <span class="muted small">{p.desc}</span>
+            <span class="pname">{presetName(p.id)}</span>
+            <span class="muted small">{presetDesc(p.id)}</span>
           </button>
         {/each}
       </div>
@@ -152,70 +148,70 @@
     <div class="card stack">
       <div class="between" style="flex-wrap: nowrap">
         <div class="stack" style="gap: 4px">
-          <h2 class="h3">Réglage automatique</h2>
-          <span class="muted small">Essaie d'autres réglages sur les images au-dessus du seuil ou trop lourdes</span>
+          <h2 class="h3">{t('auto.title')}</h2>
+          <span class="muted small">{t('auto.desc')}</span>
         </div>
-        <button type="button" class="toggle" aria-label="Activer le réglage automatique" aria-pressed={app.auto.enabled} onclick={() => (app.auto.enabled = !app.auto.enabled)}><span></span></button>
+        <button type="button" class="toggle" aria-label={t('auto.toggle')} aria-pressed={app.auto.enabled} onclick={() => (app.auto.enabled = !app.auto.enabled)}><span></span></button>
       </div>
       <div class="field">
-        <label for="thr"><span>Seuil d'écart visible</span><span class="value accent">{app.auto.threshold.toFixed(1).replace('.', ',')} %</span></label>
+        <label for="thr"><span>{t('auto.threshold')}</span><span class="value accent">{pct(app.auto.threshold, 1)}</span></label>
         <input id="thr" type="range" min="0.5" max="10" step="0.5" bind:value={app.auto.threshold} />
       </div>
       <div class="field">
-        <label for="kb"><span>Poids max par SVG</span><span class="value accent">{app.auto.maxKB} Ko</span></label>
+        <label for="kb"><span>{t('auto.maxSize')}</span><span class="value accent">{num(app.auto.maxKB)} {kbUnit()}</span></label>
         <input id="kb" type="range" min="50" max="3000" step="50" bind:value={app.auto.maxKB} />
       </div>
-      <span class="mono faint small">score = % écart + 0,002 × Ko · même entrée → même SVG</span>
+      <span class="mono faint small">{t('auto.score', kbUnit())}</span>
     </div>
 
     <div class="card stack">
       <div class="between">
-        <h2 class="h3">Paramètres</h2>
+        <h2 class="h3">{t('params.title')}</h2>
         <span class="mono muted small">vtracer</span>
       </div>
       {#if app.presetId === 'auto'}
-        <span class="small" style="color: var(--accent-text)">Mode Auto : ces valeurs sont recalculées pour chaque image à partir de son analyse. Modifier un réglage passe en Personnalisé.</span>
+        <span class="small" style="color: var(--accent-text)">{t('params.autoNote')}</span>
       {/if}
-      <div class="seg" role="group" aria-label="Couleur">
-        <button type="button" aria-pressed={app.params.colormode === 'color'} onclick={() => { app.params.colormode = 'color'; markCustom() }}>Couleur</button>
-        <button type="button" aria-pressed={app.params.colormode === 'binary'} onclick={() => { app.params.colormode = 'binary'; markCustom() }}>Noir & blanc</button>
+      <div class="seg" role="group" aria-label={t('params.colorGroup')}>
+        <button type="button" aria-pressed={app.params.colormode === 'color'} onclick={() => { app.params.colormode = 'color'; markCustom() }}>{t('params.color')}</button>
+        <button type="button" aria-pressed={app.params.colormode === 'binary'} onclick={() => { app.params.colormode = 'binary'; markCustom() }}>{t('params.binary')}</button>
       </div>
-      <div class="seg" role="group" aria-label="Courbes">
-        <button type="button" aria-pressed={app.params.mode === 'spline'} onclick={() => { app.params.mode = 'spline'; markCustom() }}>Courbes</button>
-        <button type="button" aria-pressed={app.params.mode === 'polygon'} onclick={() => { app.params.mode = 'polygon'; markCustom() }}>Polygones</button>
+      <div class="seg" role="group" aria-label={t('params.curveGroup')}>
+        <button type="button" aria-pressed={app.params.mode === 'spline'} onclick={() => { app.params.mode = 'spline'; markCustom() }}>{t('params.spline')}</button>
+        <button type="button" aria-pressed={app.params.mode === 'polygon'} onclick={() => { app.params.mode = 'polygon'; markCustom() }}>{t('params.polygon')}</button>
       </div>
       <div class="field">
-        <label for="ld"><span>Écart entre couches</span><span class="value">{app.params.layerDifference}</span></label>
+        <label for="ld"><span>{t('params.layerDifference')}</span><span class="value">{app.params.layerDifference}</span></label>
         <input id="ld" type="range" min="1" max="64" bind:value={app.params.layerDifference} oninput={markCustom} disabled={app.params.colormode === 'binary'} />
       </div>
       <div class="field">
-        <label for="cp"><span>Précision des couleurs</span><span class="value">{app.params.colorPrecision} / 8</span></label>
+        <label for="cp"><span>{t('params.colorPrecision')}</span><span class="value">{app.params.colorPrecision} / 8</span></label>
         <input id="cp" type="range" min="1" max="8" bind:value={app.params.colorPrecision} oninput={markCustom} disabled={app.params.colormode === 'binary'} />
       </div>
       <div class="field">
-        <label for="sp"><span>Taille min. des taches</span><span class="value">{app.params.speckle} px</span></label>
+        <label for="sp"><span>{t('params.speckle')}</span><span class="value">{app.params.speckle} px</span></label>
         <input id="sp" type="range" min="0" max="32" bind:value={app.params.speckle} oninput={markCustom} />
       </div>
       <div class="field">
-        <label for="af"><span>Nettoyage transparence</span><span class="value">α &lt; {app.params.alphaFloor}</span></label>
+        <label for="af"><span>{t('params.alphaFloor')}</span><span class="value">α &lt; {app.params.alphaFloor}</span></label>
         <input id="af" type="range" min="0" max="64" bind:value={app.params.alphaFloor} oninput={markCustom} />
       </div>
       <div class="field">
-        <label for="cut"><span>Seuil de silhouette</span><span class="value">α ≥ {app.params.silhouetteCut}</span></label>
+        <label for="cut"><span>{t('params.silhouetteCut')}</span><span class="value">α ≥ {app.params.silhouetteCut}</span></label>
         <input id="cut" type="range" min="16" max="240" step="8" bind:value={app.params.silhouetteCut} oninput={markCustom} disabled={app.params.colormode === 'binary'} />
       </div>
       <div class="field">
-        <label for="soft"><span>Bords adoucis (couches semi-transparentes)</span><span class="value">{app.params.softLayers || 'aucune'}</span></label>
+        <label for="soft"><span>{t('params.softLayers')}</span><span class="value">{app.params.softLayers || t('params.none')}</span></label>
         <input id="soft" type="range" min="0" max="4" bind:value={app.params.softLayers} oninput={markCustom} disabled={app.params.colormode === 'binary' || app.params.softColor} />
       </div>
       <label class="row small muted" style="justify-content: space-between; min-height: 40px">
-        Tracer les zones semi-transparentes en couleur
+        {t('params.softColor')}
         <input type="checkbox" bind:checked={app.params.softColor} onchange={markCustom} disabled={app.params.colormode === 'binary'} />
       </label>
     </div>
 
     <button type="button" class="btn btn-light cta" disabled={!app.items.length || app.running} onclick={start}>
-      {app.running ? 'Vectorisation en cours…' : app.items.length ? `Vectoriser ${app.items.length} image${app.items.length > 1 ? 's' : ''}` : 'Ajoutez des images'}
+      {app.running ? t('cta.running') : app.items.length ? t('cta.run', app.items.length) : t('cta.empty')}
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14" /><path d="m13 6 6 6-6 6" /></svg>
     </button>
   </aside>

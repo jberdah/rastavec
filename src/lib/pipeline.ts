@@ -1,7 +1,6 @@
 import { alphaStats, candidates, choose, computeMetrics, prepare, score, type TraceBackend } from './engine/core'
 import { browserBackend, decodeFile, toPngFile } from './engine/browser-backend'
 import { crop, keyBackground, sliceSheet } from './engine/slice'
-import { describe } from './engine/presets'
 import { analyze, recommend } from './engine/analyze'
 import type { Item, TraceParams, Trial } from './engine/types'
 import { app, clone, forgetUrls, sources } from './store.svelte'
@@ -118,25 +117,25 @@ export async function filesFromDrop(dt: DataTransfer): Promise<File[]> {
   return out
 }
 
-async function runTrial(itemId: string, params: TraceParams, label: string): Promise<Trial> {
+async function runTrial(itemId: string, params: TraceParams, base: boolean): Promise<Trial> {
   const src = sources.get(itemId)!
   const t0 = performance.now()
   const svg = await backend.trace(prepare(src, params), params)
   const render = await backend.rasterize(svg, src.width, src.height)
   const metrics = computeMetrics(src, render, svg)
-  return { label, params: { ...params }, svg, metrics, score: score(metrics), ms: performance.now() - t0 }
+  return { base, params: { ...params }, svg, metrics, score: score(metrics), ms: performance.now() - t0 }
 }
 
 async function processItem(item: Item) {
   item.status = 'tracing'
-  item.progress = 'décodage'
+  item.progress = ''
   item.trials = []
   item.autoTuned = false
   item.error = undefined
   forgetUrls(item)
   try {
     await ensureAnalysis(item)
-    if (!sources.has(item.id)) throw new Error(item.error ?? 'image illisible')
+    if (!sources.has(item.id)) throw new Error(item.error ?? 'unreadable image')
     const src = sources.get(item.id)!
     item.semiPct = alphaStats(src).semiPct
 
@@ -151,14 +150,14 @@ async function processItem(item: Item) {
     const transparent = src.data.some((v, k) => (k & 3) === 3 && v < 255)
     const grid = candidates(base, { transparent })
     const total = auto.enabled ? grid.length + 1 : 1
-    item.progress = `essai 1/${total}`
-    const first = await runTrial(item.id, base, 'Préréglage · ' + describe(base))
+    item.progress = `1/${total}`
+    const first = await runTrial(item.id, base, true)
     item.trials.push(first)
     const over = first.metrics.pctDiff > auto.threshold || first.metrics.bytes > auto.maxKB * 1024
     if (auto.enabled && over) {
       for (const [k, c] of grid.entries()) {
-        item.progress = `essai ${k + 2}/${total}`
-        item.trials.push(await runTrial(item.id, c.params, describe(c.params)))
+        item.progress = `${k + 2}/${total}`
+        item.trials.push(await runTrial(item.id, c.params, false))
       }
     }
     item.chosen = choose(item.trials, auto.maxKB * 1024)

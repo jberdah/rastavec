@@ -1,0 +1,468 @@
+// Lightweight i18n: FR / EN dictionaries, browser-language default, persisted choice,
+// locale-aware number / percent / size formatting. The engine stays language-neutral
+// (it returns codes and numbers); everything user-facing is rendered here.
+import type { AlphaKind, ImageKind, NoteCode } from './engine/analyze'
+import type { TraceParams } from './engine/types'
+
+export type Locale = 'fr' | 'en'
+export const LOCALES: { id: Locale; label: string }[] = [
+  { id: 'fr', label: 'FR' },
+  { id: 'en', label: 'EN' },
+]
+
+function initialLocale(): Locale {
+  try {
+    const saved = localStorage.getItem('rastavec.locale')
+    if (saved === 'fr' || saved === 'en') return saved
+  } catch {
+    /* storage unavailable */
+  }
+  return (navigator.language || 'en').toLowerCase().startsWith('fr') ? 'fr' : 'en'
+}
+
+export const i18n = $state({ locale: initialLocale() })
+
+// ---------------------------------------------------------------- formatting
+const nf = (d: number) => new Intl.NumberFormat(i18n.locale, { minimumFractionDigits: d, maximumFractionDigits: d })
+/** Number with a fixed number of decimals, locale separators. */
+export const num = (x: number, d = 0) => nf(d).format(x)
+/** Percent value already in 0..100. "1,25 %" in French, "1.25%" in English. */
+export const pct = (x: number, d = 2) => (i18n.locale === 'fr' ? `${num(x, d)} %` : `${num(x, d)}%`)
+/** File size in KB / MB (Ko / Mo in French). */
+export function size(bytes: number) {
+  const [k, m] = i18n.locale === 'fr' ? ['Ko', 'Mo'] : ['KB', 'MB']
+  return bytes > 1048576 ? `${num(bytes / 1048576, 1)} ${m}` : `${num(Math.round(bytes / 1024))} ${k}`
+}
+export const kbUnit = () => (i18n.locale === 'fr' ? 'Ko' : 'KB')
+const s = (n: number, one: string, many: string) => (n > 1 ? many : one)
+
+// ---------------------------------------------------------------- dictionaries
+type Msg = string | ((...a: never[]) => string)
+
+const fr = {
+  'meta.title': 'RastaVec — Smooth vectors. Good vibes.',
+  'nav.steps': 'Étapes',
+  'nav.import': '1 Importer',
+  'nav.lot': '2 Revue du lot',
+  'nav.detail': '3 Détail',
+  'nav.edit': '4 Éditer',
+  'nav.animate': '5 Animer',
+  'nav.language': 'Langue',
+  'privacy': "100 % local — rien n'est envoyé",
+
+  'import.eyebrow': 'SMOOTH VECTORS. GOOD VIBES.',
+  'import.title1': 'Du pixel au vecteur,',
+  'import.title2': 'en un glisser-déposer.',
+  'import.lead': "Vectorisez une image ou un dossier entier. Chaque SVG est comparé à l'original et réglé automatiquement jusqu'à passer sous le seuil d'écart.",
+  'drop.region': 'Zone de dépôt des images',
+  'drop.title': 'Déposez vos images ici',
+  'drop.text': 'PNG, JPEG, WebP, GIF — fichiers isolés ou dossier complet. Les originaux ne sont jamais modifiés.',
+  'drop.files': 'Choisir des fichiers',
+  'drop.folder': 'Choisir un dossier',
+  'drop.sheet': 'Découper une planche',
+  'drop.sheetHint': "Sépare automatiquement les éléments d'une planche (fond transparent ou uni)",
+  'drop.clear': 'Vider',
+  'drop.count': (n: number, total: string) => `${n} ${s(n, 'image', 'images')} · ${total}`,
+  'drop.analysing': (a: number, n: number) => `Analyse ${a}/${n}…`,
+  'drop.soft': (n: number) => `${n} avec transparence douce`,
+  'drop.photos': (n: number) => `${n} ${s(n, 'photo', 'photos')} : résultat approximatif`,
+  'sheet.result': (name: string, n: number, bg: string | null, dropped: number) =>
+    !n
+      ? `${name} : aucun élément trouvé`
+      : `${name} : ${n} ${s(n, 'élément découpé', 'éléments découpés')}` +
+        (bg ? `, fond ${bg} rendu transparent` : '') +
+        (dropped ? ` (${dropped} ${s(dropped, 'petit détail isolé ignoré', 'petits détails isolés ignorés')})` : ''),
+  'sheet.error': (e: string) => `Découpage impossible : ${e}`,
+
+  'presets.title': 'Préréglage',
+  'presets.hint': 'Point de départ du réglage automatique',
+  'presets.validated': 'Validé',
+  'preset.auto.name': 'Auto',
+  'preset.auto.desc': 'Réglages choisis pour chaque image : couleurs, dégradés, transparence.',
+  'preset.flat.name': 'Logo à aplats',
+  'preset.flat.desc': 'Peu de couleurs, bords nets, fichier léger.',
+  'preset.shaded.name': 'Illustration ombrée',
+  'preset.shaded.desc': 'Ombres douces et petits détails préservés.',
+  'preset.line.name': 'Dessin au trait',
+  'preset.line.desc': 'Une couleur, contours fins.',
+  'preset.pixel.name': 'Pixel art',
+  'preset.pixel.desc': 'Formes carrées, aucune courbe.',
+  'preset.custom.name': 'Personnalisé',
+  'preset.custom.desc': 'Tous les paramètres à la main.',
+
+  'auto.title': 'Réglage automatique',
+  'auto.desc': "Essaie d'autres réglages sur les images au-dessus du seuil ou trop lourdes",
+  'auto.toggle': 'Activer le réglage automatique',
+  'auto.threshold': "Seuil d'écart visible",
+  'auto.maxSize': 'Poids max par SVG',
+  'auto.score': (unit: string) => `score = % écart + 0,002 × ${unit} · même entrée → même SVG`,
+
+  'params.title': 'Paramètres',
+  'params.autoNote': 'Mode Auto : ces valeurs sont recalculées pour chaque image à partir de son analyse. Modifier un réglage passe en Personnalisé.',
+  'params.colorGroup': 'Couleur',
+  'params.color': 'Couleur',
+  'params.binary': 'Noir & blanc',
+  'params.curveGroup': 'Courbes',
+  'params.spline': 'Courbes',
+  'params.polygon': 'Polygones',
+  'params.layerDifference': 'Écart entre couches',
+  'params.colorPrecision': 'Précision des couleurs',
+  'params.speckle': 'Taille min. des taches',
+  'params.alphaFloor': 'Nettoyage transparence',
+  'params.silhouetteCut': 'Seuil de silhouette',
+  'params.softLayers': 'Bords adoucis (couches semi-transparentes)',
+  'params.none': 'aucune',
+  'params.softColor': 'Tracer les zones semi-transparentes en couleur',
+  'cta.running': 'Vectorisation en cours…',
+  'cta.run': (n: number) => `Vectoriser ${n} ${s(n, 'image', 'images')}`,
+  'cta.empty': 'Ajoutez des images',
+
+  'lot.summary': (preset: string, thr: string, max: string) => `préréglage ${preset} · seuil ${thr} · max ${max}`,
+  'lot.running': (a: number, n: number) => `Vectorisation ${a}/${n}`,
+  'lot.done': (n: number) => `${n} ${s(n, 'image vectorisée', 'images vectorisées')}`,
+  'lot.in': (secs: string) => `en ${secs} s`,
+  'lot.review': (r: number, a: number) => `${r} ${s(r, 'image à revoir', 'images à revoir')} · ${a} ${s(a, 'réglée', 'réglées')} automatiquement`,
+  'lot.allOk': (a: number) => `Toutes sous le seuil · ${a} ${s(a, 'réglée', 'réglées')} automatiquement`,
+  'lot.chart': 'Écart visible par image',
+  'lot.final': 'final',
+  'lot.before': 'avant réglage auto',
+  'lot.threshold': (v: string) => `seuil ${v}`,
+  'kpi.meanDiff': 'Écart moyen',
+  'kpi.pixels': 'pixels > 32/255',
+  'kpi.silhouette': 'Silhouette',
+  'kpi.meanIou': 'IoU moyen',
+  'kpi.size': 'Poids total',
+  'kpi.sources': (v: string) => `sources : ${v}`,
+  'kpi.raster': 'Bitmap intégré',
+  'kpi.allPaths': '100 % chemins',
+  'filter.group': 'Filtrer',
+  'filter.all': 'Toutes',
+  'filter.review': 'À revoir',
+  'filter.auto': 'Réglées auto',
+  'filter.ok': 'OK',
+  'lot.sorted': 'Triées des pires aux meilleures',
+  'status.error': 'Erreur',
+  'status.queued': 'en attente',
+  'status.decoding': 'décodage',
+  'status.trial': (p: string) => `essai ${p}`,
+  'status.review': 'À revoir',
+  'status.auto': 'Réglée auto',
+  'status.ok': 'OK',
+  'tile.diff': 'Écart visible',
+  'tile.colors': (n: number) => `${n} coul.`,
+  'tile.soft': 'transp. douce',
+  'export.info': (n: number) => `${n} SVG · metrics.csv · config.json pour rejouer à l'identique`,
+  'export.zip': 'Télécharger le .zip',
+
+  'detail.empty': 'Aucune image vectorisée',
+  'detail.import': 'Importer des images',
+  'detail.back': 'Lot',
+  'detail.prev': 'Image précédente',
+  'detail.next': 'Image suivante',
+  'detail.modeGroup': 'Mode de comparaison',
+  'detail.slider': 'Curseur',
+  'detail.side': 'Côte à côte',
+  'detail.diff': 'Écarts',
+  'detail.paths': 'Chemins',
+  'detail.bgGroup': 'Fond',
+  'detail.bgChecker': 'Fond damier',
+  'detail.bgLight': 'Fond clair',
+  'detail.bgDark': 'Fond sombre',
+  'detail.original': 'ORIGINAL',
+  'detail.pathsCount': (n: number) => `${num(n)} ${s(n, 'chemin', 'chemins')}`,
+  'detail.diffAlt': 'Carte des écarts',
+  'detail.diffHidden': 'écarts < 16 masqués',
+  'detail.sliderPos': 'Position du curseur',
+  'fidelity.title': 'Fidélité',
+  'fidelity.note': 'rendu navigateur · même taille',
+  'fidelity.aria': (v: string) => `${v} des pixels sans écart visible`,
+  'fidelity.faithful': '% fidèle',
+  'fidelity.diff': 'Écart visible',
+  'fidelity.iou': 'Silhouette (IoU)',
+  'fidelity.colorWhite': 'Couleur, fond blanc',
+  'fidelity.alpha': 'Transparence',
+  'semi.intro': (v: string) => `${v} de pixels semi-transparents :`,
+  'semi.color': 'tracés en couleur avec leur opacité moyenne.',
+  'semi.layers': (n: number) => `approchés par ${n} ${s(n, 'couche semi-transparente', 'couches semi-transparentes')} (couleur et opacité moyennes).`,
+  'semi.opaque': 'ils sont rendus opaques ou retirés.',
+  'analysis.title': 'Analyse',
+  'analysis.colors': (n: number) => `${n} ${s(n, 'couleur couvre', 'couleurs couvrent')} 95 % de l'image`,
+  'analysis.gradient': (v: string) => `${v} de transitions douces (dégradés, ombres)`,
+  'analysis.opaque': 'aucune transparence',
+  'analysis.alpha': (tr: string, soft: string, kind: string) => `${tr} transparent, ${soft} semi-transparent (${kind})`,
+  'analysis.auto': 'Réglages choisis par le mode Auto',
+  'trials.title': 'Essais',
+  'trials.count': (n: number, secs: string) => `${n} ${s(n, 'essai', 'essais')} · ${secs} s`,
+  'trials.base': 'Préréglage',
+  'trials.meta': (size: string, paths: number, score: string) => `${size} · ${paths} chemins · score ${score}`,
+  'trials.hint': 'Cliquez un essai pour le retenir à la place.',
+  'stat.size': 'Poids',
+  'stat.paths': 'Chemins',
+  'stat.bitmap': 'Bitmap',
+  'stat.yes': 'oui',
+  'stat.none': 'aucun',
+  'detail.download': 'Télécharger le SVG',
+
+  'soon.badge': 'Bientôt',
+  'soon.edit.title': 'Éditer les couleurs',
+  'soon.edit.text': 'Palette extraite du SVG, fusion des teintes proches, déclinaisons et application à tout le lot. Prochaine étape.',
+  'soon.animate.title': 'Animer',
+  'soon.animate.text': 'Calques, pivots et timeline façon Flash, exports SVG animé respectant le mouvement réduit. Prochaine étape.',
+  'soon.back': 'Revenir au lot',
+
+  'kind.flat': 'Logo à aplats',
+  'kind.shaded': 'Illustration ombrée',
+  'kind.line': 'Dessin au trait',
+  'kind.pixel': 'Pixel art',
+  'kind.photo': 'Photo / texture',
+  'alpha.opaque': 'opaque',
+  'alpha.hard': 'transparence nette',
+  'alpha.edges': 'bords anticrénelés',
+  'alpha.soft': 'transparence douce',
+  'note.flat': 'peu de couleurs : précision réduite pour des aplats propres et un fichier léger',
+  'note.shaded': 'ombres et dégradés : couleurs fines pour éviter les aplats assombris',
+  'note.line-binary': 'trait en niveaux de gris sur fond uni : mode noir et blanc',
+  'note.line-color': "trait d'une seule couleur : très peu de couleurs, couleur du trait conservée",
+  'note.pixel': 'petite image à bords nets : polygones, aucun lissage',
+  'note.photo': 'photo ou texture : la vectorisation sera approximative et lourde',
+  'note.soft': 'zones semi-transparentes : tracées en couleur, avec leur opacité moyenne',
+  'note.edges': 'bords simplement anticrénelés : silhouette à 50 %, sans couche semi-transparente',
+  'desc.binary': (sp: number) => `binaire · speckle ${sp}`,
+  'desc.polygon': 'polygone',
+  'desc.softColor': 'halo couleur',
+  'desc.halo': (n: number) => `halo ${n}`,
+} satisfies Record<string, Msg>
+
+type Key = keyof typeof fr
+
+const en: Record<Key, Msg> = {
+  'meta.title': 'RastaVec — Smooth vectors. Good vibes.',
+  'nav.steps': 'Steps',
+  'nav.import': '1 Import',
+  'nav.lot': '2 Batch review',
+  'nav.detail': '3 Detail',
+  'nav.edit': '4 Edit',
+  'nav.animate': '5 Animate',
+  'nav.language': 'Language',
+  'privacy': '100% local — nothing is uploaded',
+
+  'import.eyebrow': 'SMOOTH VECTORS. GOOD VIBES.',
+  'import.title1': 'From pixels to vectors,',
+  'import.title2': 'in one drag and drop.',
+  'import.lead': 'Vectorise an image or a whole folder. Every SVG is compared with its source and tuned automatically until it passes the difference threshold.',
+  'drop.region': 'Image drop zone',
+  'drop.title': 'Drop your images here',
+  'drop.text': 'PNG, JPEG, WebP, GIF — single files or a whole folder. Originals are never modified.',
+  'drop.files': 'Choose files',
+  'drop.folder': 'Choose a folder',
+  'drop.sheet': 'Slice a sheet',
+  'drop.sheetHint': 'Automatically splits the elements of a sheet (transparent or plain background)',
+  'drop.clear': 'Clear',
+  'drop.count': (n: number, total: string) => `${n} ${s(n, 'image', 'images')} · ${total}`,
+  'drop.analysing': (a: number, n: number) => `Analysing ${a}/${n}…`,
+  'drop.soft': (n: number) => `${n} with soft transparency`,
+  'drop.photos': (n: number) => `${n} ${s(n, 'photo', 'photos')}: approximate result`,
+  'sheet.result': (name: string, n: number, bg: string | null, dropped: number) =>
+    !n
+      ? `${name}: no element found`
+      : `${name}: ${n} ${s(n, 'element', 'elements')} sliced` +
+        (bg ? `, ${bg} background made transparent` : '') +
+        (dropped ? ` (${dropped} small isolated ${s(dropped, 'detail', 'details')} ignored)` : ''),
+  'sheet.error': (e: string) => `Slicing failed: ${e}`,
+
+  'presets.title': 'Preset',
+  'presets.hint': 'Starting point for auto-tuning',
+  'presets.validated': 'Validated',
+  'preset.auto.name': 'Auto',
+  'preset.auto.desc': 'Settings picked for each image: colours, gradients, transparency.',
+  'preset.flat.name': 'Flat logo',
+  'preset.flat.desc': 'Few colours, sharp edges, light file.',
+  'preset.shaded.name': 'Shaded illustration',
+  'preset.shaded.desc': 'Soft shading and small details preserved.',
+  'preset.line.name': 'Line art',
+  'preset.line.desc': 'One colour, thin outlines.',
+  'preset.pixel.name': 'Pixel art',
+  'preset.pixel.desc': 'Square shapes, no curves.',
+  'preset.custom.name': 'Custom',
+  'preset.custom.desc': 'Every parameter by hand.',
+
+  'auto.title': 'Auto-tuning',
+  'auto.desc': 'Tries other settings on images above the threshold or too heavy',
+  'auto.toggle': 'Enable auto-tuning',
+  'auto.threshold': 'Visible difference threshold',
+  'auto.maxSize': 'Max size per SVG',
+  'auto.score': (unit: string) => `score = % diff + 0.002 × ${unit} · same input → same SVG`,
+
+  'params.title': 'Parameters',
+  'params.autoNote': 'Auto mode: these values are recomputed for each image from its analysis. Changing a setting switches to Custom.',
+  'params.colorGroup': 'Colour',
+  'params.color': 'Colour',
+  'params.binary': 'Black & white',
+  'params.curveGroup': 'Curves',
+  'params.spline': 'Curves',
+  'params.polygon': 'Polygons',
+  'params.layerDifference': 'Layer difference',
+  'params.colorPrecision': 'Colour precision',
+  'params.speckle': 'Min. speckle size',
+  'params.alphaFloor': 'Transparency cleanup',
+  'params.silhouetteCut': 'Silhouette threshold',
+  'params.softLayers': 'Soft edges (semi-transparent layers)',
+  'params.none': 'none',
+  'params.softColor': 'Trace semi-transparent areas in colour',
+  'cta.running': 'Vectorising…',
+  'cta.run': (n: number) => `Vectorise ${n} ${s(n, 'image', 'images')}`,
+  'cta.empty': 'Add images',
+
+  'lot.summary': (preset: string, thr: string, max: string) => `preset ${preset} · threshold ${thr} · max ${max}`,
+  'lot.running': (a: number, n: number) => `Vectorising ${a}/${n}`,
+  'lot.done': (n: number) => `${n} ${s(n, 'image', 'images')} vectorised`,
+  'lot.in': (secs: string) => `in ${secs} s`,
+  'lot.review': (r: number, a: number) => `${r} ${s(r, 'image', 'images')} to review · ${a} auto-tuned`,
+  'lot.allOk': (a: number) => `All under the threshold · ${a} auto-tuned`,
+  'lot.chart': 'Visible difference per image',
+  'lot.final': 'final',
+  'lot.before': 'before auto-tuning',
+  'lot.threshold': (v: string) => `threshold ${v}`,
+  'kpi.meanDiff': 'Mean difference',
+  'kpi.pixels': 'pixels > 32/255',
+  'kpi.silhouette': 'Silhouette',
+  'kpi.meanIou': 'mean IoU',
+  'kpi.size': 'Total size',
+  'kpi.sources': (v: string) => `sources: ${v}`,
+  'kpi.raster': 'Embedded bitmap',
+  'kpi.allPaths': '100% paths',
+  'filter.group': 'Filter',
+  'filter.all': 'All',
+  'filter.review': 'To review',
+  'filter.auto': 'Auto-tuned',
+  'filter.ok': 'OK',
+  'lot.sorted': 'Sorted worst first',
+  'status.error': 'Error',
+  'status.queued': 'queued',
+  'status.decoding': 'decoding',
+  'status.trial': (p: string) => `trial ${p}`,
+  'status.review': 'To review',
+  'status.auto': 'Auto-tuned',
+  'status.ok': 'OK',
+  'tile.diff': 'Visible difference',
+  'tile.colors': (n: number) => `${n} col.`,
+  'tile.soft': 'soft transp.',
+  'export.info': (n: number) => `${n} SVG · metrics.csv · config.json to replay identically`,
+  'export.zip': 'Download .zip',
+
+  'detail.empty': 'No vectorised image',
+  'detail.import': 'Import images',
+  'detail.back': 'Batch',
+  'detail.prev': 'Previous image',
+  'detail.next': 'Next image',
+  'detail.modeGroup': 'Comparison mode',
+  'detail.slider': 'Slider',
+  'detail.side': 'Side by side',
+  'detail.diff': 'Differences',
+  'detail.paths': 'Paths',
+  'detail.bgGroup': 'Background',
+  'detail.bgChecker': 'Checkerboard background',
+  'detail.bgLight': 'Light background',
+  'detail.bgDark': 'Dark background',
+  'detail.original': 'ORIGINAL',
+  'detail.pathsCount': (n: number) => `${num(n)} ${s(n, 'path', 'paths')}`,
+  'detail.diffAlt': 'Difference map',
+  'detail.diffHidden': 'differences < 16 hidden',
+  'detail.sliderPos': 'Slider position',
+  'fidelity.title': 'Fidelity',
+  'fidelity.note': 'browser rendering · same size',
+  'fidelity.aria': (v: string) => `${v} of pixels without visible difference`,
+  'fidelity.faithful': '% faithful',
+  'fidelity.diff': 'Visible difference',
+  'fidelity.iou': 'Silhouette (IoU)',
+  'fidelity.colorWhite': 'Colour, on white',
+  'fidelity.alpha': 'Transparency',
+  'semi.intro': (v: string) => `${v} semi-transparent pixels:`,
+  'semi.color': 'traced in colour at their mean opacity.',
+  'semi.layers': (n: number) => `approximated by ${n} semi-transparent ${s(n, 'layer', 'layers')} (mean colour and opacity).`,
+  'semi.opaque': 'they are made opaque or removed.',
+  'analysis.title': 'Analysis',
+  'analysis.colors': (n: number) => `${n} ${s(n, 'colour covers', 'colours cover')} 95% of the image`,
+  'analysis.gradient': (v: string) => `${v} smooth transitions (gradients, shading)`,
+  'analysis.opaque': 'no transparency',
+  'analysis.alpha': (tr: string, soft: string, kind: string) => `${tr} transparent, ${soft} semi-transparent (${kind})`,
+  'analysis.auto': 'Settings picked by Auto mode',
+  'trials.title': 'Trials',
+  'trials.count': (n: number, secs: string) => `${n} ${s(n, 'trial', 'trials')} · ${secs} s`,
+  'trials.base': 'Preset',
+  'trials.meta': (size: string, paths: number, score: string) => `${size} · ${paths} paths · score ${score}`,
+  'trials.hint': 'Click a trial to keep it instead.',
+  'stat.size': 'Size',
+  'stat.paths': 'Paths',
+  'stat.bitmap': 'Bitmap',
+  'stat.yes': 'yes',
+  'stat.none': 'none',
+  'detail.download': 'Download SVG',
+
+  'soon.badge': 'Coming soon',
+  'soon.edit.title': 'Edit colours',
+  'soon.edit.text': 'Palette extracted from the SVG, merging of close shades, variants and batch-wide application. Next step.',
+  'soon.animate.title': 'Animate',
+  'soon.animate.text': 'Flash-style layers, pivots and timeline, animated SVG exports that respect reduced motion. Next step.',
+  'soon.back': 'Back to the batch',
+
+  'kind.flat': 'Flat logo',
+  'kind.shaded': 'Shaded illustration',
+  'kind.line': 'Line art',
+  'kind.pixel': 'Pixel art',
+  'kind.photo': 'Photo / texture',
+  'alpha.opaque': 'opaque',
+  'alpha.hard': 'hard transparency',
+  'alpha.edges': 'anti-aliased edges',
+  'alpha.soft': 'soft transparency',
+  'note.flat': 'few colours: reduced precision for clean flat areas and a light file',
+  'note.shaded': 'shading and gradients: fine colours to avoid darkened flat areas',
+  'note.line-binary': 'greyscale line art on a plain background: black & white mode',
+  'note.line-color': 'single-colour line art: very few colours, line colour kept',
+  'note.pixel': 'small image with sharp edges: polygons, no smoothing',
+  'note.photo': 'photo or texture: vectorisation will be approximate and heavy',
+  'note.soft': 'semi-transparent areas: traced in colour at their mean opacity',
+  'note.edges': 'simply anti-aliased edges: 50% silhouette, no semi-transparent layer',
+  'desc.binary': (sp: number) => `binary · speckle ${sp}`,
+  'desc.polygon': 'polygon',
+  'desc.softColor': 'colour halo',
+  'desc.halo': (n: number) => `halo ${n}`,
+}
+
+const dicts: Record<Locale, Record<Key, Msg>> = { fr, en }
+
+/** Translate a key; functions receive the extra arguments (plurals, values). */
+export function t(key: Key, ...args: unknown[]): string {
+  const m = dicts[i18n.locale][key] ?? fr[key]
+  return typeof m === 'function' ? (m as (...a: unknown[]) => string)(...args) : m
+}
+
+export const kindLabel = (k: ImageKind) => t(`kind.${k}` as Key)
+export const alphaLabel = (a: AlphaKind) => t(`alpha.${a}` as Key)
+export const noteLabel = (n: NoteCode) => t(`note.${n}` as Key)
+export const presetName = (id: string) => t(`preset.${id}.name` as Key)
+export const presetDesc = (id: string) => t(`preset.${id}.desc` as Key)
+
+/** Short human description of tracing parameters (trial labels). */
+export function describeParams(p: TraceParams): string {
+  if (p.colormode === 'binary') return t('desc.binary', p.speckle)
+  const mode = p.mode === 'polygon' ? `${t('desc.polygon')} · ` : ''
+  const cut = p.silhouetteCut !== 128 ? ` · α≥${p.silhouetteCut}` : ''
+  const halo = p.softColor ? ` · ${t('desc.softColor')}` : p.softLayers !== 2 ? ` · ${t('desc.halo', p.softLayers)}` : ''
+  return `${mode}cp ${p.colorPrecision} · ld ${p.layerDifference} · speckle ${p.speckle}${cut}${halo}`
+}
+
+export function setLocale(l: Locale) {
+  i18n.locale = l
+  try {
+    localStorage.setItem('rastavec.locale', l)
+  } catch {
+    /* storage unavailable */
+  }
+  applyDocumentLocale()
+}
+
+export function applyDocumentLocale() {
+  document.documentElement.lang = i18n.locale
+  document.title = t('meta.title')
+}

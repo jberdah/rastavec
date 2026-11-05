@@ -20,24 +20,10 @@ export interface Analysis {
   /** Share (0-1) of neighbouring visible pixels with a smooth, non-zero transition. */
   gradient: number
   grayscale: boolean
-  reasons: string[]
 }
 
-export const KIND_LABEL: Record<ImageKind, string> = {
-  flat: 'Logo à aplats',
-  shaded: 'Illustration ombrée',
-  line: 'Dessin au trait',
-  pixel: 'Pixel art',
-  photo: 'Photo / texture',
-}
-export const ALPHA_LABEL: Record<AlphaKind, string> = {
-  opaque: 'opaque',
-  hard: 'transparence nette',
-  edges: 'bords anticrénelés',
-  soft: 'transparence douce',
-}
-
-const fmt = (x: number, d = 1) => x.toFixed(d).replace('.', ',')
+/** Why Auto picked its parameters (language-neutral; rendered by the UI). */
+export type NoteCode = 'flat' | 'shaded' | 'line-binary' | 'line-color' | 'pixel' | 'photo' | 'soft' | 'edges'
 
 export function analyze(img: RGBAImage): Analysis {
   const { data: d, width: w, height: h } = img
@@ -104,42 +90,35 @@ export function analyze(img: RGBAImage): Analysis {
   else if (dominant <= 12 && gradient < 0.12) kind = 'flat'
   else kind = 'shaded'
 
-  const reasons = [
-    `${dominant} couleur${dominant > 1 ? 's' : ''} couvrent 95 % de l'image`,
-    `${fmt(gradient * 100, 0)} % de transitions douces (dégradés, ombres)`,
-    alpha === 'opaque'
-      ? 'aucune transparence'
-      : `${fmt(transparentPct, 0)} % transparent, ${fmt(softPct)} % semi-transparent (${ALPHA_LABEL[alpha]})`,
-  ]
-  return { width: w, height: h, kind, alpha, transparentPct, softPct, dominantColors: dominant, gradient, grayscale, reasons }
+  return { width: w, height: h, kind, alpha, transparentPct, softPct, dominantColors: dominant, gradient, grayscale }
 }
 
 /** Recommended parameters for an analysed image, with a short justification. */
-export function recommend(a: Analysis): { params: TraceParams; notes: string[] } {
+export function recommend(a: Analysis): { params: TraceParams; notes: NoteCode[] } {
   const px = a.width * a.height
   // Speckle scales with resolution: ~2 px at 256², ~7 px at 1200².
   const speckle = Math.max(2, Math.min(12, Math.round(Math.sqrt(px) / 180)))
   const p: TraceParams = { ...DEFAULT_PARAMS, speckle }
-  const notes: string[] = []
+  const notes: NoteCode[] = []
   switch (a.kind) {
     case 'flat':
       p.colorPrecision = a.dominantColors <= 6 ? 5 : 6
       p.layerDifference = 16
-      notes.push('peu de couleurs : précision réduite pour des aplats propres et un fichier léger')
+      notes.push('flat')
       break
     case 'shaded':
       p.colorPrecision = 8
       p.layerDifference = 8
-      notes.push('ombres et dégradés : couleurs fines pour éviter les aplats assombris')
+      notes.push('shaded')
       break
     case 'line':
       if (a.grayscale && a.alpha === 'opaque') {
         p.colormode = 'binary'
-        notes.push('trait en niveaux de gris sur fond uni : mode noir et blanc')
+        notes.push('line-binary')
       } else {
         p.colorPrecision = 4
         p.layerDifference = 24
-        notes.push('trait d\'une seule couleur : très peu de couleurs, couleur du trait conservée')
+        notes.push('line-color')
       }
       p.speckle = Math.max(2, speckle - 2)
       break
@@ -148,22 +127,22 @@ export function recommend(a: Analysis): { params: TraceParams; notes: string[] }
       p.speckle = 1
       p.colorPrecision = 8
       p.layerDifference = 4
-      notes.push('petite image à bords nets : polygones, aucun lissage')
+      notes.push('pixel')
       break
     case 'photo':
       p.colorPrecision = 6
       p.layerDifference = 24
       p.speckle = speckle + 2
-      notes.push('photo ou texture : la vectorisation sera approximative et lourde')
+      notes.push('photo')
       break
   }
   if (a.alpha === 'soft') {
     p.softLayers = 2
     p.softColor = true
-    notes.push('zones semi-transparentes : tracées en couleur, avec leur opacité moyenne')
+    notes.push('soft')
   } else {
     p.softLayers = 0
-    if (a.alpha === 'edges') notes.push('bords simplement anticrénelés : silhouette à 50 %, sans couche semi-transparente')
+    if (a.alpha === 'edges') notes.push('edges')
   }
   return { params: p, notes }
 }

@@ -1,4 +1,4 @@
-import type { Analysis } from './analyze'
+import type { Analysis, NoteCode } from './analyze'
 
 export type ColorMode = 'color' | 'binary'
 export type CurveMode = 'spline' | 'polygon'
@@ -50,7 +50,8 @@ export interface Metrics {
 }
 
 export interface Trial {
-  label: string
+  /** True for the first trial (preset / Auto parameters), false for auto-tune candidates. */
+  base: boolean
   params: TraceParams
   svg: string
   metrics: Metrics
@@ -71,7 +72,7 @@ export interface Item {
   /** % of meaningfully semi-transparent pixels (alpha 16-239). */
   semiPct: number
   status: ItemStatus
-  /** Progress text while tracing, e.g. "essai 3/7". */
+  /** Progress while tracing: "" while decoding, else "k/n" (trial k of n). */
   progress: string
   trials: Trial[]
   chosen: number
@@ -80,7 +81,7 @@ export interface Item {
   /** Image analysis, computed once at import. */
   analysis?: Analysis
   /** Why the auto preset chose these parameters. */
-  notes?: string[]
+  notes?: NoteCode[]
 }
 
 export interface AutoTune {

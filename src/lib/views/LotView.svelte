@@ -2,7 +2,7 @@
   import { app, chosenTrial, doneItems, go, needsReview, svgUrl } from '../store.svelte'
   import { exportZip } from '../export'
   import type { Item } from '../engine/types'
-  import { KIND_LABEL } from '../engine/analyze'
+  import { kbUnit, kindLabel, num, pct, presetName, size, t } from '../i18n.svelte'
 
   type Filter = 'all' | 'review' | 'auto' | 'ok'
   let filter = $state<Filter>('all')
@@ -10,8 +10,8 @@
 
   $effect(() => {
     if (!app.running) return
-    const t = setInterval(() => (now = performance.now()), 250)
-    return () => clearInterval(t)
+    const timer = setInterval(() => (now = performance.now()), 250)
+    return () => clearInterval(timer)
   })
 
   const done = $derived(doneItems())
@@ -20,8 +20,6 @@
   )
   const elapsed = $derived(((app.finishedAt || now) - app.startedAt) / 1000)
   const processed = $derived(app.items.filter((i) => i.status === 'done' || i.status === 'error').length)
-  const fmt = (x: number, d = 2) => x.toFixed(d).replace('.', ',')
-  const kb = (b: number) => (b > 1048576 ? fmt(b / 1048576, 1) + ' Mo' : Math.round(b / 1024) + ' Ko')
   const mean = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0)
 
   const stats = $derived({
@@ -53,23 +51,24 @@
   const barH = (p: number) => `${Math.min(100, (100 * p) / scaleMax)}%`
 
   function statusChip(i: Item): { text: string; cls: string } {
-    if (i.status === 'error') return { text: 'Erreur', cls: 'chip-warn' }
-    if (i.status !== 'done') return { text: i.status === 'tracing' ? i.progress || 'en cours' : 'en attente', cls: 'chip-muted' }
-    if (needsReview(i)) return { text: 'À revoir', cls: 'chip-warn' }
-    if (i.autoTuned) return { text: 'Réglée auto', cls: 'chip-accent' }
-    return { text: 'OK', cls: 'chip-ok' }
+    if (i.status === 'error') return { text: t('status.error'), cls: 'chip-warn' }
+    if (i.status !== 'done')
+      return { text: i.status === 'tracing' ? (i.progress ? t('status.trial', i.progress) : t('status.decoding')) : t('status.queued'), cls: 'chip-muted' }
+    if (needsReview(i)) return { text: t('status.review'), cls: 'chip-warn' }
+    if (i.autoTuned) return { text: t('status.auto'), cls: 'chip-accent' }
+    return { text: t('status.ok'), cls: 'chip-ok' }
   }
 </script>
 
 <div class="stack" style="gap: 28px">
   <div class="between" style="align-items: flex-end">
     <div class="stack" style="gap: 8px">
-      <span class="mono muted small">préréglage {app.presetId} · seuil {fmt(app.auto.threshold, 1)} % · max {app.auto.maxKB} Ko</span>
+      <span class="mono muted small">{t('lot.summary', presetName(app.presetId), pct(app.auto.threshold, 1), `${num(app.auto.maxKB)} ${kbUnit()}`)}</span>
       <h1 class="title">
         {#if app.running}
-          Vectorisation {processed}/{app.items.length} <span class="faint">· {fmt(elapsed, 0)} s</span>
+          {t('lot.running', processed, app.items.length)} <span class="faint">· {num(elapsed)} s</span>
         {:else}
-          {done.length} image{done.length > 1 ? 's' : ''} vectorisée{done.length > 1 ? 's' : ''} <span class="faint">en {fmt(elapsed, 0)} s</span>
+          {t('lot.done', done.length)} <span class="faint">{t('lot.in', num(elapsed))}</span>
         {/if}
       </h1>
     </div>
@@ -77,11 +76,7 @@
     {#if mascot}<img class="lot-mascot" class:bob={app.running} src={mascot} alt="" width="88" height="88" />{/if}
     {#if !app.running && done.length}
       <div class="banner" class:warn={stats.review > 0}>
-        {#if stats.review}
-          {stats.review} image{stats.review > 1 ? 's' : ''} à revoir · {stats.auto} réglée{stats.auto > 1 ? 's' : ''} automatiquement
-        {:else}
-          Toutes sous le seuil · {stats.auto} réglée{stats.auto > 1 ? 's' : ''} automatiquement
-        {/if}
+        {stats.review ? t('lot.review', stats.review, stats.auto) : t('lot.allOk', stats.auto)}
       </div>
     {/if}
     </div>
@@ -96,13 +91,13 @@
   <div class="wrap">
     <div class="card chart">
       <div class="between">
-        <h2 class="h3">Écart visible par image</h2>
-        <span class="row legend muted"><span class="sw final"></span>final <span class="sw before"></span>avant réglage auto</span>
+        <h2 class="h3">{t('lot.chart')}</h2>
+        <span class="row legend muted"><span class="sw final"></span>{t('lot.final')} <span class="sw before"></span>{t('lot.before')}</span>
       </div>
       <div class="bars">
-        <div class="thr" style:bottom={barH(app.auto.threshold)}><span class="mono">seuil {fmt(app.auto.threshold, 1)} %</span></div>
+        <div class="thr" style:bottom={barH(app.auto.threshold)}><span class="mono">{t('lot.threshold', pct(app.auto.threshold, 1))}</span></div>
         {#each app.items as i (i.id)}
-          <div class="barcol" title={i.status === 'done' ? `${i.name} · ${fmt(chosenTrial(i).metrics.pctDiff)} %` : i.name}>
+          <div class="barcol" title={i.status === 'done' ? `${i.name} · ${pct(chosenTrial(i).metrics.pctDiff)}` : i.name}>
             {#if i.status === 'done'}
               {#if i.autoTuned}<div class="bar before" style:height={barH(i.trials[0].metrics.pctDiff)}></div>{/if}
               <div class="bar" class:tuned={i.autoTuned} class:bad={needsReview(i)} style:height={barH(chosenTrial(i).metrics.pctDiff)}></div>
@@ -112,21 +107,21 @@
       </div>
     </div>
     <div class="kpis">
-      <div class="kpi"><span class="k">Écart moyen</span><span class="v">{fmt(stats.pct)} %</span><span class="s">pixels &gt; 32/255</span></div>
-      <div class="kpi"><span class="k">Silhouette</span><span class="v">{fmt(stats.iou, 3)}</span><span class="s">IoU moyen</span></div>
-      <div class="kpi"><span class="k">Poids total</span><span class="v">{kb(stats.bytes)}</span><span class="s">sources : {kb(stats.src)}</span></div>
-      <div class="kpi"><span class="k">Bitmap intégré</span><span class="v" class:accent={!stats.raster}>{stats.raster}</span><span class="s">100 % chemins</span></div>
+      <div class="kpi"><span class="k">{t('kpi.meanDiff')}</span><span class="v">{pct(stats.pct)}</span><span class="s">{t('kpi.pixels')}</span></div>
+      <div class="kpi"><span class="k">{t('kpi.silhouette')}</span><span class="v">{num(stats.iou, 3)}</span><span class="s">{t('kpi.meanIou')}</span></div>
+      <div class="kpi"><span class="k">{t('kpi.size')}</span><span class="v">{size(stats.bytes)}</span><span class="s">{t('kpi.sources', size(stats.src))}</span></div>
+      <div class="kpi"><span class="k">{t('kpi.raster')}</span><span class="v" class:accent={!stats.raster}>{stats.raster}</span><span class="s">{t('kpi.allPaths')}</span></div>
     </div>
   </div>
 
   <div class="between">
-    <div class="seg" role="group" aria-label="Filtrer">
-      <button type="button" aria-pressed={filter === 'all'} onclick={() => (filter = 'all')}>Toutes <span class="mono faint">{app.items.length}</span></button>
-      <button type="button" aria-pressed={filter === 'review'} onclick={() => (filter = 'review')}>À revoir <span class="mono faint">{stats.review}</span></button>
-      <button type="button" aria-pressed={filter === 'auto'} onclick={() => (filter = 'auto')}>Réglées auto <span class="mono faint">{stats.auto}</span></button>
-      <button type="button" aria-pressed={filter === 'ok'} onclick={() => (filter = 'ok')}>OK <span class="mono faint">{stats.ok}</span></button>
+    <div class="seg" role="group" aria-label={t('filter.group')}>
+      <button type="button" aria-pressed={filter === 'all'} onclick={() => (filter = 'all')}>{t('filter.all')} <span class="mono faint">{app.items.length}</span></button>
+      <button type="button" aria-pressed={filter === 'review'} onclick={() => (filter = 'review')}>{t('filter.review')} <span class="mono faint">{stats.review}</span></button>
+      <button type="button" aria-pressed={filter === 'auto'} onclick={() => (filter = 'auto')}>{t('filter.auto')} <span class="mono faint">{stats.auto}</span></button>
+      <button type="button" aria-pressed={filter === 'ok'} onclick={() => (filter = 'ok')}>{t('filter.ok')} <span class="mono faint">{stats.ok}</span></button>
     </div>
-    <span class="muted small">Triées des pires aux meilleures</span>
+    <span class="muted small">{t('lot.sorted')}</span>
   </div>
 
   <div class="grid">
@@ -149,15 +144,15 @@
           <span class="chip {chip.cls}">{chip.text}</span>
         </div>
         {#if i.analysis}
-          <span class="mono faint small">{KIND_LABEL[i.analysis.kind]} · {i.analysis.dominantColors} coul.{i.analysis.alpha === 'soft' ? ' · transp. douce' : ''}</span>
+          <span class="mono faint small">{kindLabel(i.analysis.kind)} · {t('tile.colors', i.analysis.dominantColors)}{i.analysis.alpha === 'soft' ? ` · ${t('tile.soft')}` : ''}</span>
         {/if}
         {#if i.status === 'done'}
           {@const m = chosenTrial(i).metrics}
           <div class="stack" style="gap: 6px">
-            <div class="between small muted"><span>Écart visible</span><span class="mono" style="color: var(--text)">{i.autoTuned ? fmt(i.trials[0].metrics.pctDiff) + ' → ' : ''}{fmt(m.pctDiff)} %</span></div>
+            <div class="between small muted"><span>{t('tile.diff')}</span><span class="mono" style="color: var(--text)">{i.autoTuned ? pct(i.trials[0].metrics.pctDiff) + ' → ' : ''}{pct(m.pctDiff)}</span></div>
             <div class="meter"><span style:width={barH(m.pctDiff)} class:tuned={i.autoTuned} class:bad={needsReview(i)}></span></div>
           </div>
-          <div class="between mono small muted"><span>IoU {fmt(m.iou ?? 0, 3)}</span><span>{kb(m.bytes)}</span></div>
+          <div class="between mono small muted"><span>IoU {num(m.iou ?? 0, 3)}</span><span>{size(m.bytes)}</span></div>
         {:else if i.status === 'error'}
           <span class="small" style="color: var(--warn-text)">{i.error}</span>
         {/if}
@@ -169,10 +164,10 @@
 {#if done.length && !app.running}
   <div class="exportbar">
     <div class="inner">
-      <span class="muted small">{done.length} SVG · <span class="mono">metrics.csv</span> · <span class="mono">config.json</span> pour rejouer à l'identique</span>
+      <span class="muted small">{t('export.info', done.length)}</span>
       <button type="button" class="btn btn-primary" onclick={() => exportZip(app.items)}>
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v12" /><path d="m6 10 6 6 6-6" /><path d="M4 20h16" /></svg>
-        Télécharger le .zip
+        {t('export.zip')}
       </button>
     </div>
   </div>

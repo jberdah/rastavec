@@ -3,7 +3,7 @@
   import { diffImage } from '../engine/core'
   import { browserBackend, toDataUrl } from '../engine/browser-backend'
   import { downloadSvg } from '../export'
-  import { KIND_LABEL } from '../engine/analyze'
+  import { alphaLabel, describeParams, kindLabel, noteLabel, num, pct, size, t } from '../i18n.svelte'
 
   type Mode = 'slider' | 'side' | 'diff' | 'paths'
   type Bg = 'checker' | 'light' | 'dark'
@@ -17,8 +17,6 @@
   const index = $derived(item ? list.indexOf(item) : -1)
   const trial = $derived(item ? chosenTrial(item) : null)
   const m = $derived(trial?.metrics)
-  const fmt = (x: number, d = 2) => x.toFixed(d).replace('.', ',')
-  const kb = (b: number) => (b > 1048576 ? fmt(b / 1048576, 1) + ' Mo' : Math.round(b / 1024) + ' Ko')
 
   // Diff map for the chosen trial, computed on demand.
   $effect(() => {
@@ -53,8 +51,8 @@
 {#if !item || !trial || !m}
   <div class="card stack" style="max-width: 560px; align-items: flex-start">
     <img src="/brand/mascot-inspect.webp" alt="" width="160" height="160" style="width: 160px; height: auto" />
-    <h1>Aucune image vectorisée</h1>
-    <button type="button" class="btn" onclick={() => go('import')}>Importer des images</button>
+    <h1>{t('detail.empty')}</h1>
+    <button type="button" class="btn" onclick={() => go('import')}>{t('detail.import')}</button>
   </div>
 {:else}
   <div class="stack" style="gap: 20px">
@@ -62,131 +60,134 @@
       <div class="row" style="flex-wrap: wrap; gap: 12px">
         <button type="button" class="btn" onclick={() => go('lot')}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
-          Lot
+          {t('detail.back')}
         </button>
         <h1 class="mono name">{item.name}</h1>
-        {#if needsReview(item)}<span class="chip chip-warn">À revoir</span>{:else if item.autoTuned}<span class="chip chip-accent">Réglée auto</span>{:else}<span class="chip chip-ok">OK</span>{/if}
-        <span class="mono muted small">{item.width} × {item.height} · {kb(item.srcBytes)}</span>
+        {#if needsReview(item)}<span class="chip chip-warn">{t('status.review')}</span>{:else if item.autoTuned}<span class="chip chip-accent">{t('status.auto')}</span>{:else}<span class="chip chip-ok">{t('status.ok')}</span>{/if}
+        <span class="mono muted small">{item.width} × {item.height} · {size(item.srcBytes)}</span>
       </div>
       <div class="row">
-        <button type="button" class="btn icon-btn" aria-label="Image précédente" onclick={() => step(-1)}>‹</button>
+        <button type="button" class="btn icon-btn" aria-label={t('detail.prev')} onclick={() => step(-1)}>‹</button>
         <span class="mono muted small">{index + 1} / {list.length}</span>
-        <button type="button" class="btn icon-btn" aria-label="Image suivante" onclick={() => step(1)}>›</button>
+        <button type="button" class="btn icon-btn" aria-label={t('detail.next')} onclick={() => step(1)}>›</button>
       </div>
     </div>
 
     <div class="wrap" style="gap: 20px; align-items: flex-start">
       <section class="stagecol">
         <div class="between">
-          <div class="seg strong" role="group" aria-label="Mode de comparaison">
-            <button type="button" aria-pressed={mode === 'slider'} onclick={() => (mode = 'slider')}>Curseur</button>
-            <button type="button" aria-pressed={mode === 'side'} onclick={() => (mode = 'side')}>Côte à côte</button>
-            <button type="button" aria-pressed={mode === 'diff'} onclick={() => (mode = 'diff')}>Écarts</button>
-            <button type="button" aria-pressed={mode === 'paths'} onclick={() => (mode = 'paths')}>Chemins</button>
+          <div class="seg strong" role="group" aria-label={t('detail.modeGroup')}>
+            <button type="button" aria-pressed={mode === 'slider'} onclick={() => (mode = 'slider')}>{t('detail.slider')}</button>
+            <button type="button" aria-pressed={mode === 'side'} onclick={() => (mode = 'side')}>{t('detail.side')}</button>
+            <button type="button" aria-pressed={mode === 'diff'} onclick={() => (mode = 'diff')}>{t('detail.diff')}</button>
+            <button type="button" aria-pressed={mode === 'paths'} onclick={() => (mode = 'paths')}>{t('detail.paths')}</button>
           </div>
-          <div class="seg" role="group" aria-label="Fond">
-            <button type="button" aria-label="Fond damier" aria-pressed={bg === 'checker'} onclick={() => (bg = 'checker')}><span class="swatch checker"></span></button>
-            <button type="button" aria-label="Fond clair" aria-pressed={bg === 'light'} onclick={() => (bg = 'light')}><span class="swatch" style="background: #fff"></span></button>
-            <button type="button" aria-label="Fond sombre" aria-pressed={bg === 'dark'} onclick={() => (bg = 'dark')}><span class="swatch" style="background: #202020"></span></button>
+          <div class="seg" role="group" aria-label={t('detail.bgGroup')}>
+            <button type="button" aria-label={t('detail.bgChecker')} aria-pressed={bg === 'checker'} onclick={() => (bg = 'checker')}><span class="swatch checker"></span></button>
+            <button type="button" aria-label={t('detail.bgLight')} aria-pressed={bg === 'light'} onclick={() => (bg = 'light')}><span class="swatch" style="background: #fff"></span></button>
+            <button type="button" aria-label={t('detail.bgDark')} aria-pressed={bg === 'dark'} onclick={() => (bg = 'dark')}><span class="swatch" style="background: #202020"></span></button>
           </div>
         </div>
 
         <div class="stage" style:background={mode === 'diff' ? '#f4f4f5' : mode === 'paths' ? 'var(--sunken)' : bgStyle}>
           {#if mode === 'slider'}
-            <img class="fit" src={item.srcUrl} alt="Original" />
+            <img class="fit" src={item.srcUrl} alt={t('detail.original')} />
             <img class="fit" src={svgUrl(item)} alt="SVG" style:clip-path={`inset(0 0 0 ${pos}%)`} />
             <span class="split" style:left={`${pos}%`}><span class="knob">⇆</span></span>
-            <span class="lab mono l">ORIGINAL</span>
-            <span class="lab mono r">SVG · {m.paths} chemins</span>
+            <span class="lab mono l">{t('detail.original')}</span>
+            <span class="lab mono r">SVG · {t('detail.pathsCount', m.paths)}</span>
           {:else if mode === 'side'}
             <div class="side">
-              <div class="half"><img class="fit" src={item.srcUrl} alt="Original" /><span class="lab mono l">ORIGINAL</span></div>
+              <div class="half"><img class="fit" src={item.srcUrl} alt={t('detail.original')} /><span class="lab mono l">{t('detail.original')}</span></div>
               <div class="half"><img class="fit" src={svgUrl(item)} alt="SVG" /><span class="lab mono r">SVG</span></div>
             </div>
           {:else if mode === 'diff'}
-            {#if diffUrl}<img class="fit" src={diffUrl} alt="Carte des écarts" />{:else}<span class="center"><span class="spinner"></span></span>{/if}
-            <div class="legend mono"><span>0</span><span class="grad"></span><span>96+ / 255</span><span class="faint">écarts &lt; 16 masqués</span></div>
+            {#if diffUrl}<img class="fit" src={diffUrl} alt={t('detail.diffAlt')} />{:else}<span class="center"><span class="spinner"></span></span>{/if}
+            <div class="legend mono"><span>0</span><span class="grad"></span><span>96+ / 255</span><span class="faint">{t('detail.diffHidden')}</span></div>
           {:else}
             <div class="fit outline">{@html outline}</div>
-            <span class="lab mono l accent">{m.paths} chemins</span>
+            <span class="lab mono l accent">{t('detail.pathsCount', m.paths)}</span>
           {/if}
         </div>
         {#if mode === 'slider'}
           <div class="row">
-            <label for="split" class="muted small nowrap">Position du curseur</label>
+            <label for="split" class="muted small nowrap">{t('detail.sliderPos')}</label>
             <input id="split" type="range" min="0" max="100" bind:value={pos} />
-            <span class="mono small" style="width: 44px; text-align: right">{pos} %</span>
+            <span class="mono small" style="width: 52px; text-align: right">{pct(pos, 0)}</span>
           </div>
         {/if}
       </section>
 
       <aside class="panel">
         <div class="card stack">
-          <div class="between"><h2 class="h3">Fidélité</h2><span class="mono faint tiny">rendu navigateur · même taille</span></div>
+          <div class="between"><h2 class="h3">{t('fidelity.title')}</h2><span class="mono faint tiny">{t('fidelity.note')}</span></div>
           <div class="row" style="gap: 18px">
             <div class="ring">
-              <svg viewBox="0 0 104 104" width="104" height="104" role="img" aria-label={`${fmt(100 - m.pctDiff, 1)} % des pixels sans écart visible`}><circle cx="52" cy="52" r="44" fill="none" stroke="#1F232C" stroke-width="10" /><circle cx="52" cy="52" r="44" fill="none" stroke={needsReview(item) ? '#FF4F8B' : '#1F8F4A'} stroke-width="10" stroke-linecap="round" stroke-dasharray={ringDash} transform="rotate(-90 52 52)" /></svg>
-              <div class="ringlabel"><span class="big">{fmt(100 - m.pctDiff, 1)}</span><span class="muted tiny">% fidèle</span></div>
+              <svg viewBox="0 0 104 104" width="104" height="104" role="img" aria-label={t('fidelity.aria', pct(100 - m.pctDiff, 1))}><circle cx="52" cy="52" r="44" fill="none" stroke="#1F232C" stroke-width="10" /><circle cx="52" cy="52" r="44" fill="none" stroke={needsReview(item) ? '#FF4F8B' : '#1F8F4A'} stroke-width="10" stroke-linecap="round" stroke-dasharray={ringDash} transform="rotate(-90 52 52)" /></svg>
+              <div class="ringlabel"><span class="big">{num(100 - m.pctDiff, 1)}</span><span class="muted tiny">{t('fidelity.faithful')}</span></div>
             </div>
             <dl class="metrics">
-              <dt>Écart visible</dt><dd class="mono">{fmt(m.pctDiff)} %</dd>
-              <dt>Silhouette (IoU)</dt><dd class="mono">{fmt(m.iou ?? 0, 3)}</dd>
-              <dt>Couleur, fond blanc</dt><dd class="mono">{fmt(m.rgbWhite, 1)} / 255</dd>
-              <dt>Transparence</dt><dd class="mono">{fmt(m.alphaDiff, 1)} / 255</dd>
+              <dt>{t('fidelity.diff')}</dt><dd class="mono">{pct(m.pctDiff)}</dd>
+              <dt>{t('fidelity.iou')}</dt><dd class="mono">{num(m.iou ?? 0, 3)}</dd>
+              <dt>{t('fidelity.colorWhite')}</dt><dd class="mono">{num(m.rgbWhite, 1)} / 255</dd>
+              <dt>{t('fidelity.alpha')}</dt><dd class="mono">{num(m.alphaDiff, 1)} / 255</dd>
             </dl>
           </div>
           {#if item.semiPct > 1}
             <span class="small" style="color: var(--warn-text)">
-              {fmt(item.semiPct, 1)} % de pixels semi-transparents :
+              {t('semi.intro', pct(item.semiPct, 1))}
               {trial.params.colormode === 'color' && trial.params.softColor
-                ? 'tracés en couleur avec leur opacité moyenne.'
+                ? t('semi.color')
                 : trial.params.softLayers > 0 && trial.params.colormode === 'color'
-                ? `approchés par ${trial.params.softLayers} couche${trial.params.softLayers > 1 ? 's' : ''} semi-transparente${trial.params.softLayers > 1 ? 's' : ''} (couleur et opacité moyennes).`
-                : 'ils sont rendus opaques ou retirés.'}
+                  ? t('semi.layers', trial.params.softLayers)
+                  : t('semi.opaque')}
             </span>
           {/if}
         </div>
 
         {#if item.analysis}
+          {@const a = item.analysis}
           <div class="card stack">
-            <div class="between"><h2 class="h3">Analyse</h2><span class="chip chip-ok">{KIND_LABEL[item.analysis.kind]}</span></div>
+            <div class="between"><h2 class="h3">{t('analysis.title')}</h2><span class="chip chip-ok">{kindLabel(a.kind)}</span></div>
             <ul class="reasons">
-              {#each item.analysis.reasons as r}<li>{r}</li>{/each}
+              <li>{t('analysis.colors', a.dominantColors)}</li>
+              <li>{t('analysis.gradient', pct(a.gradient * 100, 0))}</li>
+              <li>{a.alpha === 'opaque' ? t('analysis.opaque') : t('analysis.alpha', pct(a.transparentPct, 0), pct(a.softPct, 1), alphaLabel(a.alpha))}</li>
             </ul>
             {#if item.notes?.length}
-              <span class="muted tiny">Réglages choisis par le mode Auto</span>
+              <span class="muted tiny">{t('analysis.auto')}</span>
               <ul class="reasons picked">
-                {#each item.notes as n}<li>{n}</li>{/each}
+                {#each item.notes as n}<li>{noteLabel(n)}</li>{/each}
               </ul>
             {/if}
           </div>
         {/if}
 
         <div class="card stack">
-          <div class="between"><h2 class="h3">Essais</h2><span class="mono faint tiny">{item.trials.length} essai{item.trials.length > 1 ? 's' : ''} · {fmt(item.trials.reduce((s, t) => s + t.ms, 0) / 1000, 1)} s</span></div>
+          <div class="between"><h2 class="h3">{t('trials.title')}</h2><span class="mono faint tiny">{t('trials.count', item.trials.length, num(item.trials.reduce((s, x) => s + x.ms, 0) / 1000, 1))}</span></div>
           <ol class="trials">
-            {#each item.trials as t, k}
+            {#each item.trials as tr, k}
               <li>
                 <button type="button" class="trial" aria-pressed={item.chosen === k} onclick={() => (item.chosen = k)}>
                   <span class="dotc" class:on={item.chosen === k}></span>
                   <span class="stack" style="gap: 3px; flex: 1; min-width: 0">
-                    <span class="between" style="flex-wrap: nowrap"><span class="tl">{t.label}</span><span class="mono" class:accent={item.chosen === k}>{fmt(t.metrics.pctDiff)} %</span></span>
-                    <span class="mono muted tiny">{kb(t.metrics.bytes)} · {t.metrics.paths} chemins · score {fmt(t.score)}</span>
+                    <span class="between" style="flex-wrap: nowrap"><span class="tl">{tr.base ? `${t('trials.base')} · ` : ''}{describeParams(tr.params)}</span><span class="mono" class:accent={item.chosen === k}>{pct(tr.metrics.pctDiff)}</span></span>
+                    <span class="mono muted tiny">{t('trials.meta', size(tr.metrics.bytes), tr.metrics.paths, num(tr.score, 2))}</span>
                   </span>
                 </button>
               </li>
             {/each}
           </ol>
-          <span class="muted tiny">Cliquez un essai pour le retenir à la place.</span>
+          <span class="muted tiny">{t('trials.hint')}</span>
         </div>
 
         <div class="card statgrid">
-          <div><span class="muted tiny">Poids</span><span class="sv">{kb(m.bytes)}</span></div>
-          <div><span class="muted tiny">Chemins</span><span class="sv">{m.paths}</span></div>
-          <div><span class="muted tiny">Bitmap</span><span class="sv" class:accent={!m.embeddedRaster}>{m.embeddedRaster ? 'oui' : 'aucun'}</span></div>
+          <div><span class="muted tiny">{t('stat.size')}</span><span class="sv">{size(m.bytes)}</span></div>
+          <div><span class="muted tiny">{t('stat.paths')}</span><span class="sv">{num(m.paths)}</span></div>
+          <div><span class="muted tiny">{t('stat.bitmap')}</span><span class="sv" class:accent={!m.embeddedRaster}>{m.embeddedRaster ? t('stat.yes') : t('stat.none')}</span></div>
         </div>
 
-        <button type="button" class="btn btn-primary" onclick={() => downloadSvg(item)}>Télécharger le SVG</button>
+        <button type="button" class="btn btn-primary" onclick={() => downloadSvg(item)}>{t('detail.download')}</button>
       </aside>
     </div>
   </div>

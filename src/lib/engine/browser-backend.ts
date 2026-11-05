@@ -188,7 +188,7 @@ export async function toPngFile(img: RGBAImage, name: string): Promise<File> {
   c.width = img.width
   c.height = img.height
   c.getContext('2d')!.putImageData(new ImageData(new Uint8ClampedArray(img.data), img.width, img.height), 0, 0)
-  const blob = await new Promise<Blob>((res, rej) => c.toBlob((b) => (b ? res(b) : rej(new Error('encodage PNG impossible'))), 'image/png'))
+  const blob = await new Promise<Blob>((res, rej) => c.toBlob((b) => (b ? res(b) : rej(new Error('PNG encoding failed'))), 'image/png'))
   return new File([blob], name, { type: 'image/png' })
 }
 
