@@ -99,12 +99,17 @@ translates, so the same core can serve a CLI. To add a language, add a dictionar
 ## CI and desktop builds (GitHub Actions)
 
 - **CI** (`.github/workflows/ci.yml`): on every push to `main` and every pull request,
-  type-check and web build on Linux.
+  type-check and web build on Linux, plus the CLI build and smoke test.
 - **Desktop apps** (`.github/workflows/desktop.yml`): Tauri build for **Windows (x64)** and
   **macOS (universal: Intel + Apple Silicon)**. Run it from the Actions tab ("Run workflow")
   to get the installers as artifacts (`.msi`, `-setup.exe`, `.dmg`); push a tag `v*`
   (e.g. `git tag v0.2.0 && git push --tags`) to also get a draft GitHub release.
   Builds are not code-signed yet (SmartScreen / Gatekeeper warn on first launch).
+- **Desktop end-to-end test** (same workflow, Windows): installs the NSIS build silently and
+  checks that it starts, then drives a test variant of the app (same code, WebView2 debugging
+  port via `e2e/tauri.e2e.conf.json`) with Playwright over CDP: import, vectorise, batch review,
+  detail view, slider, metrics. Screenshots, a screen recording and `report.json` are in the
+  `e2e-desktop-windows` artifact, with a summary on the run page. The draft release waits for it.
 
 Locally: `npm run tauri dev` / `npm run tauri build` (needs Rust and, on Windows, the C++
 build tools).
