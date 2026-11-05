@@ -182,6 +182,16 @@ export async function decodeFile(file: File): Promise<RGBAImage> {
   return { data: d.data, width: c.width, height: c.height }
 }
 
+/** Encode an RGBA image as a PNG File. */
+export async function toPngFile(img: RGBAImage, name: string): Promise<File> {
+  const c = document.createElement('canvas')
+  c.width = img.width
+  c.height = img.height
+  c.getContext('2d')!.putImageData(new ImageData(new Uint8ClampedArray(img.data), img.width, img.height), 0, 0)
+  const blob = await new Promise<Blob>((res, rej) => c.toBlob((b) => (b ? res(b) : rej(new Error('encodage PNG impossible'))), 'image/png'))
+  return new File([blob], name, { type: 'image/png' })
+}
+
 export function toDataUrl(img: RGBAImage): string {
   const c = document.createElement('canvas')
   c.width = img.width

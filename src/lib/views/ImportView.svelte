@@ -1,12 +1,36 @@
 <script lang="ts">
   import { app, go } from '../store.svelte'
   import { PRESETS, presetById } from '../engine/presets'
-  import { addFiles, clearItems, filesFromDrop, processAll } from '../pipeline'
+  import { addFiles, addSheet, clearItems, filesFromDrop, processAll } from '../pipeline'
   import { KIND_LABEL, type ImageKind } from '../engine/analyze'
 
   let dragging = $state(false)
   let fileInput: HTMLInputElement
   let folderInput: HTMLInputElement
+  let sheetInput: HTMLInputElement
+  let sheetInfo = $state<string | null>(null)
+  let slicing = $state(false)
+
+  async function onSheet(e: Event) {
+    const input = e.currentTarget as HTMLInputElement
+    const file = input.files?.[0]
+    input.value = ''
+    if (!file) return
+    slicing = true
+    sheetInfo = null
+    try {
+      const r = await addSheet(file)
+      sheetInfo = r.count
+        ? `${r.name} : ${r.count} élément${r.count > 1 ? 's' : ''} découpé${r.count > 1 ? 's' : ''}` +
+          (r.background !== 'transparent' ? `, fond ${r.background} rendu transparent` : '') +
+          (r.dropped ? ` (${r.dropped} petit${r.dropped > 1 ? 's' : ''} détail${r.dropped > 1 ? 's' : ''} isolé${r.dropped > 1 ? 's' : ''} ignoré${r.dropped > 1 ? 's' : ''})` : '')
+        : `${r.name} : aucun élément trouvé`
+    } catch (err) {
+      sheetInfo = `Découpage impossible : ${err instanceof Error ? err.message : String(err)}`
+    } finally {
+      slicing = false
+    }
+  }
 
   function pickPreset(id: string) {
     app.presetId = id
@@ -64,12 +88,18 @@
           <div class="row" style="flex-wrap: wrap">
             <button type="button" class="btn btn-primary" onclick={() => fileInput.click()}>Choisir des fichiers</button>
             <button type="button" class="btn" onclick={() => folderInput.click()}>Choisir un dossier</button>
+            <button type="button" class="btn" onclick={() => sheetInput.click()} disabled={slicing || app.running} title="Sépare automatiquement les éléments d'une planche (fond transparent ou uni)">
+              {#if slicing}<span class="spinner"></span>{/if}
+              Découper une planche
+            </button>
             {#if app.items.length}
               <button type="button" class="btn" onclick={clearItems} disabled={app.running}>Vider</button>
             {/if}
           </div>
           <input bind:this={fileInput} class="sr-only" type="file" multiple accept="image/png,image/jpeg,image/webp,image/gif,image/bmp" onchange={onPick} tabindex="-1" />
           <input bind:this={folderInput} class="sr-only" type="file" multiple {...{ webkitdirectory: true }} onchange={onPick} tabindex="-1" />
+          <input bind:this={sheetInput} class="sr-only" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/bmp" onchange={onSheet} tabindex="-1" />
+          {#if sheetInfo}<span class="small" style="color: var(--accent)" role="status">{sheetInfo}</span>{/if}
         </div>
         {#if app.items.length}
           <div class="picked">

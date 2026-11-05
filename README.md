@@ -28,6 +28,7 @@ src/lib/engine/browser-backend.ts  TraceBackend for the browser: vtracer-webapp 
 src/lib/engine/presets.ts          presets, same parameter units as the raster-to-svg skill
 src/lib/engine/analyze.ts          image analysis (colours, gradients, alpha) -> Auto parameters
 src/lib/engine/compact.ts          compact path encoding (pure, deterministic)
+src/lib/engine/slice.ts            sprite-sheet / brand-board slicing into elements (pure)
 src/lib/pipeline.ts                per-image pipeline: decode → trace → render → measure → auto-tune
 src/lib/export.ts                  zip: svg/*.svg, metrics.csv, config.json (replays the batch)
 src/lib/views/*                    Import, Lot (batch), Detail screens (Svelte 5)
@@ -49,6 +50,10 @@ src/lib/views/*                    Import, Lot (batch), Detail screens (Svelte 5
 - **Compact output**: paths are re-encoded (translate baked in, relative coordinates computed
   from rounded points, shortest numbers, implicit repeated commands): about 27 % smaller with
   identical fidelity metrics (sub-pixel rounding only). See `src/lib/engine/compact.ts`.
+- **Sheet slicing** ("Découper une planche"): a transparent (or uniform-background) board is
+  split into one image per element: connected components, small decorations attached to the
+  nearest element, letters of a wordmark grouped, reading order kept. Boards with background
+  panels behind groups of items are split per panel.
 - **Auto-tune**: when an image exceeds the difference threshold or the size budget, a fixed
   grid of up to 6 parameter sets is tried; the best score (`% diff + 0.002 × KiB`) within the
   budget wins. Same input + same config → byte-identical SVG.

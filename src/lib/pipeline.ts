@@ -1,5 +1,6 @@
 import { alphaStats, candidates, choose, computeMetrics, prepare, score, type TraceBackend } from './engine/core'
-import { browserBackend, decodeFile } from './engine/browser-backend'
+import { browserBackend, decodeFile, toPngFile } from './engine/browser-backend'
+import { crop, keyBackground, sliceSheet } from './engine/slice'
 import { describe } from './engine/presets'
 import { analyze, recommend } from './engine/analyze'
 import type { Item, TraceParams, Trial } from './engine/types'
@@ -65,13 +66,34 @@ async function ensureAnalysis(item: Item) {
   }
 }
 
-export function clearItems() {
-  for (const i of app.items) {
-    URL.revokeObjectURL(i.srcUrl)
-    forgetUrls(i)
+/**
+ * Split a sprite sheet / brand board into one image per element and add them to the batch.
+ * Works on transparent sheets, and on opaque ones with a uniform background (made transparent).
+ */
+export async function addSheet(file: File): Promise<{ name: string; count: number; background: string; dropped: number }> {
+  const img = await decodeFile(file)
+  const res = sliceSheet(img)
+  const stem = file.name.replace(/\.[^.]+$/, '')
+  const files: File[] = []
+  for (const [k, box] of res.boxes.entries()) {
+    let part = crop(img, box)
+    if (res.background !== 'transparent') part = keyBackground(part, res.background)
+    files.push(await toPngFile(part, `${stem}-${String(k + 1).padStart(2, '0')}.png`))
   }
+  addFiles(files)
+  return { name: file.name, count: files.length, background: res.background, dropped: res.dropped }
+}
+
+export function clearItems() {
+  // Remove from the UI first, then release the object URLs once the thumbnails are gone.
+  const old = app.items.splice(0, app.items.length)
   sources.clear()
-  app.items.length = 0
+  setTimeout(() => {
+    for (const i of old) {
+      URL.revokeObjectURL(i.srcUrl)
+      forgetUrls(i)
+    }
+  }, 1000)
 }
 
 /** Recursively collect files from a drop (folders included). */
