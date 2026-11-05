@@ -10,7 +10,7 @@
     { id: 'animate', key: 'nav.animate' },
   ]
   const enabled = (id: Route) =>
-    id === 'import' || id === 'edit' || id === 'animate' || (id === 'lot' ? app.items.length > 0 : doneItems().length > 0)
+    id === 'import' || id === 'animate' || (id === 'lot' ? app.items.length > 0 : doneItems().length > 0)
 </script>
 
 <header class="bar">

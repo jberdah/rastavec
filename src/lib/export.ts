@@ -3,6 +3,7 @@ import type { Item } from './engine/types'
 import { SIZE_WEIGHT } from './engine/core'
 import { app, chosenTrial, clone } from './store.svelte'
 import { engineName } from './pipeline'
+import { activeEdit, outputSvg } from './edit'
 
 const r4 = (x: number | null) => (x === null ? '' : String(Math.round(x * 10000) / 10000))
 
@@ -30,7 +31,10 @@ export function config(items: Item[]) {
     autoTune: { ...clone(app.auto), sizeWeightPerKiB: SIZE_WEIGHT },
     items: items
       .filter((i) => i.status === 'done')
-      .map((i) => ({ name: i.name, params: clone(chosenTrial(i).params), autoTuned: i.autoTuned })),
+      .map((i) => {
+        const edit = activeEdit(i)
+        return { name: i.name, params: clone(chosenTrial(i).params), autoTuned: i.autoTuned, ...(edit ? { paletteFilters: clone(edit) } : {}) }
+      }),
   }
 }
 
@@ -45,12 +49,12 @@ export function download(blob: Blob, filename: string) {
 
 export async function exportZip(items: Item[]) {
   const zip = new JSZip()
-  for (const i of items) if (i.status === 'done') zip.file(`svg/${i.name}.svg`, chosenTrial(i).svg)
+  for (const i of items) if (i.status === 'done') zip.file(`svg/${i.name}.svg`, outputSvg(i))
   zip.file('metrics.csv', metricsCsv(items))
   zip.file('config.json', JSON.stringify(config(items), null, 2) + '\n')
   download(await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' }), 'rastavec-export.zip')
 }
 
 export function downloadSvg(item: Item) {
-  download(new Blob([chosenTrial(item).svg], { type: 'image/svg+xml' }), `${item.name}.svg`)
+  download(new Blob([outputSvg(item)], { type: 'image/svg+xml' }), `${item.name}.svg`)
 }

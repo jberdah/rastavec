@@ -24,6 +24,7 @@ https://github.com/user-attachments/assets/1b9ad885-4589-423a-aafb-e8b841d84101
 - **Measured, not guessed**: visible difference, silhouette overlap and colour error for each image, with a magenta map of what changed.
 - **Auto-tuned**: images above your difference threshold or size budget are retried with other settings; the best one wins.
 - **Handles transparency**: clean silhouettes for logos and stickers, soft edges kept where they matter.
+- **Palette filters**: restyle a whole drawing in one click: fewer colours, less detail, hue shifts, a colour family swapped, or a theme palette (brand, duotone, mono, pastel, neon), applied to one image or the whole batch.
 - **Batch friendly**: whole folders, sprite sheets split into one SVG per element, a summary of what needs a second look.
 - **Private**: everything runs on your machine. Images are never uploaded.
 - **Repeatable**: same image, same settings, same SVG, byte for byte.

@@ -1,4 +1,5 @@
 import type { Analysis, NoteCode } from './analyze'
+import type { FilterSettings } from './palette'
 
 export type ColorMode = 'color' | 'binary'
 export type CurveMode = 'spline' | 'polygon'
@@ -82,6 +83,8 @@ export interface Item {
   analysis?: Analysis
   /** Why the auto preset chose these parameters. */
   notes?: NoteCode[]
+  /** Palette filters (Edit screen), valid for one trial. */
+  edit?: { settings: FilterSettings; trial: number }
 }
 
 export interface AutoTune {

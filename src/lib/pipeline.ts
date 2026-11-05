@@ -1,4 +1,5 @@
-import { alphaStats, type TraceBackend } from './engine/core'
+import { alphaStats, computeMetrics, type TraceBackend } from './engine/core'
+import { forgetEdits } from './edit'
 import { browserBackend, decodeFile, toPngFile } from './engine/browser-backend'
 import { crop, keyBackground, sliceSheet } from './engine/slice'
 import { analyze } from './engine/analyze'
@@ -8,6 +9,14 @@ import { app, clone, forgetUrls, sources } from './store.svelte'
 
 const backend: TraceBackend = browserBackend
 export const engineName = backend.name
+
+/** Fidelity of any SVG against the item's source image (same metrics as the trials). */
+export async function measureSvg(item: Item, svg: string) {
+  await ensureAnalysis(item)
+  const src = sources.get(item.id)
+  if (!src) return null
+  return computeMetrics(src, await backend.rasterize(svg, src.width, src.height), svg)
+}
 
 const IMAGE_EXT = /\.(png|jpe?g|webp|gif|bmp)$/i
 
@@ -125,6 +134,7 @@ async function processItem(item: Item) {
   item.autoTuned = false
   item.error = undefined
   forgetUrls(item)
+  forgetEdits(item)
   try {
     await ensureAnalysis(item)
     if (!sources.has(item.id)) throw new Error(item.error ?? 'unreadable image')
