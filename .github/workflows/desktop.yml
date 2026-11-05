@@ -80,9 +80,59 @@ jobs:
           path: src-tauri/Cargo.lock
           retention-days: 14
 
+  e2e-windows:
+    name: Windows end-to-end test
+    needs: build
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: rastavec-windows
+          path: installers
+
+      - name: Install RastaVec (NSIS, silent)
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem installers -Recurse -Filter '*-setup.exe' | Select-Object -First 1
+          Write-Host "Installing $($setup.Name)"
+          Start-Process $setup.FullName -ArgumentList '/S' -Wait
+          $exe = Get-ChildItem "$env:LOCALAPPDATA\RastaVec", "$env:ProgramFiles\RastaVec" -Recurse -Filter '*.exe' -ErrorAction SilentlyContinue |
+            Where-Object Name -notmatch 'uninstall' | Select-Object -First 1
+          if (-not $exe) { throw 'RastaVec executable not found after install' }
+          Write-Host "Installed: $($exe.FullName)"
+          "RASTAVEC_EXE=$($exe.FullName)" >> $env:GITHUB_ENV
+
+      - name: Ensure ffmpeg (screen recording)
+        shell: pwsh
+        run: if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) { choco install ffmpeg -y --no-progress }
+
+      - name: Run end-to-end test
+        working-directory: e2e
+        shell: pwsh
+        run: |
+          npm ci
+          node desktop.mjs --app "$env:RASTAVEC_EXE" --images ../assets/rastavec-path.png,../assets/rastavec-logo.png --out ../e2e-out --video
+
+      - name: Upload screenshots, video and report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-desktop-windows
+          path: e2e-out
+          retention-days: 14
+
   release:
     name: Draft GitHub release
-    needs: build
+    needs: [build, e2e-windows]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:

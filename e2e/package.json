@@ -1,0 +1,12 @@
+{
+  "name": "rastavec-e2e",
+  "private": true,
+  "description": "End-to-end test of the installed RastaVec desktop app (Windows, WebView2 over CDP).",
+  "type": "module",
+  "scripts": {
+    "desktop": "node desktop.mjs"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.56.0"
+  }
+}
