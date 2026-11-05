@@ -254,7 +254,7 @@
   .h3 { font-size: 16px; }
   .stagecol { flex: 999 1 600px; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
   .panel { flex: 1 1 340px; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
-  .stage { position: relative; height: min(640px, 70vh); min-height: 320px; border-radius: 22px; overflow: hidden; border: 1px solid var(--line-2); }
+  .stage { position: relative; height: clamp(320px, calc(100vh - 260px), 1100px); border-radius: 22px; overflow: hidden; border: 1px solid var(--line-2); }
   .fit { position: absolute; inset: 4%; width: 92%; height: 92%; object-fit: contain; }
   .outline :global(svg) { width: 100%; height: 100%; display: block; }
   .split { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--accent); box-shadow: 0 0 20px var(--accent-glow); pointer-events: none; }

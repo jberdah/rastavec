@@ -36,11 +36,11 @@
 </header>
 
 <style>
-  .bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 32px; border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 10; background: rgba(10, 11, 15, 0.88); backdrop-filter: blur(10px); }
+  .bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; padding: 16px var(--page-pad); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 10; background: rgba(10, 11, 15, 0.88); backdrop-filter: blur(10px); }
   .brand { display: flex; align-items: center; gap: 12px; }
   .logo { display: block; height: 36px; width: auto; }
   .right { display: flex; align-items: center; gap: 14px; }
   .privacy { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
   .lang button { min-height: 32px; padding: 0 10px; font-size: 12px; font-weight: 600; }
-  @media (max-width: 640px) { .bar { padding: 12px 16px; position: static; } }
+  @media (max-width: 640px) { .bar { padding-top: 12px; padding-bottom: 12px; position: static; } }
 </style>

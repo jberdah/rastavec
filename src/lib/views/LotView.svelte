@@ -218,6 +218,6 @@
   .meter span { display: block; height: 100%; border-radius: 999px; background: var(--accent-dim); }
   .meter span.tuned { background: var(--accent); }
   .meter span.bad { background: var(--warn); }
-  .exportbar { position: sticky; bottom: 0; padding: 16px 32px 24px; background: linear-gradient(180deg, rgba(10, 11, 15, 0) 0%, var(--bg) 40%); margin: 0 -32px -64px; }
-  .exportbar .inner { max-width: 1360px; margin: 0 auto; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; background: var(--surface); border: 1px solid var(--line-2); border-radius: 18px; padding: 12px 12px 12px 20px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5); }
+  .exportbar { position: sticky; bottom: 0; padding: 16px var(--page-pad) 24px; background: linear-gradient(180deg, rgba(10, 11, 15, 0) 0%, var(--bg) 40%); margin: 0 calc(-1 * var(--page-pad)) -64px; }
+  .exportbar .inner { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; background: var(--surface); border: 1px solid var(--line-2); border-radius: 18px; padding: 12px 12px 12px 20px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5); }
 </style>
