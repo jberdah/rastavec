@@ -11,6 +11,44 @@
   let bg = $state<Bg>('checker')
   let pos = $state(50)
   let diffUrl = $state<string | null>(null)
+  let stageEl = $state<HTMLDivElement>()
+  let dragging = $state(false)
+
+  // Slider: drag the knob (or press anywhere on the image) to move the split; keyboard on the knob.
+  const clamp = (v: number) => Math.min(100, Math.max(0, v))
+  function moveTo(clientX: number) {
+    if (!stageEl) return
+    const r = stageEl.getBoundingClientRect()
+    pos = clamp(Math.round(((clientX - r.left) / r.width) * 1000) / 10)
+  }
+  function onStageDown(e: PointerEvent) {
+    if (mode !== 'slider' || e.button !== 0) return
+    e.preventDefault()
+    stageEl?.setPointerCapture(e.pointerId)
+    dragging = true
+    moveTo(e.clientX)
+    stageEl?.querySelector<HTMLElement>('.knob')?.focus({ preventScroll: true })
+  }
+  function onStageMove(e: PointerEvent) {
+    if (dragging) moveTo(e.clientX)
+  }
+  function onStageUp(e: PointerEvent) {
+    if (!dragging) return
+    dragging = false
+    stageEl?.releasePointerCapture(e.pointerId)
+  }
+  function onKnobKey(e: KeyboardEvent) {
+    const stepSize = e.shiftKey ? 10 : 1
+    const next =
+      e.key === 'ArrowLeft' || e.key === 'ArrowDown' ? pos - stepSize
+      : e.key === 'ArrowRight' || e.key === 'ArrowUp' ? pos + stepSize
+      : e.key === 'Home' ? 0
+      : e.key === 'End' ? 100
+      : null
+    if (next === null) return
+    e.preventDefault()
+    pos = clamp(Math.round(next))
+  }
 
   const list = $derived(doneItems())
   const item = $derived(list.find((i) => i.id === app.selectedId) ?? list[0])
@@ -89,11 +127,34 @@
           </div>
         </div>
 
-        <div class="stage" style:background={mode === 'diff' ? '#f4f4f5' : mode === 'paths' ? 'var(--sunken)' : bgStyle}>
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div
+          class="stage"
+          class:sliding={mode === 'slider'}
+          class:dragging
+          bind:this={stageEl}
+          style:background={mode === 'diff' ? '#f4f4f5' : mode === 'paths' ? 'var(--sunken)' : bgStyle}
+          onpointerdown={onStageDown}
+          onpointermove={onStageMove}
+          onpointerup={onStageUp}
+          onpointercancel={onStageUp}
+        >
           {#if mode === 'slider'}
-            <img class="fit" src={item.srcUrl} alt={t('detail.original')} />
-            <img class="fit" src={svgUrl(item)} alt="SVG" style:clip-path={`inset(0 0 0 ${pos}%)`} />
-            <span class="split" style:left={`${pos}%`}><span class="knob">⇆</span></span>
+            <img class="fit" src={item.srcUrl} alt={t('detail.original')} draggable="false" />
+            <img class="fit" src={svgUrl(item)} alt="SVG" draggable="false" style:clip-path={`inset(0 0 0 ${pos}%)`} />
+            <span class="split" style:left={`${pos}%`}>
+              <span
+                class="knob"
+                role="slider"
+                tabindex="0"
+                aria-label={t('detail.sliderPos')}
+                aria-valuemin="0"
+                aria-valuemax="100"
+                aria-valuenow={Math.round(pos)}
+                aria-valuetext={pct(pos, 0)}
+                onkeydown={onKnobKey}
+              >⇆</span>
+            </span>
             <span class="lab mono l">{t('detail.original')}</span>
             <span class="lab mono r">SVG · {t('detail.pathsCount', m.paths)}</span>
           {:else if mode === 'side'}
@@ -109,13 +170,6 @@
             <span class="lab mono l accent">{t('detail.pathsCount', m.paths)}</span>
           {/if}
         </div>
-        {#if mode === 'slider'}
-          <div class="row">
-            <label for="split" class="muted small nowrap">{t('detail.sliderPos')}</label>
-            <input id="split" type="range" min="0" max="100" bind:value={pos} />
-            <span class="mono small" style="width: 52px; text-align: right">{pct(pos, 0)}</span>
-          </div>
-        {/if}
       </section>
 
       <aside class="panel">
@@ -198,14 +252,19 @@
   .small { font-size: 13px; }
   .tiny { font-size: 12px; }
   .h3 { font-size: 16px; }
-  .nowrap { white-space: nowrap; }
   .stagecol { flex: 999 1 600px; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
   .panel { flex: 1 1 340px; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
   .stage { position: relative; height: min(640px, 70vh); min-height: 320px; border-radius: 22px; overflow: hidden; border: 1px solid var(--line-2); }
   .fit { position: absolute; inset: 4%; width: 92%; height: 92%; object-fit: contain; }
   .outline :global(svg) { width: 100%; height: 100%; display: block; }
   .split { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--accent); box-shadow: 0 0 20px var(--accent-glow); pointer-events: none; }
-  .knob { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 40px; height: 40px; border-radius: 50%; background: var(--accent); border: 4px solid var(--bg); color: #0a0b0f; display: grid; place-items: center; font-weight: 700; }
+  .stage.sliding { cursor: ew-resize; touch-action: none; user-select: none; }
+  .knob { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 44px; height: 44px; border-radius: 50%; background: var(--accent); border: 4px solid var(--bg); color: #0a0b0f; display: grid; place-items: center; font-weight: 700; pointer-events: auto; cursor: grab; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45); transition: transform 0.12s; }
+  .knob:hover { transform: translate(-50%, -50%) scale(1.08); }
+  .knob:focus-visible { outline: 3px solid var(--accent-text); outline-offset: 3px; }
+  .stage.dragging, .stage.dragging .knob { cursor: grabbing; }
+  .stage.dragging .knob { transform: translate(-50%, -50%) scale(1.12); }
+  @media (prefers-reduced-motion: reduce) { .knob { transition: none; } }
   .side { position: absolute; inset: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .half { position: relative; border-right: 1px solid var(--line-2); }
   .lab { position: absolute; top: 14px; font-size: 12px; border-radius: 6px; padding: 4px 8px; }
