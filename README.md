@@ -1,4 +1,9 @@
-<p align="center"><img src="assets/rastavec-logo.png" alt="RastaVec" width="420"></p>
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/rastavec-logo.svg">
+    <img src="assets/rastavec-logo-light-bg.svg" alt="RastaVec" width="420">
+  </picture>
+</p>
 
 <p align="center"><b>Smooth vectors. Good vibes.</b></p>
 
@@ -95,6 +100,10 @@ translates, so the same core can serve a CLI. To add a language, add a dictionar
 - Logo: minimal Bézier symbol + wordmark (must work monochrome at 16 px). The mascot (striped
   beanie and headphones, no dreadlocks) is separate, for large formats, empty states and
   animation. Brand source images live in `assets/`.
+- Logo files: `rastavec-logo.svg` (cream wordmark, dark backgrounds) and
+  `rastavec-logo-light-bg.svg` (ink `#1A1C22` wordmark, light backgrounds). Both were vectorised
+  from `rastavec-logo.png` with the RastaVec CLI (1.34 % visible difference, 94 KB, 171 paths);
+  the light variant only recolours the cream fills.
 
 ## CI and desktop builds (GitHub Actions)
 

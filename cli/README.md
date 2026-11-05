@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/jberdah/rastavec/main/assets/rastavec-logo.svg">
+    <img src="https://raw.githubusercontent.com/jberdah/rastavec/main/assets/rastavec-logo-light-bg.svg" alt="RastaVec" width="360">
+  </picture>
+</p>
+
 # RastaVec CLI
 
 > Smooth vectors. Good vibes.
