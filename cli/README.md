@@ -14,10 +14,19 @@ auto-tuning, with a JSON report and stable exit codes for scripts, CI and AI age
 Same engine as the [RastaVec web app](https://github.com/jberdah/rastavec), everything runs locally.
 
 ```bash
-npx rastavec trace logo.png
-npx rastavec trace images/ -o out/ --preset auto --threshold 2 --max-size 700 --compare --json
-npx rastavec analyze images/ --json        # what Auto would do, writes nothing
-npx rastavec slice board.png -o elements/   # one PNG per element of a sprite sheet
+rastavec trace logo.png
+rastavec trace images/ -o out/ --preset auto --threshold 2 --max-size 700 --compare --json
+rastavec analyze images/ --json        # what Auto would do, writes nothing
+rastavec slice board.png -o elements/   # one PNG per element of a sprite sheet
+```
+
+## Install
+
+Node.js 18 or later. The beta is attached to the
+[GitHub releases](https://github.com/jberdah/rastavec/releases):
+
+```bash
+npm install -g https://github.com/jberdah/rastavec/releases/download/v0.1.0-beta.1/rastavec-0.1.0.tgz
 ```
 
 ## Commands
