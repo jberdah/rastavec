@@ -104,8 +104,14 @@ try {
 
   browser = await chromium.connectOverCDP(`http://127.0.0.1:${PORT}`)
   const context = browser.contexts()[0]
-  let page = context.pages().find((p) => !p.url().startsWith('devtools'))
-  if (!page) page = await context.waitForEvent('page', { timeout: 30000 })
+  // Wait for the app page itself (tauri.localhost), not a blank or devtools target.
+  let page = null
+  for (let end = Date.now() + 30000; !page && Date.now() < end; await sleep(500)) {
+    page = context.pages().find((p) => /tauri\.localhost|^tauri:/.test(p.url())) ?? null
+  }
+  if (!page) throw new Error(`App page not found: ${context.pages().map((p) => p.url()).join(', ')}`)
+  await page.waitForLoadState('domcontentloaded')
+  await page.waitForSelector('header img.logo', { timeout: 30000 })
   page.on('console', (m) => { if (m.type() === 'error') consoleErrors.push(m.text()) })
   page.on('pageerror', (e) => consoleErrors.push(String(e)))
   await page.setViewportSize({ width: 1440, height: 920 }).catch(() => {})
