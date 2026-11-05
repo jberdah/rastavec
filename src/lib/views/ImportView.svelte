@@ -43,7 +43,7 @@
 <div class="layout">
   <section class="main">
     <div class="hero">
-      <span class="mono eyebrow">RASTER → SVG · DÉTERMINISTE</span>
+      <span class="mono eyebrow">SMOOTH VECTORS. GOOD VIBES.</span>
       <h1>Du pixel au vecteur,<br />en un glisser-déposer.</h1>
       <p class="muted lead">Vectorisez une image ou un dossier entier. Chaque SVG est comparé à l'original et réglé automatiquement jusqu'à passer sous le seuil d'écart.</p>
     </div>
@@ -198,7 +198,7 @@
   .lead { max-width: 620px; font-size: 18px; line-height: 1.5; }
   .small { font-size: 13px; }
   .h3 { font-size: 17px; }
-  .drop { border-radius: 24px; padding: 2px; background: linear-gradient(135deg, var(--accent) 0%, var(--line-2) 40%, var(--line-2) 70%, var(--warn) 100%); transition: transform 0.15s; }
+  .drop { border-radius: 24px; padding: 2px; background: linear-gradient(135deg, var(--accent) 0%, var(--line-2) 40%, var(--line-2) 70%, var(--brand-gold) 100%); transition: transform 0.15s; }
   .drop.dragging { transform: scale(1.01); background: var(--accent); }
   .drop-inner { border-radius: 22px; background: var(--sunken); padding: 32px; display: flex; flex-wrap: wrap; gap: 28px; align-items: center; }
   .picked { flex: 1 1 260px; display: flex; flex-direction: column; gap: 10px; }

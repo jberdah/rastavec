@@ -23,7 +23,7 @@ export function metricsCsv(items: Item[]): string {
 /** Everything needed to replay the batch identically. */
 export function config(items: Item[]) {
   return {
-    app: 'svg-studio',
+    app: 'rastavec',
     engine: engineName,
     preset: app.presetId,
     params: clone(app.params),
@@ -48,7 +48,7 @@ export async function exportZip(items: Item[]) {
   for (const i of items) if (i.status === 'done') zip.file(`svg/${i.name}.svg`, chosenTrial(i).svg)
   zip.file('metrics.csv', metricsCsv(items))
   zip.file('config.json', JSON.stringify(config(items), null, 2) + '\n')
-  download(await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' }), 'svg-studio-export.zip')
+  download(await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' }), 'rastavec-export.zip')
 }
 
 export function downloadSvg(item: Item) {

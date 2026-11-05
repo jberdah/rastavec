@@ -9,7 +9,9 @@ const app = mount(App, {
 // Test hook (dev, or ?debug in production) so scripted checks can feed files without a file picker.
 if (import.meta.env.DEV || new URLSearchParams(location.search).has('debug')) {
   Promise.all([import('./lib/pipeline'), import('./lib/store.svelte')]).then(([pipeline, store]) => {
-    ;(window as unknown as Record<string, unknown>).svgStudio = { ...pipeline, app: store.app }
+    const hook = { ...pipeline, app: store.app }
+    ;(window as unknown as Record<string, unknown>).rastavec = hook
+    ;(window as unknown as Record<string, unknown>).svgStudio = hook // legacy alias
   })
 }
 

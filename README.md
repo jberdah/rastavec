@@ -1,4 +1,8 @@
-# SVG Studio
+# RastaVec
+
+> Smooth vectors. Good vibes.
+
+*(Formerly "SVG Studio". The name RastaVec is provisional until domain and trademark checks are done.)*
 
 Vectorise PNG/JPEG/WebP images into editable SVG, compare each result with its source and
 tune it automatically, deterministically, 100 % in the browser (images never leave the device).
@@ -49,13 +53,23 @@ src/lib/views/*                    Import, Lot (batch), Detail screens (Svelte 5
   grid of up to 6 parameter sets is tried; the best score (`% diff + 0.002 × KiB`) within the
   budget wins. Same input + same config → byte-identical SVG.
 
+## Brand
+
+- Name `RastaVec`, CLI / packages `rastavec`; signature *Smooth vectors. Good vibes.*
+- App: minimal, background `#0A0B0F`, accent `#C8F65A`. Secondary colours gold `#F5C542`,
+  coral `#E96650`, green `#2E7D5B`, used sparingly (marketing first).
+- **Orange `#FF7A45` is reserved for differences / items to review**: never decorative.
+- Logo: minimal Bézier symbol + wordmark (must work monochrome at 16 px). The mascot is a
+  separate, original character built from vector shapes, for large formats and animation;
+  no cultural stereotypes (no Jamaican hat, dreadlocks, sunglasses).
+
 ## Distribution
 
 The engine core is environment-agnostic on purpose: the same `TraceBackend` contract can be
 implemented by a native backend (VTracer Rust/Python + sharp) to ship a CLI / MCP server for
 coding agents, or a desktop shell (e.g. Tauri) reusing this UI.
 
-Web hosting target: Cloudflare Pages project `svg-studio` (e.g. `svg-studio.brainclaw.dev`):
+Web hosting target: Cloudflare Pages project `rastavec` (domain to be decided):
 
 ```bash
 npm run deploy     # build + wrangler pages deploy (needs a Cloudflare login)
@@ -63,5 +77,5 @@ npm run deploy     # build + wrangler pages deploy (needs a Cloudflare login)
 
 ## Local test material
 
-Put sample images in `.tmp/` (git-ignored). In dev, `window.svgStudio` exposes `addFiles`,
+Put sample images in `.tmp/` (git-ignored). In dev (or with `?debug`), `window.rastavec` exposes `addFiles`,
 `processAll` and the app state for scripted checks.

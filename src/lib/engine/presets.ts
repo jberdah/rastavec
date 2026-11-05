@@ -31,7 +31,7 @@ export const PRESETS: Preset[] = [
     id: 'auto',
     name: 'Auto',
     desc: 'Réglages choisis pour chaque image : couleurs, dégradés, transparence.',
-    swatches: ['#C8F65A', '#4C6EF5', '#FF7A45', '#F2F4F7'],
+    swatches: ['#C8F65A', '#F5C542', '#2E7D5B', '#F2F4F7'],
     params: { ...DEFAULT_PARAMS },
     recommended: true,
   },

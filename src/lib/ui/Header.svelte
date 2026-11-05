@@ -15,7 +15,7 @@
 <header class="bar">
   <div class="brand">
     <svg width="30" height="30" viewBox="0 0 30 30" aria-hidden="true"><path d="M4 24 C 8 6, 22 6, 26 24" fill="none" stroke="#C8F65A" stroke-width="2.2" stroke-linecap="round" /><line x1="4" y1="24" x2="10" y2="8" stroke="#5B6472" stroke-width="1.2" /><line x1="26" y1="24" x2="20" y2="8" stroke="#5B6472" stroke-width="1.2" /><rect x="1.5" y="21.5" width="5" height="5" fill="#0A0B0F" stroke="#C8F65A" stroke-width="1.5" /><rect x="23.5" y="21.5" width="5" height="5" fill="#0A0B0F" stroke="#C8F65A" stroke-width="1.5" /><circle cx="10" cy="8" r="2" fill="#5B6472" /><circle cx="20" cy="8" r="2" fill="#5B6472" /></svg>
-    <span class="name">SVG Studio</span>
+    <span class="name">RastaVec</span>
     <span class="tag mono">POC</span>
   </div>
   <nav class="seg strong" aria-label="Étapes">

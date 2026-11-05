@@ -14,7 +14,12 @@
   --accent-dim: #7c8b4e;
   --accent-bg: #161a12;
   --accent-line: #3a4a1e;
+  /* Orange is reserved for differences / items to review: never decorative. */
   --warn: #ff7a45;
+  /* Secondary brand colours: sparingly, marketing and illustrations first. */
+  --brand-gold: #f5c542;
+  --brand-coral: #e96650;
+  --brand-green: #2e7d5b;
   --warn-text: #ff9a6e;
   --checker: repeating-conic-gradient(#1c1f27 0 25%, #15171d 0 50%) 0 0 / 16px 16px;
   color-scheme: dark;
