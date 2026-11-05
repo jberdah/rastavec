@@ -124,7 +124,7 @@
           <div class="between"><h2 class="h3">Fidélité</h2><span class="mono faint tiny">rendu navigateur · même taille</span></div>
           <div class="row" style="gap: 18px">
             <div class="ring">
-              <svg viewBox="0 0 104 104" width="104" height="104" role="img" aria-label={`${fmt(100 - m.pctDiff, 1)} % des pixels sans écart visible`}><circle cx="52" cy="52" r="44" fill="none" stroke="#1F232C" stroke-width="10" /><circle cx="52" cy="52" r="44" fill="none" stroke={needsReview(item) ? '#FF7A45' : '#C8F65A'} stroke-width="10" stroke-linecap="round" stroke-dasharray={ringDash} transform="rotate(-90 52 52)" /></svg>
+              <svg viewBox="0 0 104 104" width="104" height="104" role="img" aria-label={`${fmt(100 - m.pctDiff, 1)} % des pixels sans écart visible`}><circle cx="52" cy="52" r="44" fill="none" stroke="#1F232C" stroke-width="10" /><circle cx="52" cy="52" r="44" fill="none" stroke={needsReview(item) ? '#FF4F8B' : '#C8F65A'} stroke-width="10" stroke-linecap="round" stroke-dasharray={ringDash} transform="rotate(-90 52 52)" /></svg>
               <div class="ringlabel"><span class="big">{fmt(100 - m.pctDiff, 1)}</span><span class="muted tiny">% fidèle</span></div>
             </div>
             <dl class="metrics">
@@ -211,7 +211,7 @@
   .lab.r { right: 14px; color: #0a0b0f; background: var(--accent); }
   .center { position: absolute; inset: 0; display: grid; place-items: center; }
   .legend { position: absolute; left: 14px; bottom: 14px; display: flex; align-items: center; gap: 10px; background: rgba(10, 11, 15, 0.88); border-radius: 10px; padding: 8px 12px; font-size: 12px; }
-  .grad { width: 120px; height: 8px; border-radius: 999px; background: linear-gradient(90deg, #d9d9de, #e5482a); }
+  .grad { width: 120px; height: 8px; border-radius: 999px; background: linear-gradient(90deg, #d9d9de, #ff4f8b); }
   .swatch { display: block; width: 20px; height: 20px; border-radius: 6px; border: 1px solid var(--line-3); background-size: 8px 8px; }
   .ring { position: relative; width: 104px; height: 104px; flex: none; }
   .ringlabel { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }

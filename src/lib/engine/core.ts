@@ -258,7 +258,8 @@ export function computeMetrics(a: RGBAImage, b: RGBAImage, svg: string): Metrics
   }
 }
 
-/** diff map: faint grey ghost of the source, red where they differ (noise < 16 hidden). */
+/** diff map: faint grey ghost of the source, magenta (the alert colour) where they differ (noise < 16 hidden). */
+const DIFF_COLOR = [255, 79, 139]
 export function diffImage(a: RGBAImage, b: RGBAImage): RGBAImage {
   const A = a.data, B = b.data
   const out = new Uint8ClampedArray(A.length)
@@ -273,8 +274,9 @@ export function diffImage(a: RGBAImage, b: RGBAImage): RGBAImage {
     }
     const ghost = 205 + lum * 0.18
     const t = Math.max(0, Math.min(1, (worst - 16) / 80))
-    out[i] = ghost + (255 - ghost) * t
-    out[i + 1] = out[i + 2] = ghost * (1 - t)
+    out[i] = ghost + (DIFF_COLOR[0] - ghost) * t
+    out[i + 1] = ghost + (DIFF_COLOR[1] - ghost) * t
+    out[i + 2] = ghost + (DIFF_COLOR[2] - ghost) * t
     out[i + 3] = 255
   }
   return { data: out, width: a.width, height: a.height }

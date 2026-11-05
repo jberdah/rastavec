@@ -45,7 +45,7 @@
     ),
   )
 
-  // Readable scale: outliers are capped (the bar turns orange and reaches the top).
+  // Readable scale: outliers are capped (the bar turns to the alert colour and reaches the top).
   const scaleMax = $derived(Math.max(5, app.auto.threshold * 2.5))
   const barH = (p: number) => `${Math.min(100, (100 * p) / scaleMax)}%`
 
@@ -177,7 +177,7 @@
   .small { font-size: 13px; }
   .h3 { font-size: 16px; }
   .banner { font-size: 14px; background: var(--accent-bg); border: 1px solid var(--accent-line); border-radius: 12px; padding: 10px 14px; }
-  .banner.warn { background: #1e140f; border-color: #5a2e1c; color: var(--warn-text); }
+  .banner.warn { background: var(--warn-bg); border-color: var(--warn-line); color: var(--warn-text); }
   .progress { height: 6px; border-radius: 999px; background: var(--line); overflow: hidden; }
   .progress span { display: block; height: 100%; background: var(--accent); transition: width 0.3s; }
   .chart { flex: 2 1 520px; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
