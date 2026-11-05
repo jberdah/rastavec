@@ -71,6 +71,20 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      # Same app with a local WebView2 debugging port, used only by the end-to-end test.
+      - name: Build E2E variant (debugging port)
+        if: matrix.os == 'windows-latest'
+        run: npm run tauri -- build --target ${{ matrix.target }} --no-bundle --config e2e/tauri.e2e.conf.json
+
+      - name: Upload E2E variant
+        if: matrix.os == 'windows-latest'
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-app-windows
+          path: src-tauri/target/${{ matrix.target }}/release/rastavec.exe
+          if-no-files-found: error
+          retention-days: 7
+
       # Cargo.lock is produced by the first build: keep it so it can be committed.
       - name: Upload Cargo.lock
         if: matrix.os == 'windows-latest'
@@ -110,11 +124,24 @@ jobs:
           if (-not $exe) { throw 'RastaVec executable not found after install' }
           Write-Host "Installed: $($exe.FullName)"
           "RASTAVEC_EXE=$($exe.FullName)" >> $env:GITHUB_ENV
-          # WebView2 loader override (same as WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS, per executable):
-          # opens a local debugging port so the test can drive the app. Test machine only.
-          $key = 'HKCU:\Software\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments'
-          New-Item -Path $key -Force | Out-Null
-          New-ItemProperty -Path $key -Name $exe.Name -Value '--remote-debugging-port=9222' -PropertyType String -Force | Out-Null
+
+      - name: Installed app starts
+        shell: pwsh
+        run: |
+          $p = Start-Process $env:RASTAVEC_EXE -PassThru
+          Start-Sleep -Seconds 12
+          $wv = Get-CimInstance Win32_Process -Filter "Name='msedgewebview2.exe'" | Where-Object CommandLine -match 'webview-exe-name=rastavec.exe'
+          if ($p.HasExited) { throw "Installed app exited with code $($p.ExitCode)" }
+          if (-not $wv) { throw 'No WebView2 process for rastavec.exe' }
+          Write-Host "Installed app running (pid $($p.Id)), WebView2 processes: $(@($wv).Count)"
+          Stop-Process -Id $p.Id -Force
+          Get-Process msedgewebview2 -ErrorAction SilentlyContinue | Stop-Process -Force
+          Start-Sleep -Seconds 3
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: e2e-app-windows
+          path: e2e-app
 
       - name: Ensure ffmpeg (screen recording)
         shell: pwsh
@@ -125,7 +152,7 @@ jobs:
         shell: pwsh
         run: |
           npm ci
-          node desktop.mjs --app "$env:RASTAVEC_EXE" --images ../assets/rastavec-path.png,../assets/rastavec-logo.png --out ../e2e-out --video
+          node desktop.mjs --app ../e2e-app/rastavec.exe --images ../assets/rastavec-path.png,../assets/rastavec-logo.png --out ../e2e-out --video
 
       - name: Upload screenshots, video and report
         if: always()
