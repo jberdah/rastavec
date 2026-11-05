@@ -110,6 +110,11 @@ jobs:
           if (-not $exe) { throw 'RastaVec executable not found after install' }
           Write-Host "Installed: $($exe.FullName)"
           "RASTAVEC_EXE=$($exe.FullName)" >> $env:GITHUB_ENV
+          # WebView2 loader override (same as WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS, per executable):
+          # opens a local debugging port so the test can drive the app. Test machine only.
+          $key = 'HKCU:\Software\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments'
+          New-Item -Path $key -Force | Out-Null
+          New-ItemProperty -Path $key -Name $exe.Name -Value '--remote-debugging-port=9222' -PropertyType String -Force | Out-Null
 
       - name: Ensure ffmpeg (screen recording)
         shell: pwsh

@@ -77,6 +77,11 @@ async function waitForCdp(timeoutMs) {
     } catch {}
     await sleep(500)
   }
+  // Diagnostics: what WebView2 was actually started with, and what listens.
+  const ps = spawnSync('powershell', ['-NoProfile', '-Command',
+    "Get-CimInstance Win32_Process -Filter \"Name='msedgewebview2.exe'\" | Select-Object -First 3 -ExpandProperty CommandLine; netstat -ano | findstr LISTENING | findstr 127.0.0.1"],
+    { encoding: 'utf8' })
+  console.log(ps.stdout, ps.stderr)
   throw new Error(`WebView2 debugging port ${PORT} did not open within ${timeoutMs / 1000}s`)
 }
 
