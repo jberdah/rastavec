@@ -38,9 +38,9 @@ jobs:
             artifact: rastavec-macos
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -61,7 +61,7 @@ jobs:
         run: npm run tauri -- build --target ${{ matrix.target }}
 
       - name: Upload installers
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact }}
           path: |
@@ -74,7 +74,7 @@ jobs:
       # Cargo.lock is produced by the first build: keep it so it can be committed.
       - name: Upload Cargo.lock
         if: matrix.os == 'windows-latest'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: cargo-lock
           path: src-tauri/Cargo.lock
@@ -88,9 +88,9 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -104,7 +104,7 @@ jobs:
           mkdir -p ../installers
           npm pack --pack-destination ../installers
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: rastavec-*
           path: installers
@@ -117,7 +117,7 @@ jobs:
           rm -f installers/Cargo.lock
           ls -la installers
 
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           draft: true
           prerelease: ${{ contains(github.ref_name, '-') }}
