@@ -17,7 +17,9 @@ retries on its own when the result is not close enough or too heavy. You get a f
 for every file, a slider to check it by eye, and a zip ready to use.
 
 <p align="center">
-  <img src="docs/screenshot-detail.png" alt="RastaVec detail view: original and SVG compared with a slider, fidelity score 98.6 %, image analysis and trials" width="860">
+  <a href="https://youtu.be/fWIY1R1bUAc"><img src="docs/demo-video.jpg" alt="Watch the 1-minute RastaVec demo on YouTube" width="860"></a>
+  <br>
+  <sub>▶ <a href="https://youtu.be/fWIY1R1bUAc">Watch the 1-minute demo on YouTube</a></sub>
 </p>
 
 - **Real vectors, not a bitmap in disguise**: every SVG is made of paths you can edit, recolour and animate.
