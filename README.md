@@ -63,7 +63,8 @@ src/lib/views/*                    Import, Lot (batch), Detail screens (Svelte 5
 ## Brand
 
 - Name `RastaVec`, CLI / packages `rastavec`; signature *Smooth vectors. Good vibes.*
-- App: minimal, background `#0A0B0F`, accent `#C8F65A`. Brand palette green `#1F8F4A`,
+- App: minimal, background `#0A0B0F`, accent = logo green `#1F8F4A` for fills (dark text on it),
+  lighter tint `#3CC274` for text and thin strokes on the dark UI. Brand palette green `#1F8F4A`,
   gold `#FFD34D`, red `#E74A3B`, orange `#FF8A28`, cream `#FFF8E6`, used sparingly in the app
   (marketing and illustrations first).
 - **Magenta `#FF4F8B` is the alert colour** (differences, items to review, diff map): it is

@@ -9,11 +9,15 @@
   --text: #f2f4f7;
   --muted: #9aa3b2;
   --faint: #5b6472;
-  --accent: #c8f65a;
-  --accent-hi: #e2ff9a;
-  --accent-dim: #7c8b4e;
-  --accent-bg: #161a12;
-  --accent-line: #3a4a1e;
+  /* Accent = logo green. Fills (buttons, active tabs, bars) use --accent with dark text (4.8:1);
+     text and thin strokes on the dark UI use --accent-text (same hue, lighter). */
+  --accent: #1f8f4a;
+  --accent-hi: #27a85a;
+  --accent-text: #3cc274;
+  --accent-glow: rgba(31, 143, 74, 0.35);
+  --accent-dim: #2b5a3c;
+  --accent-bg: #0e1a12;
+  --accent-line: #1f4a2e;
   /* Alert colour (differences, items to review): magenta, outside the brand palette.
      Never used decoratively. */
   --warn: #ff4f8b;
@@ -26,8 +30,6 @@
   --brand-red: #e74a3b;
   --brand-orange: #ff8a28;
   --brand-cream: #fff8e6;
-  /* Brand green lightened for text/strokes on the dark UI (contrast >= 4.5:1). */
-  --brand-green-on-dark: #2fb866;
   --checker: repeating-conic-gradient(#1c1f27 0 25%, #15171d 0 50%) 0 0 / 16px 16px;
   color-scheme: dark;
   font-family: 'Geist', system-ui, -apple-system, 'Segoe UI', sans-serif;
@@ -38,12 +40,12 @@
 
 * { box-sizing: border-box; }
 body { margin: 0; min-height: 100vh; background: var(--bg); }
-a { color: var(--accent); }
-a:hover { color: var(--accent-hi); }
+a { color: var(--accent-text); }
+a:hover { color: #6fd99a; }
 button, input, select { font: inherit; color: inherit; }
 button { cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: 0.45; }
-:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
 input[type='range'] { accent-color: var(--accent); width: 100%; }
 input[type='checkbox'], input[type='radio'] { accent-color: var(--accent); width: 18px; height: 18px; }
 h1, h2, h3 { margin: 0; letter-spacing: -0.02em; }
@@ -52,7 +54,7 @@ p { margin: 0; }
 .mono { font-family: 'Geist Mono', ui-monospace, monospace; }
 .muted { color: var(--muted); }
 .faint { color: var(--faint); }
-.accent { color: var(--accent); }
+.accent { color: var(--accent-text); }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 .page { max-width: 1360px; margin: 0 auto; padding: 32px 32px 64px; }
@@ -83,7 +85,7 @@ p { margin: 0; }
 
 .chip { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; border-radius: 999px; padding: 3px 9px; white-space: nowrap; }
 .chip-accent { color: #0a0b0f; background: var(--accent); }
-.chip-ok { color: var(--accent); background: var(--accent-bg); border: 1px solid var(--accent-line); }
+.chip-ok { color: var(--accent-text); background: var(--accent-bg); border: 1px solid var(--accent-line); }
 .chip-warn { color: var(--warn-text); background: var(--warn-bg); border: 1px solid var(--warn-line); }
 .chip-muted { color: var(--muted); background: var(--surface-2); }
 
@@ -99,5 +101,5 @@ p { margin: 0; }
 .kpi .s { font-family: 'Geist Mono', monospace; font-size: 11px; color: var(--muted); }
 
 @keyframes spin { to { transform: rotate(360deg); } }
-.spinner { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--line-3); border-top-color: var(--accent); animation: spin 0.8s linear infinite; }
+.spinner { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--line-3); border-top-color: var(--accent-text); animation: spin 0.8s linear infinite; }
 @media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 3s; } }

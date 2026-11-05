@@ -208,7 +208,7 @@
   .tile { display: flex; flex-direction: column; gap: 12px; padding: 12px 12px 16px; border-radius: 20px; background: var(--surface); border: 1.5px solid var(--line); text-align: left; color: inherit; }
   .tile:disabled { opacity: 1; cursor: default; }
   .tile:hover:not(:disabled) { border-color: var(--line-3); }
-  .tile.tuned { border-color: var(--accent); box-shadow: 0 0 0 4px rgba(200, 246, 90, 0.08); }
+  .tile.tuned { border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-glow); }
   .thumb { position: relative; aspect-ratio: 4 / 3; border-radius: 14px; overflow: hidden; }
   .layer { position: absolute; inset: 8px; width: calc(100% - 16px); height: calc(100% - 16px); object-fit: contain; }
   .vec { clip-path: inset(0 0 0 50%); }

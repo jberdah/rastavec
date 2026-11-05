@@ -102,7 +102,7 @@
           <input bind:this={fileInput} class="sr-only" type="file" multiple accept="image/png,image/jpeg,image/webp,image/gif,image/bmp" onchange={onPick} tabindex="-1" />
           <input bind:this={folderInput} class="sr-only" type="file" multiple {...{ webkitdirectory: true }} onchange={onPick} tabindex="-1" />
           <input bind:this={sheetInput} class="sr-only" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/bmp" onchange={onSheet} tabindex="-1" />
-          {#if sheetInfo}<span class="small" style="color: var(--accent)" role="status">{sheetInfo}</span>{/if}
+          {#if sheetInfo}<span class="small" style="color: var(--accent-text)" role="status">{sheetInfo}</span>{/if}
         </div>
         {#if app.items.length}
           <div class="picked">
@@ -174,7 +174,7 @@
         <span class="mono muted small">vtracer</span>
       </div>
       {#if app.presetId === 'auto'}
-        <span class="small" style="color: var(--accent)">Mode Auto : ces valeurs sont recalculées pour chaque image à partir de son analyse. Modifier un réglage passe en Personnalisé.</span>
+        <span class="small" style="color: var(--accent-text)">Mode Auto : ces valeurs sont recalculées pour chaque image à partir de son analyse. Modifier un réglage passe en Personnalisé.</span>
       {/if}
       <div class="seg" role="group" aria-label="Couleur">
         <button type="button" aria-pressed={app.params.colormode === 'color'} onclick={() => { app.params.colormode = 'color'; markCustom() }}>Couleur</button>
@@ -229,7 +229,7 @@
   .hero { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
   .hero-mascot { flex: none; width: 200px; height: auto; filter: drop-shadow(0 18px 40px rgba(0, 0, 0, 0.45)); }
   @media (max-width: 760px) { .hero-mascot { display: none; } }
-  .eyebrow { font-size: 13px; color: var(--accent); letter-spacing: 0.08em; }
+  .eyebrow { font-size: 13px; color: var(--accent-text); letter-spacing: 0.08em; }
   h1 { font-size: clamp(34px, 5vw, 60px); line-height: 1.03; letter-spacing: -0.035em; }
   .lead { max-width: 620px; font-size: 18px; line-height: 1.5; }
   .small { font-size: 13px; }
@@ -242,7 +242,7 @@
   .thumbs img { width: 100%; aspect-ratio: 1; object-fit: contain; border-radius: 8px; border: 1px solid var(--line-2); }
   .presets { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
   .preset { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; text-align: left; padding: 18px; min-height: 150px; border-radius: 16px; background: var(--surface); border: 1.5px solid var(--line); }
-  .preset[aria-pressed='true'] { background: var(--accent-bg); border-color: var(--accent); box-shadow: 0 0 0 4px rgba(200, 246, 90, 0.1); }
+  .preset[aria-pressed='true'] { background: var(--accent-bg); border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-glow); }
   .pname { font-size: 16px; font-weight: 600; }
   .dot { width: 14px; height: 14px; border-radius: 50%; border: 1px solid rgba(255, 255, 255, 0.15); }
   .toggle { position: relative; flex: none; width: 52px; height: 30px; border-radius: 999px; border: 0; background: var(--line-3); }

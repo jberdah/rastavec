@@ -38,7 +38,7 @@
     trial
       ? trial.svg
           .replace(/<svg([^>]*?)\swidth="\d+"\sheight="\d+"/, '<svg$1 width="100%" height="100%" preserveAspectRatio="xMidYMid meet"')
-          .replace(/(<svg[^>]*>)/, '$1<style>path{fill:none!important;stroke:#C8F65A;stroke-width:0.6px;vector-effect:non-scaling-stroke}</style>')
+          .replace(/(<svg[^>]*>)/, '$1<style>path{fill:none!important;stroke:#3CC274;stroke-width:0.6px;vector-effect:non-scaling-stroke}</style>')
       : '',
   )
 
@@ -125,7 +125,7 @@
           <div class="between"><h2 class="h3">Fidélité</h2><span class="mono faint tiny">rendu navigateur · même taille</span></div>
           <div class="row" style="gap: 18px">
             <div class="ring">
-              <svg viewBox="0 0 104 104" width="104" height="104" role="img" aria-label={`${fmt(100 - m.pctDiff, 1)} % des pixels sans écart visible`}><circle cx="52" cy="52" r="44" fill="none" stroke="#1F232C" stroke-width="10" /><circle cx="52" cy="52" r="44" fill="none" stroke={needsReview(item) ? '#FF4F8B' : '#C8F65A'} stroke-width="10" stroke-linecap="round" stroke-dasharray={ringDash} transform="rotate(-90 52 52)" /></svg>
+              <svg viewBox="0 0 104 104" width="104" height="104" role="img" aria-label={`${fmt(100 - m.pctDiff, 1)} % des pixels sans écart visible`}><circle cx="52" cy="52" r="44" fill="none" stroke="#1F232C" stroke-width="10" /><circle cx="52" cy="52" r="44" fill="none" stroke={needsReview(item) ? '#FF4F8B' : '#1F8F4A'} stroke-width="10" stroke-linecap="round" stroke-dasharray={ringDash} transform="rotate(-90 52 52)" /></svg>
               <div class="ringlabel"><span class="big">{fmt(100 - m.pctDiff, 1)}</span><span class="muted tiny">% fidèle</span></div>
             </div>
             <dl class="metrics">
@@ -203,7 +203,7 @@
   .stage { position: relative; height: min(640px, 70vh); min-height: 320px; border-radius: 22px; overflow: hidden; border: 1px solid var(--line-2); }
   .fit { position: absolute; inset: 4%; width: 92%; height: 92%; object-fit: contain; }
   .outline :global(svg) { width: 100%; height: 100%; display: block; }
-  .split { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--accent); box-shadow: 0 0 20px rgba(200, 246, 90, 0.6); pointer-events: none; }
+  .split { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--accent); box-shadow: 0 0 20px var(--accent-glow); pointer-events: none; }
   .knob { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 40px; height: 40px; border-radius: 50%; background: var(--accent); border: 4px solid var(--bg); color: #0a0b0f; display: grid; place-items: center; font-weight: 700; }
   .side { position: absolute; inset: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .half { position: relative; border-right: 1px solid var(--line-2); }
@@ -226,10 +226,10 @@
   .trial:hover { background: var(--surface-2); }
   .tl { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .dotc { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--faint); margin-top: 3px; flex: none; }
-  .dotc.on { border: 0; background: var(--accent); box-shadow: 0 0 0 4px rgba(200, 246, 90, 0.15); }
+  .dotc.on { border: 0; background: var(--accent); box-shadow: 0 0 0 4px var(--accent-glow); }
   .reasons { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
   .reasons.picked { color: var(--text); }
-  .reasons.picked li::marker { color: var(--accent); }
+  .reasons.picked li::marker { color: var(--accent-text); }
   .statgrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
   .statgrid div { display: flex; flex-direction: column; gap: 4px; }
   .sv { font-size: 20px; font-weight: 600; }
