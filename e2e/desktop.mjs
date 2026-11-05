@@ -150,9 +150,10 @@ try {
   const items = await page.$$eval('.tile', (tiles) =>
     tiles.map((t) => {
       const vec = t.querySelector('img.vec')
-      const diff = t.querySelector('.stack .mono')?.textContent ?? ''
+      const diff = t.querySelector(':scope > .stack .between .mono')?.textContent ?? ''
       const last = diff.split('→').pop().trim()
-      const pct = Number(last.replace(/[^\d.,-]/g, '').replace(',', '.'))
+      // Only accept an actual percentage, so a wrong selector can never pass silently.
+      const pct = /\d\s*%$/.test(last) ? Number(last.replace(/[^\d.,]/g, '').replace(',', '.')) : NaN
       const foot = [...t.querySelectorAll(':scope > .between.mono span')].map((s) => s.textContent.trim())
       return {
         name: t.querySelector('.nm')?.textContent?.trim(),
