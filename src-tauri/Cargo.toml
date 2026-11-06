@@ -1,6 +1,6 @@
 [package]
 name = "rastavec"
-version = "0.2.0"
+version = "0.3.0"
 description = "RastaVec — Smooth vectors. Good vibes."
 authors = ["jberdah"]
 license = "Apache-2.0"
