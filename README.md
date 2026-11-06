@@ -29,6 +29,73 @@ https://github.com/user-attachments/assets/1b9ad885-4589-423a-aafb-e8b841d84101
 - **Private**: everything runs on your machine. Images are never uploaded.
 - **Repeatable**: same image, same settings, same SVG, byte for byte.
 
+## From tiny sprites to characters
+
+These transparent CC0 PNGs, from 15 to 256 pixels, were vectorised with the CLI's default
+Auto settings. Every result below is under the 3% visible-difference threshold; the measured
+silhouette IoU ranges from 0.95 to 1.00. The score counts pixels whose largest channel
+difference exceeds 32/255; it does not mean every channel is identical. Sources and licensing
+details are in the [pixel-art fixture notes](tests/fixtures/pixel-art/README.md) and the
+[grouping corpus notes](tests/fixtures/grouping-corpus/README.md).
+
+<table>
+  <thead><tr><th>Original PNG</th><th>Vector SVG</th><th>Auto result</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><img src="tests/fixtures/pixel-art/potion.png" width="90" alt="15 × 21 pixel-art potion"></td>
+      <td><a href="docs/examples/pixel-art/potion.svg"><img src="docs/examples/pixel-art/potion.svg" width="90" alt="Vectorised potion"></a></td>
+      <td>15 × 21 · pixel grid · 0.00% visible difference · 7.8 KiB</td>
+    </tr>
+    <tr>
+      <td><img src="tests/fixtures/pixel-art/shield.png" width="90" alt="17 × 21 pixel-art shield"></td>
+      <td><a href="docs/examples/pixel-art/shield.svg"><img src="docs/examples/pixel-art/shield.svg" width="90" alt="Vectorised shield"></a></td>
+      <td>17 × 21 · VTracer at 4× · 0.00% visible difference · 8.9 KiB</td>
+    </tr>
+    <tr>
+      <td><img src="tests/fixtures/pixel-art/sword.png" width="90" alt="21 × 21 pixel-art sword"></td>
+      <td><a href="docs/examples/pixel-art/sword.svg"><img src="docs/examples/pixel-art/sword.svg" width="90" alt="Vectorised sword"></a></td>
+      <td>21 × 21 · pixel grid · 0.00% visible difference · 5.3 KiB</td>
+    </tr>
+    <tr>
+      <td><img src="tests/fixtures/pixel-art/tiny-wizard.png" width="90" alt="32 × 32 pixel-art wizard"></td>
+      <td><a href="docs/examples/pixel-art/tiny-wizard.svg"><img src="docs/examples/pixel-art/tiny-wizard.svg" width="90" alt="Vectorised wizard"></a></td>
+      <td>32 × 32 · VTracer at 4× · 0.00% visible difference · 16.7 KiB</td>
+    </tr>
+  </tbody>
+</table>
+
+### Larger illustrations
+
+The same workflow handles shaded characters and detailed icons. The vector remains editable,
+though larger drawings can contain many paths; high visual fidelity does not by itself make a
+file ready for rigging or animation.
+
+<table>
+  <thead><tr><th>Original PNG</th><th>Vector SVG</th><th>Auto result</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><img src="tests/fixtures/grouping-corpus/kenney-bear.png" width="120" alt="154 × 132 brown bear illustration"></td>
+      <td><a href="docs/examples/illustrations/kenney-bear.svg"><img src="docs/examples/illustrations/kenney-bear.svg" width="120" alt="Vectorised bear"></a></td>
+      <td>154 × 132 · VTracer at 4× · 0.74% visible difference · 63.6 KiB · 1,064 paths</td>
+    </tr>
+    <tr>
+      <td><img src="tests/fixtures/grouping-corpus/kenney-dog.png" width="120" alt="129 × 157 grey dog illustration"></td>
+      <td><a href="docs/examples/illustrations/kenney-dog.svg"><img src="docs/examples/illustrations/kenney-dog.svg" width="120" alt="Vectorised dog"></a></td>
+      <td>129 × 157 · VTracer at 4× · 0.54% visible difference · 70.9 KiB · 1,214 paths</td>
+    </tr>
+    <tr>
+      <td><img src="tests/fixtures/grouping-corpus/bat.png" width="120" alt="256 × 256 flying bat illustration"></td>
+      <td><a href="docs/examples/illustrations/bat.svg"><img src="docs/examples/illustrations/bat.svg" width="120" alt="Vectorised bat"></a></td>
+      <td>256 × 256 · VTracer · 2.71% visible difference · 31.3 KiB · 68 paths</td>
+    </tr>
+    <tr>
+      <td><img src="tests/fixtures/grouping-corpus/spell.png" width="120" alt="121 × 120 blue snowflake icon"></td>
+      <td><a href="docs/examples/illustrations/spell.svg"><img src="docs/examples/illustrations/spell.svg" width="120" alt="Vectorised snowflake icon"></a></td>
+      <td>121 × 120 · VTracer at 2× · 2.76% visible difference · 166.3 KiB · 1,779 paths</td>
+    </tr>
+  </tbody>
+</table>
+
 ## Try it
 
 ### Desktop app (beta)
