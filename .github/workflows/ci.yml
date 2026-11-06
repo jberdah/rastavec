@@ -26,6 +26,10 @@ jobs:
 
       - run: npm ci
 
+      # The web regression suite uses sharp from the CLI workspace to compare rendered SVGs.
+      - name: Install CLI test dependencies
+        run: npm ci --prefix cli
+
       - name: Type-check (svelte-check + tsc)
         run: npm run check
 
