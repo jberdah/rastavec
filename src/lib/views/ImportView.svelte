@@ -38,7 +38,7 @@
   async function onDrop(e: DragEvent) {
     e.preventDefault()
     dragging = false
-    if (e.dataTransfer) addFiles(await filesFromDrop(e.dataTransfer))
+    if (!app.running && !slicing && e.dataTransfer) addFiles(await filesFromDrop(e.dataTransfer))
   }
   function onPick(e: Event) {
     const input = e.currentTarget as HTMLInputElement
@@ -51,6 +51,8 @@
   }
   const total = $derived(app.items.reduce((s, i) => s + i.srcBytes, 0))
   const analysed = $derived(app.items.filter((i) => i.analysis))
+  const analysisErrors = $derived(app.items.filter((i) => i.error && !i.analysis))
+  const analysisFinished = $derived(analysed.length + analysisErrors.length)
   const kinds = $derived.by(() => {
     const m = new Map<ImageKind, number>()
     for (const i of analysed) m.set(i.analysis!.kind, (m.get(i.analysis!.kind) ?? 0) + 1)
@@ -85,14 +87,14 @@
           <h2>{t('drop.title')}</h2>
           <p class="muted">{t('drop.text')}</p>
           <div class="row" style="flex-wrap: wrap">
-            <button type="button" class="btn btn-primary" onclick={() => fileInput.click()}>{t('drop.files')}</button>
-            <button type="button" class="btn" onclick={() => folderInput.click()}>{t('drop.folder')}</button>
+            <button type="button" class="btn btn-primary" onclick={() => fileInput.click()} disabled={app.running || slicing}>{t('drop.files')}</button>
+            <button type="button" class="btn" onclick={() => folderInput.click()} disabled={app.running || slicing}>{t('drop.folder')}</button>
             <button type="button" class="btn" onclick={() => sheetInput.click()} disabled={slicing || app.running} title={t('drop.sheetHint')}>
               {#if slicing}<span class="spinner"></span>{/if}
               {t('drop.sheet')}
             </button>
             {#if app.items.length}
-              <button type="button" class="btn" onclick={clearItems} disabled={app.running}>{t('drop.clear')}</button>
+              <button type="button" class="btn" onclick={clearItems} disabled={app.running || slicing}>{t('drop.clear')}</button>
             {/if}
           </div>
           <input bind:this={fileInput} class="sr-only" type="file" multiple accept="image/png,image/jpeg,image/webp,image/gif,image/bmp" onchange={onPick} tabindex="-1" />
@@ -108,13 +110,19 @@
               {/each}
             </div>
             <span class="mono muted small">{t('drop.count', app.items.length, size(total))}</span>
-            {#if analysed.length < app.items.length}
-              <span class="row muted small"><span class="spinner"></span>{t('drop.analysing', analysed.length, app.items.length)}</span>
+            {#if analysisFinished < app.items.length}
+              <span class="row muted small"><span class="spinner"></span>{t('drop.analysing', analysisFinished, app.items.length)}</span>
             {:else}
               <div class="row" style="flex-wrap: wrap; gap: 6px">
                 {#each kinds as [k, n] (k)}<span class="chip chip-ok">{n} × {kindLabel(k)}</span>{/each}
                 {#if softCount}<span class="chip chip-warn">{t('drop.soft', softCount)}</span>{/if}
                 {#if photoCount}<span class="chip chip-warn">{t('drop.photos', photoCount)}</span>{/if}
+              </div>
+            {/if}
+            {#if analysisErrors.length}
+              <div role="alert" class="small">
+                <span class="chip chip-warn">{t('drop.analysisErrors', analysisErrors.length)}</span>
+                <ul>{#each analysisErrors as it (it.id)}<li>{it.name}: {it.error}</li>{/each}</ul>
               </div>
             {/if}
           </div>
@@ -210,7 +218,7 @@
       </label>
     </div>
 
-    <button type="button" class="btn btn-light cta" disabled={!app.items.length || app.running} onclick={start}>
+    <button type="button" class="btn btn-light cta" disabled={!app.items.length || app.running || slicing} onclick={start}>
       {app.running ? t('cta.running') : app.items.length ? t('cta.run', app.items.length) : t('cta.empty')}
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14" /><path d="m13 6 6 6-6 6" /></svg>
     </button>

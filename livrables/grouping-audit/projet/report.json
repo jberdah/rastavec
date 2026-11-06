@@ -1,0 +1,444 @@
+{
+  "schemaVersion": 1,
+  "tool": "rastavec",
+  "version": "0.2.0",
+  "engine": "vtracer 1.0.0-alpha.4 (node) + sharp",
+  "settings": {
+    "preset": "auto",
+    "params": null,
+    "autoTune": {
+      "enabled": true,
+      "threshold": 3,
+      "maxKB": 400
+    }
+  },
+  "summary": {
+    "total": 8,
+    "ok": 6,
+    "review": 2,
+    "errors": 0,
+    "seconds": 47.5
+  },
+  "items": [
+    {
+      "name": "32x32",
+      "input": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\.tmp\\grouping-audit\\inputs\\32x32.png",
+      "output": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\.tmp\\grouping-audit\\auto\\32x32.svg",
+      "comparison": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\.tmp\\grouping-audit\\auto\\32x32.comparison.png",
+      "diff": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\.tmp\\grouping-audit\\auto\\32x32.diff.png",
+      "status": "review",
+      "width": 32,
+      "height": 32,
+      "analysis": {
+        "kind": "shaded",
+        "alpha": "edges",
+        "dominantColors": 196,
+        "gradient": 0.2836,
+        "transparentPct": 49.707,
+        "softPct": 8.2031,
+        "grayscale": false
+      },
+      "notes": [
+        "shaded",
+        "edges"
+      ],
+      "autoTuned": true,
+      "trials": 10,
+      "traceScale": 4,
+      "traceMethod": "vtracer",
+      "params": {
+        "colormode": "color",
+        "mode": "polygon",
+        "speckle": 1,
+        "colorPrecision": 8,
+        "layerDifference": 4,
+        "cornerThreshold": 60,
+        "lengthThreshold": 4,
+        "spliceThreshold": 45,
+        "pathPrecision": 2,
+        "alphaFloor": 8,
+        "silhouetteCut": 128,
+        "softLayers": 2,
+        "softColor": false,
+        "compactPaths": true
+      },
+      "metrics": {
+        "pctDiff": 3.2227,
+        "iou": 1,
+        "rgbWhite": 3.2635,
+        "rgbDark": 0.9832,
+        "alphaDiff": 4.2578,
+        "bytes": 27104,
+        "paths": 486,
+        "embeddedRaster": false
+      }
+    },
+    {
+      "name": "brainy-120",
+      "input": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\.tmp\\grouping-audit\\inputs\\brainy-120.png",
+      "output": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\.tmp\\grouping-audit\\auto\\brainy-120.svg",
+      "comparison": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\.tmp\\grouping-audit\\auto\\brainy-120.comparison.png",
+      "diff": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\.tmp\\grouping-audit\\auto\\brainy-120.diff.png",
+      "status": "ok",
+      "width": 128,
+      "height": 128,
+      "analysis": {
+        "kind": "photo",
+        "alpha": "soft",
+        "dominantColors": 281,
+        "gradient": 0.6909,
+        "transparentPct": 60.2905,
+        "softPct": 6.3904,
+        "grayscale": false
+      },
+      "notes": [
+        "photo",
+        "soft"
+      ],
+      "autoTuned": true,
+      "trials": 12,
+      "traceScale": 4,
+      "traceMethod": "vtracer",
+      "params": {
+        "colormode": "color",
+        "mode": "polygon",
+        "speckle": 1,
+        "colorPrecision": 8,
+        "layerDifference": 4,
+        "cornerThreshold": 60,
+        "lengthThreshold": 4,
+        "spliceThreshold": 45,
+        "pathPrecision": 2,
+        "alphaFloor": 8,
+        "silhouetteCut": 128,
+        "softLayers": 2,
+        "softColor": false,
+        "compactPaths": true
+      },
+      "metrics": {
+        "pctDiff": 2.1301,
+        "iou": 1,
+        "rgbWhite": 1.8995,
+        "rgbDark": 1.6267,
+        "alphaDiff": 3.6622,
+        "bytes": 281839,
+        "paths": 4817,
+        "embeddedRaster": false
+      }
+    },
+    {
+      "name": "potion",
+      "input": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\.tmp\\grouping-audit\\inputs\\potion.png",
+      "output": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\.tmp\\grouping-audit\\auto\\potion.svg",
+      "comparison": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\.tmp\\grouping-audit\\auto\\potion.comparison.png",
+      "diff": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\.tmp\\grouping-audit\\auto\\potion.diff.png",
+      "status": "ok",
+      "width": 15,
+      "height": 21,
+      "analysis": {
+        "kind": "shaded",
+        "alpha": "hard",
+        "dominantColors": 32,
+        "gradient": 0.3622,
+        "transparentPct": 31.746,
+        "softPct": 0,
+        "grayscale": false
+      },
+      "notes": [
+        "shaded"
+      ],
+      "autoTuned": true,
+      "trials": 11,
+      "traceScale": 1,
+      "traceMethod": "pixel-grid",
+      "params": {
+        "colormode": "color",
+        "mode": "polygon",
+        "speckle": 1,
+        "colorPrecision": 8,
+        "layerDifference": 4,
+        "cornerThreshold": 60,
+        "lengthThreshold": 4,
+        "spliceThreshold": 45,
+        "pathPrecision": 2,
+        "alphaFloor": 8,
+        "silhouetteCut": 128,
+        "softLayers": 2,
+        "softColor": false,
+        "compactPaths": true
+      },
+      "metrics": {
+        "pctDiff": 0,
+        "iou": 1,
+        "rgbWhite": 0,
+        "rgbDark": 0,
+        "alphaDiff": 0,
+        "bytes": 7990,
+        "paths": 192,
+        "embeddedRaster": false
+      }
+    },
+    {
+      "name": "rastavec-mascot-1",
+      "input": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\.tmp\\grouping-audit\\inputs\\rastavec-mascot-1.png",
+      "output": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\.tmp\\grouping-audit\\auto\\rastavec-mascot-1.svg",
+      "comparison": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\.tmp\\grouping-audit\\auto\\rastavec-mascot-1.comparison.png",
+      "diff": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\.tmp\\grouping-audit\\auto\\rastavec-mascot-1.diff.png",
+      "status": "review",
+      "width": 1254,
+      "height": 1254,
+      "analysis": {
+        "kind": "shaded",
+        "alpha": "edges",
+        "dominantColors": 92,
+        "gradient": 0.3076,
+        "transparentPct": 61.9767,
+        "softPct": 0.456,
+        "grayscale": false
+      },
+      "notes": [
+        "shaded",
+        "edges"
+      ],
+      "autoTuned": true,
+      "trials": 9,
+      "traceScale": 1,
+      "traceMethod": "vtracer",
+      "params": {
+        "colormode": "color",
+        "mode": "spline",
+        "speckle": 7,
+        "colorPrecision": 7,
+        "layerDifference": 8,
+        "cornerThreshold": 60,
+        "lengthThreshold": 4,
+        "spliceThreshold": 45,
+        "pathPrecision": 2,
+        "alphaFloor": 8,
+        "silhouetteCut": 128,
+        "softLayers": 0,
+        "softColor": false,
+        "compactPaths": true
+      },
+      "metrics": {
+        "pctDiff": 3.8158,
+        "iou": 0.9959,
+        "rgbWhite": 3.2608,
+        "rgbDark": 2.7923,
+        "alphaDiff": 1.2117,
+        "bytes": 367787,
+        "paths": 839,
+        "embeddedRaster": false
+      }
+    },
+    {
+      "name": "rastavec-path",
+      "input": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\.tmp\\grouping-audit\\inputs\\rastavec-path.png",
+      "output": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\.tmp\\grouping-audit\\auto\\rastavec-path.svg",
+      "comparison": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\.tmp\\grouping-audit\\auto\\rastavec-path.comparison.png",
+      "diff": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\.tmp\\grouping-audit\\auto\\rastavec-path.diff.png",
+      "status": "ok",
+      "width": 1254,
+      "height": 1254,
+      "analysis": {
+        "kind": "flat",
+        "alpha": "edges",
+        "dominantColors": 2,
+        "gradient": 0.0681,
+        "transparentPct": 92.8528,
+        "softPct": 0.437,
+        "grayscale": false
+      },
+      "notes": [
+        "flat",
+        "edges"
+      ],
+      "autoTuned": false,
+      "trials": 1,
+      "traceScale": 1,
+      "traceMethod": "vtracer",
+      "params": {
+        "colormode": "color",
+        "mode": "spline",
+        "speckle": 7,
+        "colorPrecision": 5,
+        "layerDifference": 16,
+        "cornerThreshold": 60,
+        "lengthThreshold": 4,
+        "spliceThreshold": 45,
+        "pathPrecision": 2,
+        "alphaFloor": 8,
+        "silhouetteCut": 128,
+        "softLayers": 0,
+        "softColor": false,
+        "compactPaths": true
+      },
+      "metrics": {
+        "pctDiff": 0.3297,
+        "iou": 0.9896,
+        "rgbWhite": 0.442,
+        "rgbDark": 0.1256,
+        "alphaDiff": 0.4827,
+        "bytes": 11259,
+        "paths": 2,
+        "embeddedRaster": false
+      }
+    },
+    {
+      "name": "shield",
+      "input": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\.tmp\\grouping-audit\\inputs\\shield.png",
+      "output": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\.tmp\\grouping-audit\\auto\\shield.svg",
+      "comparison": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\.tmp\\grouping-audit\\auto\\shield.comparison.png",
+      "diff": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\.tmp\\grouping-audit\\auto\\shield.diff.png",
+      "status": "ok",
+      "width": 17,
+      "height": 21,
+      "analysis": {
+        "kind": "shaded",
+        "alpha": "hard",
+        "dominantColors": 22,
+        "gradient": 0.3625,
+        "transparentPct": 16.2465,
+        "softPct": 0,
+        "grayscale": false
+      },
+      "notes": [
+        "shaded"
+      ],
+      "autoTuned": true,
+      "trials": 11,
+      "traceScale": 4,
+      "traceMethod": "vtracer",
+      "params": {
+        "colormode": "color",
+        "mode": "polygon",
+        "speckle": 1,
+        "colorPrecision": 8,
+        "layerDifference": 4,
+        "cornerThreshold": 60,
+        "lengthThreshold": 4,
+        "spliceThreshold": 45,
+        "pathPrecision": 2,
+        "alphaFloor": 8,
+        "silhouetteCut": 128,
+        "softLayers": 2,
+        "softColor": false,
+        "compactPaths": true
+      },
+      "metrics": {
+        "pctDiff": 0,
+        "iou": 1,
+        "rgbWhite": 0.2642,
+        "rgbDark": 0.2642,
+        "alphaDiff": 0,
+        "bytes": 9114,
+        "paths": 164,
+        "embeddedRaster": false
+      }
+    },
+    {
+      "name": "sword",
+      "input": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\.tmp\\grouping-audit\\inputs\\sword.png",
+      "output": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\.tmp\\grouping-audit\\auto\\sword.svg",
+      "comparison": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\.tmp\\grouping-audit\\auto\\sword.comparison.png",
+      "diff": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\.tmp\\grouping-audit\\auto\\sword.diff.png",
+      "status": "ok",
+      "width": 21,
+      "height": 21,
+      "analysis": {
+        "kind": "shaded",
+        "alpha": "hard",
+        "dominantColors": 11,
+        "gradient": 0.2212,
+        "transparentPct": 68.7075,
+        "softPct": 0,
+        "grayscale": true
+      },
+      "notes": [
+        "shaded"
+      ],
+      "autoTuned": true,
+      "trials": 11,
+      "traceScale": 1,
+      "traceMethod": "pixel-grid",
+      "params": {
+        "colormode": "color",
+        "mode": "polygon",
+        "speckle": 1,
+        "colorPrecision": 8,
+        "layerDifference": 4,
+        "cornerThreshold": 60,
+        "lengthThreshold": 4,
+        "spliceThreshold": 45,
+        "pathPrecision": 2,
+        "alphaFloor": 8,
+        "silhouetteCut": 128,
+        "softLayers": 2,
+        "softColor": false,
+        "compactPaths": true
+      },
+      "metrics": {
+        "pctDiff": 0,
+        "iou": 1,
+        "rgbWhite": 0,
+        "rgbDark": 0,
+        "alphaDiff": 0,
+        "bytes": 5430,
+        "paths": 129,
+        "embeddedRaster": false
+      }
+    },
+    {
+      "name": "tiny-wizard",
+      "input": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\.tmp\\grouping-audit\\inputs\\tiny-wizard.png",
+      "output": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\.tmp\\grouping-audit\\auto\\tiny-wizard.svg",
+      "comparison": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\.tmp\\grouping-audit\\auto\\tiny-wizard.comparison.png",
+      "diff": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\.tmp\\grouping-audit\\auto\\tiny-wizard.diff.png",
+      "status": "ok",
+      "width": 32,
+      "height": 32,
+      "analysis": {
+        "kind": "shaded",
+        "alpha": "hard",
+        "dominantColors": 22,
+        "gradient": 0.419,
+        "transparentPct": 56.6406,
+        "softPct": 0,
+        "grayscale": false
+      },
+      "notes": [
+        "shaded"
+      ],
+      "autoTuned": true,
+      "trials": 10,
+      "traceScale": 4,
+      "traceMethod": "vtracer",
+      "params": {
+        "colormode": "color",
+        "mode": "polygon",
+        "speckle": 1,
+        "colorPrecision": 8,
+        "layerDifference": 4,
+        "cornerThreshold": 60,
+        "lengthThreshold": 4,
+        "spliceThreshold": 45,
+        "pathPrecision": 2,
+        "alphaFloor": 8,
+        "silhouetteCut": 128,
+        "softLayers": 2,
+        "softColor": false,
+        "compactPaths": true
+      },
+      "metrics": {
+        "pctDiff": 0,
+        "iou": 1,
+        "rgbWhite": 0.1774,
+        "rgbDark": 0.1774,
+        "alphaDiff": 0,
+        "bytes": 17059,
+        "paths": 287,
+        "embeddedRaster": false
+      }
+    }
+  ]
+}

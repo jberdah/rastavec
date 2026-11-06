@@ -49,7 +49,7 @@ The `rastavec` CLI uses the same engine and writes a JSON report with stable exi
 script, a CI job or a coding agent can vectorise images and check the result on its own.
 
 ```bash
-npm install -g https://github.com/jberdah/rastavec/releases/download/v0.2.0-beta.1/rastavec-0.2.0.tgz
+npm install -g https://github.com/jberdah/rastavec/releases/download/v0.3.0-beta.1/rastavec-0.3.0.tgz
 rastavec trace logo.png --compare
 rastavec trace images/ -o out/ --threshold 2 --max-size 700 --json
 ```
@@ -75,7 +75,7 @@ npm run dev        # http://localhost:5173
    white and on a dark background.
 4. **Tune**: if an image is above the threshold or the size budget, a fixed set of alternative
    settings is tried and the best score wins.
-5. **Export**: SVG files, a `metrics.csv` and a `config.json` that replays the same batch.
+5. **Export**: SVG files, a `metrics.csv` and a `config.json` recording the settings used. The app does not yet import this configuration to replay a batch.
 
 The interface is available in English and French.
 

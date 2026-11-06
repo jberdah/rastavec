@@ -7,6 +7,11 @@ import { compactPath } from '../../src/lib/engine/compact'
 import { composeSvg, type RawPath } from '../../src/lib/engine/compose'
 import type { TraceParams } from '../../src/lib/engine/types'
 
+// A single 40 MP RGBA buffer is 160 MB; tracing can need several copies.
+// Reject oversized sources before allocating them and retain sharp's decode guard.
+export const MAX_INPUT_PIXELS = 40_000_000
+export const MAX_INPUT_SIDE = 16_384
+
 function vtracerOptions(p: TraceParams, binary: boolean) {
   return {
     clustering: binary ? 'bw' : 'color-cluster',
@@ -56,7 +61,7 @@ export const nodeBackend: TraceBackend = {
   },
   async rasterize(svg: string, width: number, height: number) {
     // The SVG declares width/height = source size, so 72 dpi renders it 1:1.
-    const { data, info } = await sharp(Buffer.from(svg), { density: 72, limitInputPixels: false })
+    const { data, info } = await sharp(Buffer.from(svg), { density: 72, limitInputPixels: MAX_INPUT_PIXELS })
       .resize(width, height, { fit: 'fill' })
       .toColourspace('srgb')
       .ensureAlpha()
@@ -68,7 +73,12 @@ export const nodeBackend: TraceBackend = {
 
 /** Decode any supported raster file to RGBA, applying EXIF orientation. */
 export async function decode(file: string | Buffer): Promise<RGBAImage> {
-  const { data, info } = await sharp(file, { limitInputPixels: false }).rotate().toColourspace('srgb').ensureAlpha().raw().toBuffer({ resolveWithObject: true })
+  // Reading headers does not allocate the decoded image. Read dimensions first to report
+  // our actionable error, then apply sharp's limit during the actual decode as a backstop.
+  const metadata = await sharp(file, { limitInputPixels: false }).metadata()
+  if (metadata.width && metadata.height && (metadata.width * metadata.height > MAX_INPUT_PIXELS || metadata.width > MAX_INPUT_SIDE || metadata.height > MAX_INPUT_SIDE))
+    throw new Error(`image dimensions ${metadata.width}×${metadata.height} exceed the ${MAX_INPUT_PIXELS.toLocaleString('en-US')}-pixel or ${MAX_INPUT_SIDE.toLocaleString('en-US')}-pixel side limit; resize the image before retrying`)
+  const { data, info } = await sharp(file, { limitInputPixels: MAX_INPUT_PIXELS }).rotate().toColourspace('srgb').ensureAlpha().raw().toBuffer({ resolveWithObject: true })
   if (info.channels !== 4) throw new Error(`unexpected channel count ${info.channels}`)
   return toRGBA(data, info.width, info.height)
 }

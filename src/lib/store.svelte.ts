@@ -1,3 +1,4 @@
+import { isDefault } from './engine/palette'
 import { presetById } from './engine/presets'
 import type { AutoTune, Item, TraceParams } from './engine/types'
 import type { RGBAImage } from './engine/core'
@@ -10,8 +11,12 @@ export const app = $state({
   presetId: 'auto',
   params: { ...presetById('shaded').params } as TraceParams,
   auto: { enabled: true, threshold: 3, maxKB: 400 } as AutoTune,
+  batchSettings: null as { presetId: string; params: TraceParams; auto: AutoTune } | null,
   selectedId: null as string | null,
   running: false,
+  cancelRequested: false,
+  batchProcessed: 0,
+  batchCancelled: false,
   startedAt: 0,
   finishedAt: 0,
 })
@@ -42,9 +47,17 @@ export function forgetUrls(item: Item) {
 
 export const doneItems = () => app.items.filter((i) => i.status === 'done')
 export const chosenTrial = (i: Item) => i.trials[i.chosen]
+export const editKey = (i: Item): string | null => {
+  const e = i.edit
+  return e && e.trial === i.chosen && !isDefault(e.settings) ? `${i.chosen}:${JSON.stringify(e.settings)}` : null
+}
+export const outputMetrics = (i: Item) => {
+  const key = editKey(i)
+  return key ? (i.outputMeasurement?.key === key ? i.outputMeasurement.metrics : undefined) : chosenTrial(i).metrics
+}
 export const needsReview = (i: Item) =>
   i.status === 'error' ||
-  (i.status === 'done' && (chosenTrial(i).metrics.pctDiff > app.auto.threshold || chosenTrial(i).metrics.bytes > app.auto.maxKB * 1024))
+  (i.status === 'done' && (!outputMetrics(i) || outputMetrics(i)!.pctDiff > (app.batchSettings?.auto ?? app.auto).threshold || outputMetrics(i)!.bytes > (app.batchSettings?.auto ?? app.auto).maxKB * 1024))
 
 export function go(route: Route, selectedId?: string) {
   if (selectedId) app.selectedId = selectedId

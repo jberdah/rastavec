@@ -1,5 +1,7 @@
 <script lang="ts">
-  import { app, chosenTrial, doneItems, go, needsReview, svgUrl } from '../store.svelte'
+  import { app, chosenTrial, doneItems, go, needsReview, outputMetrics } from '../store.svelte'
+  import { outputUrl } from '../edit'
+  import { cancelProcessing, refreshOutputMetrics } from '../pipeline'
   import { exportZip } from '../export'
   import type { Item } from '../engine/types'
   import { kbUnit, kindLabel, num, pct, presetName, size, t } from '../i18n.svelte'
@@ -15,19 +17,22 @@
   })
 
   const done = $derived(doneItems())
+  const pending = $derived(done.filter((i) => !outputMetrics(i)))
+  const measured = $derived(done.filter((i) => !!outputMetrics(i)))
+  const ious = $derived(measured.map((i) => outputMetrics(i)!.iou).filter((v): v is number => v !== null))
   const mascot = $derived(
     app.running ? '/brand/mascot-vibe.webp' : !done.length ? null : app.items.some(needsReview) ? '/brand/mascot-inspect.webp' : '/brand/mascot-cool.webp',
   )
-  const elapsed = $derived(((app.finishedAt || now) - app.startedAt) / 1000)
-  const processed = $derived(app.items.filter((i) => i.status === 'done' || i.status === 'error').length)
+  const elapsed = $derived(app.startedAt ? ((app.finishedAt || now) - app.startedAt) / 1000 : 0)
+  const processed = $derived(app.running ? app.batchProcessed : app.items.filter((i) => i.status === 'done' || i.status === 'error').length)
   const mean = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0)
 
   const stats = $derived({
-    pct: mean(done.map((i) => chosenTrial(i).metrics.pctDiff)),
-    iou: mean(done.map((i) => chosenTrial(i).metrics.iou ?? 0)),
-    bytes: done.reduce((s, i) => s + chosenTrial(i).metrics.bytes, 0),
+    pct: mean(measured.map((i) => outputMetrics(i)!.pctDiff)),
+    iou: ious.length ? mean(ious) : null,
+    bytes: measured.reduce((s, i) => s + outputMetrics(i)!.bytes, 0),
     src: done.reduce((s, i) => s + i.srcBytes, 0),
-    raster: done.filter((i) => chosenTrial(i).metrics.embeddedRaster).length,
+    raster: measured.filter((i) => outputMetrics(i)!.embeddedRaster).length,
     auto: done.filter((i) => i.autoTuned).length,
     review: app.items.filter(needsReview).length,
     ok: done.filter((i) => !needsReview(i)).length,
@@ -35,8 +40,8 @@
 
   const sorted = $derived(
     [...app.items].sort((a, b) => {
-      const pa = a.status === 'done' ? chosenTrial(a).metrics.pctDiff : a.status === 'error' ? 999 : -1
-      const pb = b.status === 'done' ? chosenTrial(b).metrics.pctDiff : b.status === 'error' ? 999 : -1
+      const pa = a.status === 'done' ? (outputMetrics(a)?.pctDiff ?? -1) : a.status === 'error' ? 999 : -1
+      const pb = b.status === 'done' ? (outputMetrics(b)?.pctDiff ?? -1) : b.status === 'error' ? 999 : -1
       return pb - pa
     }),
   )
@@ -47,11 +52,13 @@
   )
 
   // Readable scale: outliers are capped (the bar turns to the alert colour and reaches the top).
-  const scaleMax = $derived(Math.max(5, app.auto.threshold * 2.5))
+  const batchSettings = $derived(app.batchSettings ?? { presetId: app.presetId, params: app.params, auto: app.auto })
+  const scaleMax = $derived(Math.max(5, batchSettings.auto.threshold * 2.5))
   const barH = (p: number) => `${Math.min(100, (100 * p) / scaleMax)}%`
 
   function statusChip(i: Item): { text: string; cls: string } {
     if (i.status === 'error') return { text: t('status.error'), cls: 'chip-warn' }
+    if (i.status === 'prepared') return { text: t('status.prepared'), cls: 'chip-muted' }
     if (i.status !== 'done')
       return { text: i.status === 'tracing' ? (i.progress ? t('status.trial', i.progress) : t('status.decoding')) : t('status.queued'), cls: 'chip-muted' }
     if (needsReview(i)) return { text: t('status.review'), cls: 'chip-warn' }
@@ -60,10 +67,18 @@
   }
 </script>
 
+{#if pending.length}
+  <div class="card stack" role="status">
+    <p>{pending.some((i) => i.outputMeasurement?.error) ? t('output.error') : t('output.measuring')}</p>
+    {#if pending.some((i) => i.outputMeasurement?.error)}
+      <button type="button" class="btn" onclick={() => { for (const i of pending) void refreshOutputMetrics(i) }}>{t('output.retry')}</button>
+    {/if}
+  </div>
+{:else}
 <div class="stack" style="gap: 28px">
   <div class="between" style="align-items: flex-end">
     <div class="stack" style="gap: 8px">
-      <span class="mono muted small">{t('lot.summary', presetName(app.presetId), pct(app.auto.threshold, 1), `${num(app.auto.maxKB)} ${kbUnit()}`)}</span>
+      <span class="mono muted small">{t('lot.summary', presetName(batchSettings.presetId), pct(batchSettings.auto.threshold, 1), `${num(batchSettings.auto.maxKB)} ${kbUnit()}`)}</span>
       <h1 class="title">
         {#if app.running}
           {t('lot.running', processed, app.items.length)} <span class="faint">· {num(elapsed)} s</span>
@@ -83,10 +98,15 @@
   </div>
 
   {#if app.running}
+    <div class="between" role="status">
+      <span>{app.cancelRequested ? t('lot.cancelling') : t('lot.cancelHint')}</span>
+      <button type="button" class="btn" disabled={app.cancelRequested} onclick={cancelProcessing}>{t('lot.cancel')}</button>
+    </div>
     <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax={app.items.length} aria-valuenow={processed}>
       <span style:width={`${(100 * processed) / Math.max(1, app.items.length)}%`}></span>
     </div>
   {/if}
+  {#if app.batchCancelled}<p class="banner" role="status">{t('lot.cancelled')}</p>{/if}
 
   <div class="wrap">
     <div class="card chart">
@@ -95,12 +115,12 @@
         <span class="row legend muted"><span class="sw final"></span>{t('lot.final')} <span class="sw before"></span>{t('lot.before')}</span>
       </div>
       <div class="bars">
-        <div class="thr" style:bottom={barH(app.auto.threshold)}><span class="mono">{t('lot.threshold', pct(app.auto.threshold, 1))}</span></div>
+        <div class="thr" style:bottom={barH(batchSettings.auto.threshold)}><span class="mono">{t('lot.threshold', pct(batchSettings.auto.threshold, 1))}</span></div>
         {#each app.items as i (i.id)}
-          <div class="barcol" title={i.status === 'done' ? `${i.name} · ${pct(chosenTrial(i).metrics.pctDiff)}` : i.name}>
+          <div class="barcol" title={i.status === 'done' ? `${i.name} · ${pct(outputMetrics(i)!.pctDiff)}` : i.name}>
             {#if i.status === 'done'}
               {#if i.autoTuned}<div class="bar before" style:height={barH(i.trials[0].metrics.pctDiff)}></div>{/if}
-              <div class="bar" class:tuned={i.autoTuned} class:bad={needsReview(i)} style:height={barH(chosenTrial(i).metrics.pctDiff)}></div>
+              <div class="bar" class:tuned={i.autoTuned} class:bad={needsReview(i)} style:height={barH(outputMetrics(i)!.pctDiff)}></div>
             {/if}
           </div>
         {/each}
@@ -108,7 +128,7 @@
     </div>
     <div class="kpis">
       <div class="kpi"><span class="k">{t('kpi.meanDiff')}</span><span class="v">{pct(stats.pct)}</span><span class="s">{t('kpi.pixels')}</span></div>
-      <div class="kpi"><span class="k">{t('kpi.silhouette')}</span><span class="v">{num(stats.iou, 3)}</span><span class="s">{t('kpi.meanIou')}</span></div>
+      <div class="kpi"><span class="k">{t('kpi.silhouette')}</span><span class="v">{stats.iou === null ? '—' : num(stats.iou, 3)}</span><span class="s">{t('kpi.meanIou')}</span></div>
       <div class="kpi"><span class="k">{t('kpi.size')}</span><span class="v">{size(stats.bytes)}</span><span class="s">{t('kpi.sources', size(stats.src))}</span></div>
       <div class="kpi"><span class="k">{t('kpi.raster')}</span><span class="v" class:accent={!stats.raster}>{stats.raster}</span><span class="s">{t('kpi.allPaths')}</span></div>
     </div>
@@ -131,7 +151,7 @@
         <div class="thumb checker">
           <img src={i.srcUrl} alt="" class="layer raster" />
           {#if i.status === 'done'}
-            <img src={svgUrl(i)} alt="" class="layer vec" />
+            <img src={outputUrl(i)} alt="" class="layer vec" />
             <span class="divider"></span>
           {:else if i.status === 'tracing'}
             <span class="busy"><span class="spinner"></span></span>
@@ -147,12 +167,12 @@
           <span class="mono faint small">{kindLabel(i.analysis.kind)} · {t('tile.colors', i.analysis.dominantColors)}{i.analysis.alpha === 'soft' ? ` · ${t('tile.soft')}` : ''}</span>
         {/if}
         {#if i.status === 'done'}
-          {@const m = chosenTrial(i).metrics}
+          {@const m = outputMetrics(i)!}
           <div class="stack" style="gap: 6px">
             <div class="between small muted"><span>{t('tile.diff')}</span><span class="mono" style="color: var(--text)">{i.autoTuned ? pct(i.trials[0].metrics.pctDiff) + ' → ' : ''}{pct(m.pctDiff)}</span></div>
             <div class="meter"><span style:width={barH(m.pctDiff)} class:tuned={i.autoTuned} class:bad={needsReview(i)}></span></div>
           </div>
-          <div class="between mono small muted"><span>IoU {num(m.iou ?? 0, 3)}</span><span>{size(m.bytes)}</span></div>
+          <div class="between mono small muted"><span>IoU {m.iou === null ? '—' : num(m.iou, 3)}</span><span>{size(m.bytes)}</span></div>
         {:else if i.status === 'error'}
           <span class="small" style="color: var(--warn-text)">{i.error}</span>
         {/if}
@@ -221,3 +241,5 @@
   .exportbar { position: sticky; bottom: 0; padding: 16px var(--page-pad) 24px; background: linear-gradient(180deg, rgba(10, 11, 15, 0) 0%, var(--bg) 40%); margin: 0 calc(-1 * var(--page-pad)) -64px; }
   .exportbar .inner { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; background: var(--surface); border: 1px solid var(--line-2); border-radius: 18px; padding: 12px 12px 12px 20px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5); }
 </style>
+
+{/if}

@@ -1,0 +1,550 @@
+{
+  "schemaVersion": 1,
+  "tool": "rastavec",
+  "version": "0.2.0",
+  "engine": "vtracer 1.0.0-alpha.4 (node) + sharp",
+  "settings": {
+    "preset": "auto",
+    "params": null,
+    "autoTune": {
+      "enabled": true,
+      "threshold": 3,
+      "maxKB": 400
+    }
+  },
+  "summary": {
+    "total": 10,
+    "ok": 9,
+    "review": 1,
+    "errors": 0,
+    "seconds": 12.3
+  },
+  "items": [
+    {
+      "name": "armor",
+      "input": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\tests\\fixtures\\grouping-corpus\\armor.png",
+      "output": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\.tmp\\grouping-audit\\web-auto\\armor.svg",
+      "comparison": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\.tmp\\grouping-audit\\web-auto\\armor.comparison.png",
+      "diff": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\.tmp\\grouping-audit\\web-auto\\armor.diff.png",
+      "status": "ok",
+      "width": 21,
+      "height": 19,
+      "analysis": {
+        "kind": "shaded",
+        "alpha": "hard",
+        "dominantColors": 11,
+        "gradient": 0.3479,
+        "transparentPct": 28.5714,
+        "softPct": 0,
+        "grayscale": false
+      },
+      "notes": [
+        "shaded"
+      ],
+      "autoTuned": true,
+      "trials": 11,
+      "traceScale": 4,
+      "traceMethod": "vtracer",
+      "params": {
+        "colormode": "color",
+        "mode": "polygon",
+        "speckle": 1,
+        "colorPrecision": 8,
+        "layerDifference": 4,
+        "cornerThreshold": 60,
+        "lengthThreshold": 4,
+        "spliceThreshold": 45,
+        "pathPrecision": 2,
+        "alphaFloor": 8,
+        "silhouetteCut": 128,
+        "softLayers": 2,
+        "softColor": false,
+        "compactPaths": true
+      },
+      "metrics": {
+        "pctDiff": 0,
+        "iou": 1,
+        "rgbWhite": 0.1997,
+        "rgbDark": 0.1997,
+        "alphaDiff": 0,
+        "bytes": 10208,
+        "paths": 176,
+        "embeddedRaster": false
+      }
+    },
+    {
+      "name": "bat",
+      "input": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\tests\\fixtures\\grouping-corpus\\bat.png",
+      "output": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\.tmp\\grouping-audit\\web-auto\\bat.svg",
+      "comparison": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\.tmp\\grouping-audit\\web-auto\\bat.comparison.png",
+      "diff": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\.tmp\\grouping-audit\\web-auto\\bat.diff.png",
+      "status": "ok",
+      "width": 256,
+      "height": 256,
+      "analysis": {
+        "kind": "photo",
+        "alpha": "edges",
+        "dominantColors": 21,
+        "gradient": 0.7492,
+        "transparentPct": 80.5176,
+        "softPct": 2.5177,
+        "grayscale": false
+      },
+      "notes": [
+        "photo",
+        "edges"
+      ],
+      "autoTuned": false,
+      "trials": 1,
+      "traceScale": 1,
+      "traceMethod": "vtracer",
+      "params": {
+        "colormode": "color",
+        "mode": "spline",
+        "speckle": 4,
+        "colorPrecision": 6,
+        "layerDifference": 24,
+        "cornerThreshold": 60,
+        "lengthThreshold": 4,
+        "spliceThreshold": 45,
+        "pathPrecision": 2,
+        "alphaFloor": 8,
+        "silhouetteCut": 128,
+        "softLayers": 0,
+        "softColor": false,
+        "compactPaths": true
+      },
+      "metrics": {
+        "pctDiff": 2.71,
+        "iou": 0.9509,
+        "rgbWhite": 3.649,
+        "rgbDark": 1.6095,
+        "alphaDiff": 2.4966,
+        "bytes": 32067,
+        "paths": 68,
+        "embeddedRaster": false
+      }
+    },
+    {
+      "name": "gold",
+      "input": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\tests\\fixtures\\grouping-corpus\\gold.png",
+      "output": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\.tmp\\grouping-audit\\web-auto\\gold.svg",
+      "comparison": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\.tmp\\grouping-audit\\web-auto\\gold.comparison.png",
+      "diff": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\.tmp\\grouping-audit\\web-auto\\gold.diff.png",
+      "status": "ok",
+      "width": 17,
+      "height": 19,
+      "analysis": {
+        "kind": "shaded",
+        "alpha": "hard",
+        "dominantColors": 24,
+        "gradient": 0.3852,
+        "transparentPct": 29.1022,
+        "softPct": 0,
+        "grayscale": false
+      },
+      "notes": [
+        "shaded"
+      ],
+      "autoTuned": true,
+      "trials": 11,
+      "traceScale": 4,
+      "traceMethod": "vtracer",
+      "params": {
+        "colormode": "color",
+        "mode": "polygon",
+        "speckle": 1,
+        "colorPrecision": 8,
+        "layerDifference": 4,
+        "cornerThreshold": 60,
+        "lengthThreshold": 4,
+        "spliceThreshold": 45,
+        "pathPrecision": 2,
+        "alphaFloor": 8,
+        "silhouetteCut": 128,
+        "softLayers": 2,
+        "softColor": false,
+        "compactPaths": true
+      },
+      "metrics": {
+        "pctDiff": 0,
+        "iou": 1,
+        "rgbWhite": 0.2301,
+        "rgbDark": 0.2301,
+        "alphaDiff": 0,
+        "bytes": 8362,
+        "paths": 140,
+        "embeddedRaster": false
+      }
+    },
+    {
+      "name": "hamster-sheet",
+      "input": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\tests\\fixtures\\grouping-corpus\\hamster-sheet.png",
+      "output": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\.tmp\\grouping-audit\\web-auto\\hamster-sheet.svg",
+      "comparison": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\.tmp\\grouping-audit\\web-auto\\hamster-sheet.comparison.png",
+      "diff": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\.tmp\\grouping-audit\\web-auto\\hamster-sheet.diff.png",
+      "status": "review",
+      "width": 688,
+      "height": 86,
+      "analysis": {
+        "kind": "flat",
+        "alpha": "hard",
+        "dominantColors": 7,
+        "gradient": 0.0142,
+        "transparentPct": 38.5428,
+        "softPct": 0,
+        "grayscale": false
+      },
+      "notes": [
+        "flat"
+      ],
+      "autoTuned": true,
+      "trials": 9,
+      "traceScale": 1,
+      "traceMethod": "vtracer",
+      "params": {
+        "colormode": "color",
+        "mode": "spline",
+        "speckle": 2,
+        "colorPrecision": 8,
+        "layerDifference": 4,
+        "cornerThreshold": 60,
+        "lengthThreshold": 4,
+        "spliceThreshold": 45,
+        "pathPrecision": 2,
+        "alphaFloor": 8,
+        "silhouetteCut": 128,
+        "softLayers": 0,
+        "softColor": false,
+        "compactPaths": true
+      },
+      "metrics": {
+        "pctDiff": 18.9714,
+        "iou": 0.9744,
+        "rgbWhite": 13.861,
+        "rgbDark": 12.2823,
+        "alphaDiff": 4.3621,
+        "bytes": 79108,
+        "paths": 271,
+        "embeddedRaster": false
+      }
+    },
+    {
+      "name": "kenney-arrow",
+      "input": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\tests\\fixtures\\grouping-corpus\\kenney-arrow.png",
+      "output": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\.tmp\\grouping-audit\\web-auto\\kenney-arrow.svg",
+      "comparison": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\.tmp\\grouping-audit\\web-auto\\kenney-arrow.comparison.png",
+      "diff": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\.tmp\\grouping-audit\\web-auto\\kenney-arrow.diff.png",
+      "status": "ok",
+      "width": 34,
+      "height": 22,
+      "analysis": {
+        "kind": "pixel",
+        "alpha": "edges",
+        "dominantColors": 1,
+        "gradient": 0,
+        "transparentPct": 37.7005,
+        "softPct": 7.6203,
+        "grayscale": true
+      },
+      "notes": [
+        "pixel",
+        "edges"
+      ],
+      "autoTuned": true,
+      "trials": 12,
+      "traceScale": 1,
+      "traceMethod": "pixel-grid",
+      "params": {
+        "colormode": "color",
+        "mode": "polygon",
+        "speckle": 1,
+        "colorPrecision": 8,
+        "layerDifference": 4,
+        "cornerThreshold": 60,
+        "lengthThreshold": 4,
+        "spliceThreshold": 45,
+        "pathPrecision": 2,
+        "alphaFloor": 8,
+        "silhouetteCut": 128,
+        "softLayers": 2,
+        "softColor": false,
+        "compactPaths": true
+      },
+      "metrics": {
+        "pctDiff": 0,
+        "iou": 1,
+        "rgbWhite": 0,
+        "rgbDark": 0,
+        "alphaDiff": 0,
+        "bytes": 4664,
+        "paths": 74,
+        "embeddedRaster": false
+      }
+    },
+    {
+      "name": "kenney-bear",
+      "input": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\tests\\fixtures\\grouping-corpus\\kenney-bear.png",
+      "output": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\.tmp\\grouping-audit\\web-auto\\kenney-bear.svg",
+      "comparison": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\.tmp\\grouping-audit\\web-auto\\kenney-bear.comparison.png",
+      "diff": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\.tmp\\grouping-audit\\web-auto\\kenney-bear.diff.png",
+      "status": "ok",
+      "width": 154,
+      "height": 132,
+      "analysis": {
+        "kind": "flat",
+        "alpha": "edges",
+        "dominantColors": 10,
+        "gradient": 0.102,
+        "transparentPct": 26.3479,
+        "softPct": 2.3416,
+        "grayscale": false
+      },
+      "notes": [
+        "flat",
+        "edges"
+      ],
+      "autoTuned": true,
+      "trials": 11,
+      "traceScale": 4,
+      "traceMethod": "vtracer",
+      "params": {
+        "colormode": "color",
+        "mode": "polygon",
+        "speckle": 1,
+        "colorPrecision": 8,
+        "layerDifference": 4,
+        "cornerThreshold": 60,
+        "lengthThreshold": 4,
+        "spliceThreshold": 45,
+        "pathPrecision": 2,
+        "alphaFloor": 8,
+        "silhouetteCut": 128,
+        "softLayers": 2,
+        "softColor": false,
+        "compactPaths": true
+      },
+      "metrics": {
+        "pctDiff": 0.7379,
+        "iou": 1,
+        "rgbWhite": 1.052,
+        "rgbDark": 0.8142,
+        "alphaDiff": 0.8942,
+        "bytes": 65150,
+        "paths": 1064,
+        "embeddedRaster": false
+      }
+    },
+    {
+      "name": "kenney-button",
+      "input": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\tests\\fixtures\\grouping-corpus\\kenney-button.png",
+      "output": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\.tmp\\grouping-audit\\web-auto\\kenney-button.svg",
+      "comparison": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\.tmp\\grouping-audit\\web-auto\\kenney-button.comparison.png",
+      "diff": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\.tmp\\grouping-audit\\web-auto\\kenney-button.diff.png",
+      "status": "ok",
+      "width": 64,
+      "height": 64,
+      "analysis": {
+        "kind": "shaded",
+        "alpha": "edges",
+        "dominantColors": 6,
+        "gradient": 0.2175,
+        "transparentPct": 18.9453,
+        "softPct": 4.3945,
+        "grayscale": false
+      },
+      "notes": [
+        "shaded",
+        "edges"
+      ],
+      "autoTuned": true,
+      "trials": 11,
+      "traceScale": 1,
+      "traceMethod": "pixel-grid",
+      "params": {
+        "colormode": "color",
+        "mode": "polygon",
+        "speckle": 1,
+        "colorPrecision": 8,
+        "layerDifference": 4,
+        "cornerThreshold": 60,
+        "lengthThreshold": 4,
+        "spliceThreshold": 45,
+        "pathPrecision": 2,
+        "alphaFloor": 8,
+        "silhouetteCut": 128,
+        "softLayers": 2,
+        "softColor": false,
+        "compactPaths": true
+      },
+      "metrics": {
+        "pctDiff": 0,
+        "iou": 1,
+        "rgbWhite": 0.0103,
+        "rgbDark": 0.0103,
+        "alphaDiff": 0,
+        "bytes": 45456,
+        "paths": 981,
+        "embeddedRaster": false
+      }
+    },
+    {
+      "name": "kenney-dog",
+      "input": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\tests\\fixtures\\grouping-corpus\\kenney-dog.png",
+      "output": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\.tmp\\grouping-audit\\web-auto\\kenney-dog.svg",
+      "comparison": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\.tmp\\grouping-audit\\web-auto\\kenney-dog.comparison.png",
+      "diff": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\.tmp\\grouping-audit\\web-auto\\kenney-dog.diff.png",
+      "status": "ok",
+      "width": 129,
+      "height": 157,
+      "analysis": {
+        "kind": "flat",
+        "alpha": "edges",
+        "dominantColors": 9,
+        "gradient": 0.0965,
+        "transparentPct": 26.0258,
+        "softPct": 2.4046,
+        "grayscale": true
+      },
+      "notes": [
+        "flat",
+        "edges"
+      ],
+      "autoTuned": true,
+      "trials": 11,
+      "traceScale": 4,
+      "traceMethod": "vtracer",
+      "params": {
+        "colormode": "color",
+        "mode": "polygon",
+        "speckle": 1,
+        "colorPrecision": 8,
+        "layerDifference": 4,
+        "cornerThreshold": 60,
+        "lengthThreshold": 4,
+        "spliceThreshold": 45,
+        "pathPrecision": 2,
+        "alphaFloor": 8,
+        "silhouetteCut": 128,
+        "softLayers": 2,
+        "softColor": false,
+        "compactPaths": true
+      },
+      "metrics": {
+        "pctDiff": 0.5431,
+        "iou": 1,
+        "rgbWhite": 0.7023,
+        "rgbDark": 0.8693,
+        "alphaDiff": 0.8406,
+        "bytes": 72579,
+        "paths": 1214,
+        "embeddedRaster": false
+      }
+    },
+    {
+      "name": "kenney-frog",
+      "input": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\tests\\fixtures\\grouping-corpus\\kenney-frog.png",
+      "output": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\.tmp\\grouping-audit\\web-auto\\kenney-frog.svg",
+      "comparison": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\.tmp\\grouping-audit\\web-auto\\kenney-frog.comparison.png",
+      "diff": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\.tmp\\grouping-audit\\web-auto\\kenney-frog.diff.png",
+      "status": "ok",
+      "width": 130,
+      "height": 144,
+      "analysis": {
+        "kind": "flat",
+        "alpha": "edges",
+        "dominantColors": 7,
+        "gradient": 0.0599,
+        "transparentPct": 20.2083,
+        "softPct": 2.4199,
+        "grayscale": false
+      },
+      "notes": [
+        "flat",
+        "edges"
+      ],
+      "autoTuned": true,
+      "trials": 11,
+      "traceScale": 4,
+      "traceMethod": "vtracer",
+      "params": {
+        "colormode": "color",
+        "mode": "polygon",
+        "speckle": 1,
+        "colorPrecision": 8,
+        "layerDifference": 4,
+        "cornerThreshold": 60,
+        "lengthThreshold": 4,
+        "spliceThreshold": 45,
+        "pathPrecision": 2,
+        "alphaFloor": 8,
+        "silhouetteCut": 128,
+        "softLayers": 2,
+        "softColor": false,
+        "compactPaths": true
+      },
+      "metrics": {
+        "pctDiff": 1.3942,
+        "iou": 1,
+        "rgbWhite": 0.9906,
+        "rgbDark": 1.1869,
+        "alphaDiff": 0.8177,
+        "bytes": 46162,
+        "paths": 775,
+        "embeddedRaster": false
+      }
+    },
+    {
+      "name": "spell",
+      "input": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\tests\\fixtures\\grouping-corpus\\spell.png",
+      "output": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\.tmp\\grouping-audit\\web-auto\\spell.svg",
+      "comparison": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\.tmp\\grouping-audit\\web-auto\\spell.comparison.png",
+      "diff": "C:\\Users\\jberdah\\Documents\\Projets\\svg-studio\\.tmp\\grouping-audit\\web-auto\\spell.diff.png",
+      "status": "ok",
+      "width": 121,
+      "height": 120,
+      "analysis": {
+        "kind": "photo",
+        "alpha": "hard",
+        "dominantColors": 97,
+        "gradient": 0.724,
+        "transparentPct": 0.0069,
+        "softPct": 0,
+        "grayscale": false
+      },
+      "notes": [
+        "photo"
+      ],
+      "autoTuned": true,
+      "trials": 12,
+      "traceScale": 2,
+      "traceMethod": "vtracer",
+      "params": {
+        "colormode": "color",
+        "mode": "polygon",
+        "speckle": 1,
+        "colorPrecision": 8,
+        "layerDifference": 4,
+        "cornerThreshold": 60,
+        "lengthThreshold": 4,
+        "spliceThreshold": 45,
+        "pathPrecision": 2,
+        "alphaFloor": 8,
+        "silhouetteCut": 128,
+        "softLayers": 2,
+        "softColor": false,
+        "compactPaths": true
+      },
+      "metrics": {
+        "pctDiff": 2.7617,
+        "iou": 1,
+        "rgbWhite": 4.9703,
+        "rgbDark": 4.9703,
+        "alphaDiff": 0,
+        "bytes": 170284,
+        "paths": 1779,
+        "embeddedRaster": false
+      }
+    }
+  ]
+}

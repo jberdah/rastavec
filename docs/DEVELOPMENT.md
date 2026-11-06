@@ -33,7 +33,7 @@ src/lib/engine/vectorize.ts        shared loop: analysis -> trace -> measure -> 
 src/lib/engine/slice.ts            sprite-sheet / brand-board slicing into elements (pure)
 src/lib/i18n.svelte.ts             FR / EN dictionaries, locale detection, number / size formatting
 src/lib/pipeline.ts                per-image pipeline: decode → trace → render → measure → auto-tune
-src/lib/export.ts                  zip: svg/*.svg, metrics.csv, config.json (replays the batch)
+src/lib/export.ts                  zip: svg/*.svg, metrics.csv, config.json (records settings)
 src/lib/views/*                    Import, Lot (batch), Detail screens (Svelte 5)
 cli/                               command-line package (Node, VTracer wasm + sharp)
 src-tauri/                         desktop shell (Tauri 2)
@@ -43,7 +43,18 @@ e2e/                               desktop end-to-end tests
 The engine core is environment-agnostic: the same `TraceBackend` contract is implemented in
 the browser and in the CLI, and could back an MCP server.
 
+## Browser image limits
+
+The browser and desktop UI reject input files above 64 MiB, images above 40 megapixels,
+and either dimension above 16,384 pixels. Dimensions are checked before the app allocates
+its own bitmap and canvas and rechecked after bitmap decoding. The browser may itself decode
+an image while obtaining its dimensions, so these checks cannot prevent every internal
+decoder allocation. Large batches can still consume substantial memory. These UI limits are
+independent of the CLI limits.
+
 ## Engine details
+
+The generated synthetic regression corpus and its limits are described in [CORPUS.md](CORPUS.md).
 
 - **Engine**: [VTracer](https://github.com/visioncortex/vtracer) via the official
   `vtracer-webapp` wasm build (MIT/Apache-2.0). It needs DOM elements, so it runs on the main
@@ -67,6 +78,13 @@ the browser and in the CLI, and could back an MCP server.
 - **Auto-tune**: when an image exceeds the difference threshold or the size budget, a fixed
   grid of up to 6 parameter sets is tried; the best score (`% diff + 0.002 × KiB`) within the
   budget wins. Same input + same config → byte-identical SVG.
+- For images up to 256 px on their longest side, the Auto and Pixel art presets also try
+  nearest-neighbour enlargement by 2 and 4 before tracing with the pixel preset. SVGs retain
+  their original display dimensions; the measured score and size budget still select the winner.
+  `traceScale` in the CLI report and exported config records the chosen factor. Custom presets and
+  disabled auto-tuning do not add these trials. The result can contain many more paths and take
+  longer to generate, edit and render; inspect its path count and size before use. The CSV includes
+  the factor as `trace_scale`.
 
 ## Localisation
 
@@ -105,3 +123,14 @@ npm run deploy     # build + wrangler pages deploy (needs a Cloudflare login)
 
 Put sample images in `.tmp/` (git-ignored). In dev (or with `?debug`), `window.rastavec`
 exposes `addFiles`, `processAll` and the app state for scripted checks.
+
+## Local session recovery
+
+The browser keeps one local IndexedDB backup per origin and browser profile. It saves files,
+chosen trials, palette edits and settings after changes settle and outside a running batch.
+The last committed backup remains intact if a write fails (for example, storage quota).
+At startup the user can restore it, delete it, or start a new batch that will replace it.
+The application reports storage failures; closing before the pending save completes can lose
+recent changes. Stored originals and SVGs remain on the device until the backup is deleted or
+browser storage is cleared. IndexedDB may be evicted by the browser; this is not a substitute
+for exporting the ZIP. A pending edit measurement is recomputed during restore.

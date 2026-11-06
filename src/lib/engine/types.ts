@@ -53,6 +53,10 @@ export interface Metrics {
 export interface Trial {
   /** True for the first trial (preset / Auto parameters), false for auto-tune candidates. */
   base: boolean
+  /** Integer nearest-neighbour enlargement used before tracing (1 = original size). */
+  traceScale?: number
+  /** Omitted for VTracer; pixel-grid reconstructs exact pixel runs. */
+  traceMethod?: 'pixel-grid'
   params: TraceParams
   svg: string
   metrics: Metrics
@@ -60,7 +64,7 @@ export interface Trial {
   ms: number
 }
 
-export type ItemStatus = 'queued' | 'tracing' | 'done' | 'error'
+export type ItemStatus = 'queued' | 'tracing' | 'prepared' | 'done' | 'error'
 
 export interface Item {
   id: string
@@ -78,11 +82,14 @@ export interface Item {
   trials: Trial[]
   chosen: number
   autoTuned: boolean
+  failedTrials?: { traceScale: number; message: string }[]
   error?: string
   /** Image analysis, computed once at import. */
   analysis?: Analysis
   /** Why the auto preset chose these parameters. */
   notes?: NoteCode[]
+  /** Measurement of the exact filtered SVG, keyed to the trial and filter settings. */
+  outputMeasurement?: { key: string; metrics?: Metrics; error?: string }
   /** Palette filters (Edit screen), valid for one trial. */
   edit?: { settings: FilterSettings; trial: number }
 }

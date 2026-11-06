@@ -1,8 +1,10 @@
 <script lang="ts">
-  import { app, chosenTrial, doneItems, go, needsReview, sources, svgUrl } from '../store.svelte'
+  import { app, chosenTrial, doneItems, go, needsReview, outputMetrics, sources, svgUrl } from '../store.svelte'
   import { diffImage } from '../engine/core'
   import { browserBackend, toDataUrl } from '../engine/browser-backend'
   import { downloadSvg } from '../export'
+  import { activeEdit } from '../edit'
+  import { refreshOutputMetrics } from '../pipeline'
   import { alphaLabel, describeParams, kindLabel, noteLabel, num, pct, size, t } from '../i18n.svelte'
 
   type Mode = 'slider' | 'side' | 'diff' | 'paths'
@@ -174,6 +176,7 @@
 
       <aside class="panel">
         <div class="card stack">
+          {#if activeEdit(item)}<span class="muted small">{t('output.detailTrace')}</span>{/if}
           <div class="between"><h2 class="h3">{t('fidelity.title')}</h2><span class="mono faint tiny">{t('fidelity.note')}</span></div>
           <div class="row" style="gap: 18px">
             <div class="ring">
@@ -182,7 +185,7 @@
             </div>
             <dl class="metrics">
               <dt>{t('fidelity.diff')}</dt><dd class="mono">{pct(m.pctDiff)}</dd>
-              <dt>{t('fidelity.iou')}</dt><dd class="mono">{num(m.iou ?? 0, 3)}</dd>
+              <dt>{t('fidelity.iou')}</dt><dd class="mono">{m.iou === null ? '—' : num(m.iou, 3)}</dd>
               <dt>{t('fidelity.colorWhite')}</dt><dd class="mono">{num(m.rgbWhite, 1)} / 255</dd>
               <dt>{t('fidelity.alpha')}</dt><dd class="mono">{num(m.alphaDiff, 1)} / 255</dd>
             </dl>
@@ -222,10 +225,10 @@
           <ol class="trials">
             {#each item.trials as tr, k}
               <li>
-                <button type="button" class="trial" aria-pressed={item.chosen === k} onclick={() => (item.chosen = k)}>
+                <button type="button" class="trial" aria-pressed={item.chosen === k} onclick={() => { if (item.chosen !== k) { item.chosen = k; item.autoTuned = false; if (!outputMetrics(item)) refreshOutputMetrics(item) } }}>
                   <span class="dotc" class:on={item.chosen === k}></span>
                   <span class="stack" style="gap: 3px; flex: 1; min-width: 0">
-                    <span class="between" style="flex-wrap: nowrap"><span class="tl">{tr.base ? `${t('trials.base')} · ` : ''}{describeParams(tr.params)}</span><span class="mono" class:accent={item.chosen === k}>{pct(tr.metrics.pctDiff)}</span></span>
+                    <span class="between" style="flex-wrap: nowrap"><span class="tl">{tr.traceMethod === 'pixel-grid' ? t('trials.pixelGrid') : `${tr.base ? `${t('trials.base')} · ` : ''}${describeParams(tr.params)}${tr.traceScale && tr.traceScale > 1 ? ` · ${t('trials.scaled', tr.traceScale)}` : ''}`}</span><span class="mono" class:accent={item.chosen === k}>{pct(tr.metrics.pctDiff)}</span></span>
                     <span class="mono muted tiny">{t('trials.meta', size(tr.metrics.bytes), tr.metrics.paths, num(tr.score, 2))}</span>
                   </span>
                 </button>
@@ -233,6 +236,7 @@
             {/each}
           </ol>
           <span class="muted tiny">{t('trials.hint')}</span>
+          {#if item.failedTrials?.length}<span class="muted tiny" role="status">{t('trials.failed', item.failedTrials.map((x) => `×${x.traceScale}`).join(', '))}</span>{/if}
         </div>
 
         <div class="card statgrid">
@@ -240,6 +244,9 @@
           <div><span class="muted tiny">{t('stat.paths')}</span><span class="sv">{num(m.paths)}</span></div>
           <div><span class="muted tiny">{t('stat.bitmap')}</span><span class="sv" class:accent={!m.embeddedRaster}>{m.embeddedRaster ? t('stat.yes') : t('stat.none')}</span></div>
         </div>
+        {#if m.paths >= 1000}
+          <p class="small" style="color: var(--warn-text)">{t('stat.complexityHint', num(m.paths))}</p>
+        {/if}
 
         <button type="button" class="btn btn-primary" onclick={() => downloadSvg(item)}>{t('detail.download')}</button>
       </aside>

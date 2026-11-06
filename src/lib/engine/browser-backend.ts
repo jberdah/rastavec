@@ -3,6 +3,7 @@
 // up by id in the document, so it must run on the main thread. It works incrementally (tick),
 // which we time-slice to keep the UI responsive.
 import type { Prepared, RGBAImage, TraceBackend } from './core'
+import { validateImageBytes, validateImageDimensions } from './image-limits.js'
 import { normalizeHex } from './core'
 import { composeSvg, type RawPath } from './compose'
 import { compactPath } from './compact'
@@ -135,17 +136,41 @@ async function runConverter(image: RGBAImage, p: TraceParams, binary: boolean): 
   }
 }
 
+/** Read dimensions before allocating our own bitmap and canvas. The browser may decode internally. */
+async function checkFileDimensions(file: File): Promise<void> {
+  const url = URL.createObjectURL(file)
+  try {
+    const image = new Image()
+    await new Promise<void>((resolve, reject) => {
+      image.onload = () => resolve()
+      image.onerror = () => reject(new Error('The source image could not be decoded.'))
+      image.src = url
+    })
+    validateImageDimensions(image.naturalWidth, image.naturalHeight)
+  } finally {
+    URL.revokeObjectURL(url)
+  }
+}
+
 /** Decode a file to RGBA, applying EXIF orientation. */
 export async function decodeFile(file: File): Promise<RGBAImage> {
+  validateImageBytes(file.size)
+  await checkFileDimensions(file)
   const bmp = await createImageBitmap(file, { imageOrientation: 'from-image', premultiplyAlpha: 'none', colorSpaceConversion: 'none' })
-  const c = document.createElement('canvas')
-  c.width = bmp.width
-  c.height = bmp.height
-  const ctx = c.getContext('2d', { willReadFrequently: true })!
-  ctx.drawImage(bmp, 0, 0)
-  bmp.close()
-  const d = ctx.getImageData(0, 0, c.width, c.height)
-  return { data: d.data, width: c.width, height: c.height }
+  try {
+    // Defend against differences between the dimensions reported by the image element and decoder.
+    validateImageDimensions(bmp.width, bmp.height)
+    const c = document.createElement('canvas')
+    c.width = bmp.width
+    c.height = bmp.height
+    const ctx = c.getContext('2d', { willReadFrequently: true })
+    if (!ctx) throw new Error('Could not allocate a canvas for this image.')
+    ctx.drawImage(bmp, 0, 0)
+    const d = ctx.getImageData(0, 0, c.width, c.height)
+    return { data: d.data, width: c.width, height: c.height }
+  } finally {
+    bmp.close()
+  }
 }
 
 /** Encode an RGBA image as a PNG File. */

@@ -29,6 +29,9 @@ jobs:
       - name: Type-check (svelte-check + tsc)
         run: npm run check
 
+      - name: Run web regression tests
+        run: npm test
+
       - name: Build web app
         run: npm run build
 
@@ -59,8 +62,8 @@ jobs:
       - name: Type-check (CLI + shared engine)
         run: npm run check
 
-      - name: Build
-        run: npm run build
+      - name: Build and run CLI regression tests
+        run: npm test
 
       - name: Smoke test (trace + analyze + slice, JSON contract)
         run: |

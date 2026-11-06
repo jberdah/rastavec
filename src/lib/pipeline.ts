@@ -1,11 +1,13 @@
+import { outputQueue } from './measurement-queue.js'
 import { alphaStats, computeMetrics, type TraceBackend } from './engine/core'
-import { forgetEdits } from './edit'
+import { forgetEdits, outputSvg } from './edit'
 import { browserBackend, decodeFile, toPngFile } from './engine/browser-backend'
 import { crop, keyBackground, sliceSheet } from './engine/slice'
 import { analyze } from './engine/analyze'
-import { vectorize } from './engine/vectorize'
+import { vectorize, VectorizationCancelled, type VectorizeResult, type VectorizeSettings } from './engine/vectorize'
 import type { Item, TraceParams } from './engine/types'
-import { app, clone, forgetUrls, sources } from './store.svelte'
+import { app, clone, editKey, forgetUrls, sources } from './store.svelte'
+import { uniqueImportName } from './import-names.js'
 
 const backend: TraceBackend = browserBackend
 export const engineName = backend.name
@@ -21,12 +23,13 @@ export async function measureSvg(item: Item, svg: string) {
 const IMAGE_EXT = /\.(png|jpe?g|webp|gif|bmp)$/i
 
 export function addFiles(files: Iterable<File>) {
-  const names = new Set(app.items.map((i) => i.name))
+  // A running batch iterates app.items directly; never insert or sort it mid-run.
+  if (app.running) return 0
+  const names = new Set(app.items.map((i) => i.name.toLocaleLowerCase('en-US')))
+  let added = 0
   for (const file of files) {
     if (!IMAGE_EXT.test(file.name)) continue
-    const name = file.name.replace(/\.[^.]+$/, '')
-    if (names.has(name)) continue
-    names.add(name)
+    const name = uniqueImportName(file.name.replace(/\.[^.]+$/, ''), names)
     app.items.push({
       id: crypto.randomUUID(),
       name,
@@ -42,9 +45,11 @@ export function addFiles(files: Iterable<File>) {
       chosen: 0,
       autoTuned: false,
     })
+    added++
   }
   app.items.sort((a, b) => a.name.localeCompare(b.name, 'fr', { numeric: true }))
   void analyzePending()
+  return added
 }
 
 let analyzing = false
@@ -64,7 +69,11 @@ async function analyzePending() {
 
 async function ensureAnalysis(item: Item) {
   try {
-    if (!sources.has(item.id)) sources.set(item.id, await decodeFile(item.file))
+    if (!sources.has(item.id)) {
+      const decoded = await decodeFile(item.file)
+      if (!app.items.some((i) => i.id === item.id)) return
+      sources.set(item.id, decoded)
+    }
     const src = sources.get(item.id)!
     item.width = src.width
     item.height = src.height
@@ -89,18 +98,21 @@ export async function addSheet(file: File): Promise<{ name: string; count: numbe
     if (res.background !== 'transparent') part = keyBackground(part, res.background)
     files.push(await toPngFile(part, `${stem}-${String(k + 1).padStart(2, '0')}.png`))
   }
-  addFiles(files)
-  return { name: file.name, count: files.length, background: res.background, dropped: res.dropped }
+  const count = addFiles(files)
+  return { name: file.name, count, background: res.background, dropped: res.dropped }
 }
 
 export function clearItems() {
   // Remove from the UI first, then release the object URLs once the thumbnails are gone.
   const old = app.items.splice(0, app.items.length)
   sources.clear()
+  app.batchSettings = null
+  app.batchCancelled = false
   setTimeout(() => {
     for (const i of old) {
       URL.revokeObjectURL(i.srcUrl)
       forgetUrls(i)
+      forgetEdits(i)
     }
   }, 1000)
 }
@@ -127,48 +139,100 @@ export async function filesFromDrop(dt: DataTransfer): Promise<File[]> {
   return out
 }
 
-async function processItem(item: Item) {
+type PendingResult = { result: VectorizeResult; semiPct: number } | { error: string }
+
+async function processItem(item: Item, settings: VectorizeSettings): Promise<PendingResult> {
   item.status = 'tracing'
   item.progress = ''
-  item.trials = []
-  item.autoTuned = false
   item.error = undefined
-  forgetUrls(item)
-  forgetEdits(item)
   try {
     await ensureAnalysis(item)
+    if (app.cancelRequested) throw new VectorizationCancelled()
     if (!sources.has(item.id)) throw new Error(item.error ?? 'unreadable image')
     const src = sources.get(item.id)!
-    item.semiPct = alphaStats(src).semiPct
-
-    item.notes = undefined
-    const settings = { presetId: app.presetId, params: clone(app.params) as TraceParams, auto: clone(app.auto) }
+    const semiPct = alphaStats(src).semiPct
     const res = await vectorize(src, settings, backend, {
       analysis: item.analysis,
       onProgress: (k, total) => (item.progress = `${k}/${total}`),
+      shouldCancel: () => app.cancelRequested,
     })
-    item.notes = res.notes
-    item.trials = res.trials
-    item.chosen = res.chosen
-    item.autoTuned = res.autoTuned
-    item.status = 'done'
+    return { result: res, semiPct }
   } catch (e) {
-    item.status = 'error'
-    item.error = e instanceof Error ? e.message : String(e)
+    if (e instanceof VectorizationCancelled || app.cancelRequested) throw new VectorizationCancelled()
+    return { error: e instanceof Error ? e.message : String(e) }
   }
-  item.progress = ''
 }
+
+/** Request cancellation; an in-progress tracing trial finishes before the batch is rolled back. */
+export function cancelProcessing() { if (app.running) app.cancelRequested = true }
 
 export async function processAll() {
   if (app.running) return
   app.running = true
+  app.cancelRequested = false
+  app.batchCancelled = false
+  app.batchProcessed = 0
+  const previousSettings = app.batchSettings
+  const previousTimes = { startedAt: app.startedAt, finishedAt: app.finishedAt }
+  const previous = app.items.map((item) => ({ item, status: item.status, error: item.error, progress: item.progress }))
+  const settings = { presetId: app.presetId, params: clone(app.params), auto: clone(app.auto) }
+  app.batchSettings = settings
   app.startedAt = performance.now()
   app.finishedAt = 0
   for (const item of app.items) {
     item.status = 'queued'
-    item.trials = []
+    item.progress = ''
   }
-  for (const item of app.items) await processItem(item)
-  app.finishedAt = performance.now()
-  app.running = false
+  const results: PendingResult[] = []
+  try {
+    for (const item of app.items) {
+      if (app.cancelRequested) throw new VectorizationCancelled()
+      results.push(await processItem(item, settings))
+      app.batchProcessed++
+      item.status = 'prepared'
+      item.progress = ''
+    }
+    if (app.cancelRequested) throw new VectorizationCancelled()
+    // Commit the whole batch at once: a cancelled run never destroys earlier trials or edits.
+    for (const [index, item] of app.items.entries()) {
+      const pending = results[index]
+      forgetUrls(item)
+      forgetEdits(item)
+      item.progress = ''
+      if ('error' in pending) {
+        item.status = 'error'; item.error = pending.error; item.trials = []; item.failedTrials = undefined
+      } else {
+        const res = pending.result
+        item.semiPct = pending.semiPct; item.notes = res.notes; item.trials = res.trials; item.chosen = res.chosen
+        item.autoTuned = res.autoTuned; item.failedTrials = res.failedTrials; item.error = undefined; item.status = 'done'
+      }
+    }
+    app.finishedAt = performance.now()
+  } catch (e) {
+    for (const saved of previous) { saved.item.status = saved.status; saved.item.error = saved.error; saved.item.progress = saved.progress }
+    app.batchSettings = previousSettings
+    app.startedAt = previousTimes.startedAt; app.finishedAt = previousTimes.finishedAt
+    app.batchCancelled = e instanceof VectorizationCancelled
+    if (!(e instanceof VectorizationCancelled)) throw e
+  } finally {
+    app.running = false; app.cancelRequested = false; app.batchProcessed = 0
+  }
+}
+
+/** Invalidate immediately, coalesce slider changes, and measure one output at a time. */
+export function refreshOutputMetrics(item: Item) {
+  const key = editKey(item)
+  if (!key) { outputQueue.cancel(item.id); item.outputMeasurement = undefined; return }
+  item.outputMeasurement = { key }
+  outputQueue.schedule(item.id, async () => {
+    if (editKey(item) !== key || item.outputMeasurement?.key !== key) return
+    try {
+      const metrics = await measureSvg(item, outputSvg(item))
+      if (!metrics) throw new Error('source image unavailable')
+      if (editKey(item) === key && item.outputMeasurement?.key === key) item.outputMeasurement = { key, metrics }
+    } catch (e) {
+      if (editKey(item) === key && item.outputMeasurement?.key === key)
+        item.outputMeasurement = { key, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
 }

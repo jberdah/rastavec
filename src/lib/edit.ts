@@ -1,10 +1,12 @@
 // Palette filters applied to the chosen trial of an item. Analyses and results are cached outside
 // reactive state (keyed by item + trial), so moving a slider only re-runs the cheap colour pass.
+import { outputQueue } from './measurement-queue.js'
 import { analyzeShapes, applyFilters, isDefault, type FilterResult, type FilterSettings, type ShapeAnalysis } from './engine/palette'
 import type { Item } from './engine/types'
-import { chosenTrial } from './store.svelte'
+import { chosenTrial, editKey, svgUrl } from './store.svelte'
 
 const analyses = new Map<string, ShapeAnalysis>()
+const previewUrls = new Map<string, { key: string; url: string }>()
 const results = new Map<string, { key: string; result: FilterResult }>()
 
 export function shapeAnalysis(item: Item): ShapeAnalysis {
@@ -36,8 +38,25 @@ export function outputSvg(item: Item): string {
   return s ? filtered(item, s).svg : chosenTrial(item).svg
 }
 
+/** Preview the same filtered SVG that will be exported. */
+export function outputUrl(item: Item): string {
+  const key = editKey(item)
+  if (!key) return svgUrl(item)
+  const old = previewUrls.get(item.id)
+  if (old?.key === key) return old.url
+  if (old) URL.revokeObjectURL(old.url)
+  const url = URL.createObjectURL(new Blob([outputSvg(item)], { type: 'image/svg+xml' }))
+  previewUrls.set(item.id, { key, url })
+  return url
+}
+
 export function forgetEdits(item: Item) {
+  outputQueue.cancel(item.id)
   for (const k of analyses.keys()) if (k.startsWith(item.id + ':')) analyses.delete(k)
   results.delete(item.id)
+  const preview = previewUrls.get(item.id)
+  if (preview) URL.revokeObjectURL(preview.url)
+  previewUrls.delete(item.id)
   item.edit = undefined
+  item.outputMeasurement = undefined
 }

@@ -4,6 +4,8 @@
 import { analyze, recommend, type Analysis, type NoteCode } from './analyze'
 import { candidates, choose, computeMetrics, prepare, score, type RGBAImage, type TraceBackend } from './core'
 import type { AutoTune, TraceParams, Trial } from './types'
+import { presetById } from './presets'
+import { tracePixelGrid } from './pixel-grid'
 
 export interface VectorizeSettings {
   /** 'auto' derives the parameters from the image analysis; anything else uses `params`. */
@@ -18,24 +20,44 @@ export interface VectorizeResult {
   trials: Trial[]
   chosen: number
   autoTuned: boolean
+  failedTrials: { traceScale: number; message: string }[]
 }
 
 const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now())
 
-export async function runTrial(src: RGBAImage, params: TraceParams, base: boolean, backend: TraceBackend): Promise<Trial> {
+export class VectorizationCancelled extends Error {
+  constructor() { super('Vectorization cancelled'); this.name = 'VectorizationCancelled' }
+}
+
+function enlarge(src: RGBAImage, scale: number): RGBAImage {
+  const width = src.width * scale, height = src.height * scale
+  const data = new Uint8ClampedArray(width * height * 4)
+  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+    const from = (Math.floor(y / scale) * src.width + Math.floor(x / scale)) * 4
+    data.set(src.data.subarray(from, from + 4), (y * width + x) * 4)
+  }
+  return { width, height, data }
+}
+
+export async function runTrial(src: RGBAImage, params: TraceParams, base: boolean, backend: TraceBackend, traceScale = 1): Promise<Trial> {
   const t0 = now()
-  const svg = await backend.trace(prepare(src, params), params)
+  const input = traceScale === 1 ? src : enlarge(src, traceScale)
+  let svg = await backend.trace(prepare(input, params), params)
+  // Keep the enlarged viewBox and paths, but display/export at the original dimensions.
+  if (traceScale !== 1) svg = svg.replace(/^(<svg\b[^>]*?)\bwidth="\d+"\s+height="\d+"/, `$1width="${src.width}" height="${src.height}"`)
   const render = await backend.rasterize(svg, src.width, src.height)
   const metrics = computeMetrics(src, render, svg)
-  return { base, params: { ...params }, svg, metrics, score: score(metrics), ms: now() - t0 }
+  return { base, params: { ...params }, traceScale, svg, metrics, score: score(metrics), ms: now() - t0 }
 }
 
 export async function vectorize(
   src: RGBAImage,
   settings: VectorizeSettings,
   backend: TraceBackend,
-  opts: { analysis?: Analysis; onProgress?: (done: number, total: number) => void } = {},
+  opts: { analysis?: Analysis; onProgress?: (done: number, total: number) => void; shouldCancel?: () => boolean } = {},
 ): Promise<VectorizeResult> {
+  const checkCancelled = () => { if (opts.shouldCancel?.()) throw new VectorizationCancelled() }
+  checkCancelled()
   const analysis = opts.analysis ?? analyze(src)
   let base = { ...settings.params }
   let notes: NoteCode[] | undefined
@@ -47,18 +69,48 @@ export async function vectorize(
   const { auto } = settings
   const transparent = src.data.some((v, k) => (k & 3) === 3 && v < 255)
   const grid = candidates(base, { transparent })
-  const total = auto.enabled ? grid.length + 1 : 1
+  const pixelScales = (settings.presetId === 'auto' || settings.presetId === 'pixel') && Math.max(src.width, src.height) <= 256 ? [2, 4] : []
+  const exactGrid = auto.enabled && (settings.presetId === 'auto' || settings.presetId === 'pixel') ? tracePixelGrid(src) : null
+  const total = auto.enabled ? grid.length + pixelScales.length + (exactGrid !== null ? 1 : 0) + 1 : 1
   opts.onProgress?.(1, total)
   const trials: Trial[] = [await runTrial(src, base, true, backend)]
+  checkCancelled()
+  const failedTrials: VectorizeResult['failedTrials'] = []
   const first = trials[0].metrics
   if (auto.enabled && (first.pctDiff > auto.threshold || first.bytes > auto.maxKB * 1024)) {
     for (const [k, c] of grid.entries()) {
+      checkCancelled()
       opts.onProgress?.(k + 2, total)
       trials.push(await runTrial(src, c.params, false, backend))
+      checkCancelled()
+    }
+    if (exactGrid !== null) {
+      checkCancelled()
+      opts.onProgress?.(grid.length + 2, total)
+      const t0 = now()
+      // This extra candidate is optional: a rasterizer failure must not discard
+      // the valid VTracer trials already computed.
+      try {
+        const rendered = await backend.rasterize(exactGrid, src.width, src.height)
+        checkCancelled()
+        const metrics = computeMetrics(src, rendered, exactGrid)
+        trials.push({ base: false, params: { ...presetById('pixel').params }, traceScale: 1, traceMethod: 'pixel-grid', svg: exactGrid, metrics, score: score(metrics), ms: now() - t0 })
+      } catch (error) { checkCancelled() }
+    }
+    for (const [k, scale] of pixelScales.entries()) {
+      checkCancelled()
+      opts.onProgress?.(grid.length + (exactGrid !== null ? 1 : 0) + k + 2, total)
+      try {
+        trials.push(await runTrial(src, presetById('pixel').params, false, backend, scale))
+      } catch (error) {
+        checkCancelled()
+        failedTrials.push({ traceScale: scale, message: error instanceof Error ? error.message : String(error) })
+      }
+      checkCancelled()
     }
   }
   const chosen = choose(trials, auto.maxKB * 1024)
-  return { analysis, notes, trials, chosen, autoTuned: chosen !== 0 }
+  return { analysis, notes, trials, chosen, autoTuned: chosen !== 0, failedTrials }
 }
 
 /** True when the chosen result misses the threshold or the size budget. */

@@ -1,6 +1,6 @@
 {
   "name": "rastavec",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "RastaVec CLI — Smooth vectors. Good vibes. Raster to SVG with analysis, fidelity metrics and deterministic auto-tuning. JSON output for scripts and AI agents.",
   "license": "Apache-2.0",
   "author": "jberdah",
@@ -10,17 +10,31 @@
     "url": "https://github.com/jberdah/rastavec.git",
     "directory": "cli"
   },
-  "keywords": ["svg", "vectorize", "vectorization", "raster", "vtracer", "cli", "ai-agents"],
+  "keywords": [
+    "svg",
+    "vectorize",
+    "vectorization",
+    "raster",
+    "vtracer",
+    "cli",
+    "ai-agents"
+  ],
   "bin": {
     "rastavec": "dist/rastavec.cjs"
   },
-  "files": ["dist", "README.md", "LICENSE", "NOTICE"],
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
   "engines": {
     "node": ">=18"
   },
   "scripts": {
     "build": "node build.mjs",
     "check": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test test/*.test.mjs",
     "prepack": "node build.mjs"
   },
   "dependencies": {

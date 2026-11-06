@@ -1,10 +1,11 @@
 <script lang="ts">
-  import { app, chosenTrial, clone, doneItems, go, svgUrl } from '../store.svelte'
+  import { app, chosenTrial, clone, doneItems, go, outputMetrics, svgUrl } from '../store.svelte'
   import { DEFAULT_FILTERS, FILTER_PRESETS, MAX_COLOURS, isDefault, type FilterSettings, type PresetId, type ThemeId } from '../engine/palette'
   import { filtered } from '../edit'
-  import { measureSvg } from '../pipeline'
+  import { refreshOutputMetrics } from '../pipeline'
   import { downloadSvg } from '../export'
   import { num, pct, size, t } from '../i18n.svelte'
+  import GroupReview from './GroupReview.svelte'
 
   type Bg = 'checker' | 'light' | 'dark'
   let bg = $state<Bg>('checker')
@@ -22,10 +23,12 @@
   function update(patch: Partial<FilterSettings>) {
     if (!item) return
     item.edit = { settings: { ...clone(settings), ...patch }, trial: item.chosen }
+    void refreshOutputMetrics(item)
   }
   function preset(id: PresetId) {
     if (!item) return
     item.edit = { settings: { ...DEFAULT_FILTERS, ...FILTER_PRESETS[id] }, trial: item.chosen }
+    void refreshOutputMetrics(item)
   }
   const activePreset = $derived(
     (Object.keys(FILTER_PRESETS) as PresetId[]).find((id) => {
@@ -46,31 +49,16 @@
     return () => setTimeout(() => URL.revokeObjectURL(url), 2000)
   })
 
-  // Fidelity against the source, debounced.
-  let fidelity = $state<number | null>(null)
-  let measuring = $state(false)
-  $effect(() => {
-    if (!item || !result) return
-    const it = item, svg = result.svg
-    measuring = true
-    let cancelled = false
-    const timer = setTimeout(async () => {
-      const m = await measureSvg(it, svg)
-      if (!cancelled) {
-        fidelity = m ? m.pctDiff : null
-        measuring = false
-      }
-    }, 250)
-    return () => {
-      cancelled = true
-      clearTimeout(timer)
-    }
-  })
+  const fidelity = $derived(item ? outputMetrics(item)?.pctDiff ?? null : null)
+  const measuring = $derived(!!item && !outputMetrics(item))
 
   function applyToAll() {
     if (!item) return
     const s = clone(settings)
-    for (const i of list) i.edit = { settings: clone(s), trial: i.chosen }
+    for (const i of list) {
+      i.edit = { settings: clone(s), trial: i.chosen }
+      void refreshOutputMetrics(i)
+    }
   }
   const appliedCount = $derived(list.filter((i) => i.edit && i.edit.trial === i.chosen && !isDefault(i.edit.settings)).length)
 
@@ -212,6 +200,7 @@
         {#if appliedCount > 1}<span class="muted tiny">{t('edit.appliedCount', appliedCount)}</span>{/if}
       </aside>
     </div>
+    <GroupReview svg={result.svg} name={item.name} />
   </div>
 {/if}
 

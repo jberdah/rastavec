@@ -26,7 +26,7 @@ Node.js 18 or later. The beta is attached to the
 [GitHub releases](https://github.com/jberdah/rastavec/releases):
 
 ```bash
-npm install -g https://github.com/jberdah/rastavec/releases/download/v0.2.0-beta.1/rastavec-0.2.0.tgz
+npm install -g https://github.com/jberdah/rastavec/releases/download/v0.3.0-beta.1/rastavec-0.3.0.tgz
 ```
 
 ## Commands
@@ -54,6 +54,13 @@ npm install -g https://github.com/jberdah/rastavec/releases/download/v0.2.0-beta
 | `--json` | | JSON report on stdout |
 | `-q, --quiet` | | no progress output |
 
+Before tracing, all output paths, including `report.json` and optional comparison images,
+are checked for existing files. Output names are made unique within a batch, including when
+an input name already contains a numeric suffix. A sheet with no detected elements is an
+error (exit code 2), rather than a successful empty batch. `slice` checks every element's
+destination before writing any of them. Even with `--force`, `trace` refuses to write an
+output over one of its input images.
+
 ## Exit codes
 
 | Code | Meaning |
@@ -66,7 +73,7 @@ npm install -g https://github.com/jberdah/rastavec/releases/download/v0.2.0-beta
 
 ```json
 {
-  "schemaVersion": 1, "tool": "rastavec", "version": "0.2.0",
+  "schemaVersion": 1, "tool": "rastavec", "version": "0.3.0",
   "engine": "vtracer 1.0.0-alpha.4 (node) + sharp",
   "settings": { "preset": "auto", "params": null, "autoTune": { "enabled": true, "threshold": 2, "maxKB": 700 } },
   "summary": { "total": 4, "ok": 2, "review": 2, "errors": 0, "seconds": 51.2 },
@@ -92,4 +99,7 @@ npm install -g https://github.com/jberdah/rastavec/releases/download/v0.2.0-beta
 - Engine: the official [VTracer](https://github.com/visioncortex/vtracer) 1.0 WebAssembly build
   (`@visioncortex/vtracer`, MIT/Apache-2.0) and [sharp](https://sharp.pixelplumbing.com).
   The web app still uses VTracer 0.4 in the browser, so numbers can differ slightly.
+- Source images are limited to 40 million pixels and 16,384 pixels on either side. Oversized
+  files are rejected before decoding with an error and exit code 2; resize them before retrying.
+  Even images within the limits can require substantial memory during tracing.
 - License: Apache-2.0. Redistributions must keep the `NOTICE` file.

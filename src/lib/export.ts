@@ -1,39 +1,41 @@
 import JSZip from 'jszip'
 import type { Item } from './engine/types'
 import { SIZE_WEIGHT } from './engine/core'
-import { app, chosenTrial, clone } from './store.svelte'
+import { app, chosenTrial, clone, outputMetrics } from './store.svelte'
 import { engineName } from './pipeline'
 import { activeEdit, outputSvg } from './edit'
 
 const r4 = (x: number | null) => (x === null ? '' : String(Math.round(x * 10000) / 10000))
 
 export function metricsCsv(items: Item[]): string {
-  const cols = ['name', 'silhouette_iou', 'pct_pixels_diff_gt_32', 'mean_abs_rgb_diff_on_white', 'mean_abs_rgb_diff_on_dark', 'mean_abs_alpha_diff', 'embedded_raster', 'path_count', 'svg_bytes', 'width', 'height', 'auto_tuned', 'params', 'error']
+  const cols = ['name', 'silhouette_iou', 'pct_pixels_diff_gt_32', 'mean_abs_rgb_diff_on_white', 'mean_abs_rgb_diff_on_dark', 'mean_abs_alpha_diff', 'embedded_raster', 'path_count', 'svg_bytes', 'width', 'height', 'auto_tuned', 'params', 'error', 'trace_scale', 'trace_method']
   const cell = (v: unknown) => {
     const s = v === undefined || v === null ? '' : String(v)
     return /[",;\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
   }
   const rows = items.map((i) => {
-    if (i.status !== 'done') return [i.name, '', '', '', '', '', '', '', '', i.width, i.height, '', '', i.error ?? i.status]
-    const t = chosenTrial(i), m = t.metrics
-    return [i.name, r4(m.iou), r4(m.pctDiff), r4(m.rgbWhite), r4(m.rgbDark), r4(m.alphaDiff), m.embeddedRaster, m.paths, m.bytes, m.width, m.height, i.autoTuned, JSON.stringify(t.params), '']
+    if (i.status !== 'done') return [i.name, '', '', '', '', '', '', '', '', i.width, i.height, '', '', i.error ?? i.status, '', '']
+    const t = chosenTrial(i), m = outputMetrics(i)
+    if (!m) throw new Error(`Output metrics unavailable: ${i.name}`)
+    return [i.name, r4(m.iou), r4(m.pctDiff), r4(m.rgbWhite), r4(m.rgbDark), r4(m.alphaDiff), m.embeddedRaster, m.paths, m.bytes, m.width, m.height, i.autoTuned, JSON.stringify(t.params), '', t.traceScale ?? 1, t.traceMethod ?? 'vtracer']
   })
   return [cols.join(','), ...rows.map((r) => r.map(cell).join(','))].join('\n') + '\n'
 }
 
-/** Everything needed to replay the batch identically. */
+/** Record the chosen parameters and palette filters for the exported batch. */
 export function config(items: Item[]) {
+  const settings = app.batchSettings ?? { presetId: app.presetId, params: app.params, auto: app.auto }
   return {
     app: 'rastavec',
     engine: engineName,
-    preset: app.presetId,
-    params: clone(app.params),
-    autoTune: { ...clone(app.auto), sizeWeightPerKiB: SIZE_WEIGHT },
+    preset: settings.presetId,
+    params: clone(settings.params),
+    autoTune: { ...clone(settings.auto), sizeWeightPerKiB: SIZE_WEIGHT },
     items: items
       .filter((i) => i.status === 'done')
       .map((i) => {
         const edit = activeEdit(i)
-        return { name: i.name, params: clone(chosenTrial(i).params), autoTuned: i.autoTuned, ...(edit ? { paletteFilters: clone(edit) } : {}) }
+        return { name: i.name, params: clone(chosenTrial(i).params), traceScale: chosenTrial(i).traceScale ?? 1, traceMethod: chosenTrial(i).traceMethod ?? 'vtracer', autoTuned: i.autoTuned, ...(edit ? { paletteFilters: clone(edit) } : {}) }
       }),
   }
 }

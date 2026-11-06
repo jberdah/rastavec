@@ -1,7 +1,7 @@
 // RastaVec CLI — raster to SVG with analysis, fidelity metrics and deterministic auto-tuning.
 // Designed for scripts and AI agents: JSON report, stable exit codes, never overwrites by default.
 import { parseArgs } from 'node:util'
-import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { basename, extname, join, resolve } from 'node:path'
 import { analyze, recommend, type Analysis } from '../../src/lib/engine/analyze'
 import { diffImage, type RGBAImage } from '../../src/lib/engine/core'
@@ -91,6 +91,18 @@ function listImages(inputs: string[], recursive: boolean): string[] {
 }
 
 const stem = (p: string) => basename(p, extname(p))
+const pathKey = (p: string) => {
+  const absolute = existsSync(p) ? realpathSync(p) : resolve(p)
+  return process.platform === 'win32' ? absolute.toLowerCase() : absolute
+}
+const fileKeys = (p: string): string[] => {
+  const keys = [`path:${pathKey(p)}`]
+  if (existsSync(p)) {
+    const stat = statSync(p)
+    if (stat.ino !== 0) keys.push(`inode:${stat.dev}:${stat.ino}`)
+  }
+  return keys
+}
 const r4 = (x: number | null) => (x === null ? null : Math.round(x * 10000) / 10000)
 const kb = (b: number) => `${Math.round(b / 1024)} KB`
 
@@ -146,6 +158,7 @@ async function cmdTrace(positionals: string[], o: Record<string, string | boolea
     if (o.slice) {
       const img = await decode(f)
       const sheet = sliceSheet(img)
+      if (!sheet.boxes.length) fail(`no elements found in sheet: ${f}`)
       sheet.boxes.forEach((box, k) => {
         const name = `${stem(f)}-${String(k + 1).padStart(2, '0')}`
         jobs.push({ name, input: `${f}#${k + 1}`, image: async () => (sheet.background !== 'transparent' ? keyBackground(crop(img, box), sheet.background) : crop(img, box)) })
@@ -153,17 +166,26 @@ async function cmdTrace(positionals: string[], o: Record<string, string | boolea
     } else jobs.push({ name: stem(f), input: f, image: () => decode(f) })
   }
   // Unique output names, and refuse to overwrite unless --force.
-  const used = new Map<string, number>()
+  const used = new Set<string>()
   for (const j of jobs) {
-    const n = (used.get(j.name) ?? 0) + 1
-    used.set(j.name, n)
-    if (n > 1) j.name = `${j.name}-${n}`
+    const base = j.name
+    let n = 1
+    while (used.has(j.name.toLowerCase())) j.name = `${base}-${++n}`
+    used.add(j.name.toLowerCase())
+  }
+  const paths = [join(out, 'report.json'), ...jobs.flatMap((j) => [
+    join(out, `${j.name}.svg`),
+    ...(o.compare ? [join(out, `${j.name}.comparison.png`), join(out, `${j.name}.diff.png`)] : []),
+  ])]
+  // Even --force must not overwrite an input before the rest of the batch has read it.
+  const inputKeys = new Set(files.flatMap(fileKeys))
+  const inputClash = paths.find((path) => fileKeys(path).some((key) => inputKeys.has(key)))
+  if (inputClash) fail(`output would overwrite an input: ${inputClash}`)
+  if (!o.force) {
+    const clash = paths.find((path) => existsSync(path))
+    if (clash) fail(`${clash} already exists (use --force to overwrite)`)
   }
   mkdirSync(out, { recursive: true })
-  if (!o.force) {
-    const clash = jobs.find((j) => existsSync(join(out, `${j.name}.svg`)))
-    if (clash) fail(`${join(out, clash.name + '.svg')} already exists (use --force to overwrite)`)
-  }
 
   const t0 = Date.now()
   const items: Record<string, unknown>[] = []
@@ -199,10 +221,13 @@ async function cmdTrace(positionals: string[], o: Record<string, string | boolea
         notes: res.notes ?? [],
         autoTuned: res.autoTuned,
         trials: res.trials.length,
+        ...(res.failedTrials.length ? { failedTrials: res.failedTrials } : {}),
+        traceScale: t.traceScale ?? 1,
+        traceMethod: t.traceMethod ?? 'vtracer',
         params: t.params,
         metrics: { pctDiff: r4(m.pctDiff), iou: r4(m.iou), rgbWhite: r4(m.rgbWhite), rgbDark: r4(m.rgbDark), alphaDiff: r4(m.alphaDiff), bytes: m.bytes, paths: m.paths, embeddedRaster: m.embeddedRaster },
       })
-      log(`${prefix} ${status === 'ok' ? 'ok    ' : 'REVIEW'} ${job.name}  ${m.pctDiff.toFixed(2)}%  IoU ${(m.iou ?? 0).toFixed(3)}  ${kb(m.bytes)}  ${describe(t.params)}${res.autoTuned ? '  (auto-tuned)' : ''}`)
+      log(`${prefix} ${status === 'ok' ? 'ok    ' : 'REVIEW'} ${job.name}  ${m.pctDiff.toFixed(2)}%  IoU ${(m.iou ?? 0).toFixed(3)}  ${kb(m.bytes)}  ${describe(t.params)}${(t.traceScale ?? 1) > 1 ? ` · trace ×${t.traceScale}` : ''}${res.autoTuned ? '  (auto-tuned)' : ''}`)
     } catch (e) {
       errors++
       const error = e instanceof Error ? e.message : String(e)
@@ -251,13 +276,21 @@ async function cmdSlice(positionals: string[], o: Record<string, string | boolea
   const file = resolve(positionals[0])
   if (!existsSync(file)) fail(`input not found: ${positionals[0]}`)
   const out = resolve((o.out as string) ?? `${stem(file)}-elements`)
-  mkdirSync(out, { recursive: true })
   const img = await decode(file)
   const sheet = sliceSheet(img)
+  if (!sheet.boxes.length) fail(`no elements found in sheet: ${file}`)
+  const paths = sheet.boxes.map((_, k) => join(out, `${stem(file)}-${String(k + 1).padStart(2, '0')}.png`))
+  const inputKeys = new Set(fileKeys(file))
+  const inputClash = paths.find((path) => fileKeys(path).some((key) => inputKeys.has(key)))
+  if (inputClash) fail(`output would overwrite an input: ${inputClash}`)
+  if (!o.force) {
+    const clash = paths.find((path) => existsSync(path))
+    if (clash) fail(`${clash} already exists (use --force to overwrite)`)
+  }
+  mkdirSync(out, { recursive: true })
   const elements = []
   for (const [k, box] of sheet.boxes.entries()) {
-    const path = join(out, `${stem(file)}-${String(k + 1).padStart(2, '0')}.png`)
-    if (existsSync(path) && !o.force) fail(`${path} already exists (use --force to overwrite)`)
+    const path = paths[k]
     await writePng(sheet.background !== 'transparent' ? keyBackground(crop(img, box), sheet.background) : crop(img, box), path)
     elements.push({ path, ...box })
   }
