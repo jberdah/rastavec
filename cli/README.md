@@ -26,7 +26,7 @@ Node.js 18 or later. The beta is attached to the
 [GitHub releases](https://github.com/jberdah/rastavec/releases):
 
 ```bash
-npm install -g https://github.com/jberdah/rastavec/releases/download/v0.3.0-beta.1/rastavec-0.3.0.tgz
+npm install -g https://github.com/jberdah/rastavec/releases/download/v0.3.0-beta.2/rastavec-0.3.0.tgz
 ```
 
 ## Commands

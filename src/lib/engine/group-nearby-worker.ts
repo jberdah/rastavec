@@ -1,8 +1,8 @@
 import { groupNearbyPaths } from './group-nearby'
 
 // Analysis runs away from the UI thread; only RastaVec's own generated SVG is passed in.
-const scope = self as unknown as {
-  onmessage: ((event: MessageEvent<{ svg: string; distance: number }>) => void) | null
+const scope = globalThis as unknown as {
+  onmessage: ((event: { data: { svg: string; distance: number } }) => void) | null
   postMessage: (message: unknown) => void
 }
 scope.onmessage = (event) => {
