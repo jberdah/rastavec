@@ -7,6 +7,7 @@
   import type { GroupingMetadata } from '../engine/types'
   import { num, pct, size, t } from '../i18n.svelte'
   import GroupReview from './GroupReview.svelte'
+  import { publicAsset } from '../assets'
 
   type Bg = 'checker' | 'light' | 'dark'
   let bg = $state<Bg>('checker')
@@ -73,7 +74,7 @@
 
 {#if !item || !trial || !result}
   <div class="card stack" style="max-width: 560px; align-items: flex-start">
-    <img src="/brand/mascot-laptop.webp" alt="" width="160" height="160" style="width: 160px; height: auto" />
+    <img src={publicAsset('brand/mascot-laptop.webp')} alt="" width="160" height="160" style="width: 160px; height: auto" />
     <h1>{t('edit.empty')}</h1>
     <button type="button" class="btn" onclick={() => go('import')}>{t('detail.import')}</button>
   </div>

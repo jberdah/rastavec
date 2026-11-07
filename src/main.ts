@@ -4,6 +4,7 @@ import App from './App.svelte'
 import { applyDocumentLocale } from './lib/i18n.svelte'
 
 applyDocumentLocale()
+document.body.classList.toggle('embedded-app', import.meta.env.BASE_URL !== '/')
 
 const app = mount(App, {
   target: document.getElementById('app')!,

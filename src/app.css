@@ -105,3 +105,43 @@ p { margin: 0; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .spinner { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--line-3); border-top-color: var(--accent-text); animation: spin 0.8s linear infinite; }
 @media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 3s; } }
+
+/* Embedded under the website shell at /app; the standalone app keeps its normal layout. */
+body.embedded-app {
+  height: 100dvh;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+body.embedded-app > #app {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+body.embedded-app #app > .bar {
+  position: relative;
+  top: auto;
+  flex: 0 0 auto;
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+body.embedded-app #app > .page {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding-top: 20px;
+  padding-bottom: 24px;
+}
+@media (max-width: 640px) {
+  body.embedded-app #app > .bar {
+    position: relative;
+    padding-top: 9px;
+    padding-bottom: 9px;
+  }
+  body.embedded-app #app > .page {
+    padding-top: 16px;
+    padding-bottom: 20px;
+  }
+}

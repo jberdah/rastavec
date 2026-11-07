@@ -6,6 +6,7 @@
   import { activeEdit } from '../edit'
   import { refreshOutputMetrics } from '../pipeline'
   import { alphaLabel, describeParams, kindLabel, noteLabel, num, pct, size, t } from '../i18n.svelte'
+  import { publicAsset } from '../assets'
 
   type Mode = 'slider' | 'side' | 'diff' | 'paths'
   type Bg = 'checker' | 'light' | 'dark'
@@ -90,7 +91,7 @@
 
 {#if !item || !trial || !m}
   <div class="card stack" style="max-width: 560px; align-items: flex-start">
-    <img src="/brand/mascot-inspect.webp" alt="" width="160" height="160" style="width: 160px; height: auto" />
+    <img src={publicAsset('brand/mascot-inspect.webp')} alt="" width="160" height="160" style="width: 160px; height: auto" />
     <h1>{t('detail.empty')}</h1>
     <button type="button" class="btn" onclick={() => go('import')}>{t('detail.import')}</button>
   </div>

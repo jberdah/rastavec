@@ -1,6 +1,7 @@
 <script lang="ts">
   import { app, doneItems, go, type Route } from '../store.svelte'
   import { i18n, LOCALES, setLocale, t } from '../i18n.svelte'
+  import { publicAsset } from '../assets'
 
   const steps: { id: Route; key: 'nav.import' | 'nav.lot' | 'nav.detail' | 'nav.edit' | 'nav.animate' }[] = [
     { id: 'import', key: 'nav.import' },
@@ -9,14 +10,17 @@
     { id: 'edit', key: 'nav.edit' },
     { id: 'animate', key: 'nav.animate' },
   ]
+  const embedded = import.meta.env.BASE_URL !== '/'
   const enabled = (id: Route) =>
     id === 'import' || id === 'animate' || (id === 'lot' ? app.items.length > 0 : doneItems().length > 0)
 </script>
 
 <header class="bar">
-  <div class="brand">
-    <img class="logo" src="/brand/logo-48.webp" srcset="/brand/logo-48.webp 1x, /brand/logo-96.webp 2x" alt="RastaVec" width="229" height="48" />
-  </div>
+  {#if !embedded}
+    <div class="brand">
+      <img class="logo" src={publicAsset('brand/logo-48.webp')} srcset={publicAsset('brand/logo-48.webp') + ' 1x, ' + publicAsset('brand/logo-96.webp') + ' 2x'} alt="RastaVec" width="229" height="48" />
+    </div>
+  {/if}
   <nav class="seg strong" aria-label={t('nav.steps')}>
     {#each steps as s (s.id)}
       <button type="button" aria-pressed={app.route === s.id} disabled={!enabled(s.id)} onclick={() => go(s.id)}>{t(s.key)}</button>

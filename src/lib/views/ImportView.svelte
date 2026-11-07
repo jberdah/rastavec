@@ -4,6 +4,7 @@
   import { addFiles, addGridSheet, addSheet, clearItems, filesFromDrop, processAll } from '../pipeline'
   import type { ImageKind } from '../engine/analyze'
   import { kbUnit, kindLabel, num, pct, presetDesc, presetName, size, t } from '../i18n.svelte'
+  import { publicAsset } from '../assets'
 
   let dragging = $state(false)
   let fileInput: HTMLInputElement
@@ -135,7 +136,7 @@
       <h1>{t('import.title1')}<br />{t('import.title2')}</h1>
       <p class="muted lead">{t('import.lead')}</p>
     </div>
-    <img class="hero-mascot" src="/brand/mascot-welcome.webp" alt="" width="220" height="220" />
+    <img class="hero-mascot" src={publicAsset('brand/mascot-welcome.webp')} alt="" width="220" height="220" />
     </div>
 
     <div

@@ -5,6 +5,7 @@
   import { exportZip } from '../export'
   import type { Item } from '../engine/types'
   import { kbUnit, kindLabel, num, pct, presetName, size, t } from '../i18n.svelte'
+  import { publicAsset } from '../assets'
 
   type Filter = 'all' | 'review' | 'auto' | 'ok'
   let filter = $state<Filter>('all')
@@ -21,7 +22,7 @@
   const measured = $derived(done.filter((i) => !!outputMetrics(i)))
   const ious = $derived(measured.map((i) => outputMetrics(i)!.iou).filter((v): v is number => v !== null))
   const mascot = $derived(
-    app.running ? '/brand/mascot-vibe.webp' : !done.length ? null : app.items.some(needsReview) ? '/brand/mascot-inspect.webp' : '/brand/mascot-cool.webp',
+    app.running ? publicAsset('brand/mascot-vibe.webp') : !done.length ? null : app.items.some(needsReview) ? publicAsset('brand/mascot-inspect.webp') : publicAsset('brand/mascot-cool.webp'),
   )
   const elapsed = $derived(app.startedAt ? ((app.finishedAt || now) - app.startedAt) / 1000 : 0)
   const processed = $derived(app.running ? app.batchProcessed : app.items.filter((i) => i.status === 'done' || i.status === 'error').length)
