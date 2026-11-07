@@ -98,7 +98,9 @@ output over one of its input images.
 
 - Engine: the official [VTracer](https://github.com/visioncortex/vtracer) 1.0 WebAssembly build
   (`@visioncortex/vtracer`, MIT/Apache-2.0) and [sharp](https://sharp.pixelplumbing.com).
-  The web app still uses VTracer 0.4 in the browser, so numbers can differ slightly.
+  The web app also uses VTracer 1.0.0-alpha.4, compiled to WebAssembly in the browser. The CLI
+  uses the Node package with `sharp` for image decoding and SVG rendering; metrics can differ
+  slightly because the browser and CLI use different rendering backends.
 - Source images are limited to 40 million pixels and 16,384 pixels on either side. Oversized
   files are rejected before decoding with an error and exit code 2; resize them before retrying.
   Even images within the limits can require substantial memory during tracing.
