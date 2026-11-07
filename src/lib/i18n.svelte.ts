@@ -17,6 +17,9 @@ function initialLocale(): Locale {
   } catch {
     /* storage unavailable */
   }
+  // The integrated website is English. Keep the app's browser-language default
+  // for standalone builds, but use English on /app/ unless the user chose a locale.
+  if (import.meta.env.BASE_URL !== '/') return 'en'
   return (navigator.language || 'en').toLowerCase().startsWith('fr') ? 'fr' : 'en'
 }
 
