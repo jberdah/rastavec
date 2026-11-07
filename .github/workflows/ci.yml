@@ -24,6 +24,17 @@ jobs:
           node-version: 22
           cache: npm
 
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: wasm/vtracer -> target
+
+      - name: Install wasm-pack
+        run: cargo install wasm-pack --version 0.15.1 --locked
+
       - run: npm ci
 
       # The web regression suite uses sharp from the CLI workspace to compare rendered SVGs.

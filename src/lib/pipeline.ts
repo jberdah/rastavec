@@ -2,7 +2,7 @@ import { outputQueue } from './measurement-queue.js'
 import { alphaStats, computeMetrics, type TraceBackend } from './engine/core'
 import { forgetEdits, outputSvg } from './edit'
 import { browserBackend, decodeFile, toPngFile } from './engine/browser-backend'
-import { crop, keyBackground, sliceSheet } from './engine/slice'
+import { crop, keyBackground, sliceGrid, sliceSheet, type GridSliceOptions } from './engine/slice'
 import { analyze } from './engine/analyze'
 import { vectorize, VectorizationCancelled, type VectorizeResult, type VectorizeSettings } from './engine/vectorize'
 import type { Item, TraceParams } from './engine/types'
@@ -100,6 +100,21 @@ export async function addSheet(file: File): Promise<{ name: string; count: numbe
   }
   const count = addFiles(files)
   return { name: file.name, count, background: res.background, dropped: res.dropped }
+}
+
+/** Slice a regular frame grid while keeping every pose on the same canvas. */
+export async function addGridSheet(file: File, options: GridSliceOptions): Promise<{ name: string; count: number; columns: number; rows: number; empty: number }> {
+  const img = await decodeFile(file)
+  const res = sliceGrid(img, options)
+  const stem = file.name.replace(/\.[^.]+$/, '')
+  const files: File[] = []
+  for (const box of res.boxes) {
+    let part = crop(img, box)
+    if (res.background !== 'transparent') part = keyBackground(part, res.background)
+    const poseName = `r${String(box.row + 1).padStart(2, '0')}-c${String(box.column + 1).padStart(2, '0')}`
+    files.push(await toPngFile(part, `${stem}-${poseName}.png`))
+  }
+  return { name: file.name, count: addFiles(files), columns: res.columns, rows: res.rows, empty: res.dropped }
 }
 
 export function clearItems() {

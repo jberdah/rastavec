@@ -96,7 +96,7 @@ const hueDelta = (a: number, b: number) => {
 // ---------------------------------------------------------------- path geometry (bbox, flattening, point in fill)
 
 const CMD = /[MmLlHhVvCcSsQqTtAaZz]/
-const TOKEN = /[MmLlHhVvCcSsQqTtAaZz]|-?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?/gi
+const TOKEN = /[MmLlHhVvCcSsQqTtAaZz]|[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?/gi
 const ARGS: Record<string, number> = { M: 2, L: 2, H: 1, V: 1, C: 6, S: 4, Q: 4, T: 2, A: 7, Z: 0 }
 
 /** Closed polygons approximating the path (curves flattened), in absolute coordinates. */
@@ -106,6 +106,7 @@ export function flattenPath(d: string, dx = 0, dy = 0): number[][] {
   let poly: number[] = []
   let x = 0, y = 0, sx = 0, sy = 0, cmd = '', i = 0
   let lcx = 0, lcy = 0 // last control point (for S/T reflection)
+  let lastOp = ''
   const push = (px: number, py: number) => poly.push(px + dx, py + dy)
   const close = () => {
     if (poly.length >= 6) polys.push(poly)
@@ -141,10 +142,47 @@ export function flattenPath(d: string, dx = 0, dy = 0): number[][] {
       case 'C': cubic(a[0] + ox, a[1] + oy, a[2] + ox, a[3] + oy, a[4] + ox, a[5] + oy); break
       case 'S': cubic(2 * x - lcx, 2 * y - lcy, a[0] + ox, a[1] + oy, a[2] + ox, a[3] + oy); break
       case 'Q': { const qx = a[0] + ox, qy = a[1] + oy; cubic(x + (2 / 3) * (qx - x), y + (2 / 3) * (qy - y), a[2] + ox + (2 / 3) * (qx - a[2] - ox), a[3] + oy + (2 / 3) * (qy - a[3] - oy), a[2] + ox, a[3] + oy); lcx = qx; lcy = qy; break }
-      case 'T': x = a[0] + ox; y = a[1] + oy; push(x, y); break
-      case 'A': x = a[5] + ox; y = a[6] + oy; push(x, y); break
+      case 'T': {
+        const qx = (lastOp === 'Q' || lastOp === 'T') ? 2 * x - lcx : x
+        const qy = (lastOp === 'Q' || lastOp === 'T') ? 2 * y - lcy : y
+        const ex = a[0] + ox, ey = a[1] + oy
+        cubic(x + (2 / 3) * (qx - x), y + (2 / 3) * (qy - y), ex + (2 / 3) * (qx - ex), ey + (2 / 3) * (qy - ey), ex, ey)
+        lcx = qx; lcy = qy
+        break
+      }
+      case 'A': {
+        let rx = Math.abs(a[0]), ry = Math.abs(a[1])
+        const phi = a[2] * Math.PI / 180, cos = Math.cos(phi), sin = Math.sin(phi)
+        const ex = a[5] + ox, ey = a[6] + oy
+        if (!rx || !ry || (x === ex && y === ey)) { x = ex; y = ey; push(x, y); break }
+        const xp = cos * (x - ex) / 2 + sin * (y - ey) / 2
+        const yp = -sin * (x - ex) / 2 + cos * (y - ey) / 2
+        const lambda = xp * xp / (rx * rx) + yp * yp / (ry * ry)
+        if (lambda > 1) { const scale = Math.sqrt(lambda); rx *= scale; ry *= scale }
+        const denominator = rx * rx * yp * yp + ry * ry * xp * xp
+        const numerator = Math.max(0, rx * rx * ry * ry - denominator)
+        const sign = Number(a[3] === a[4]) ? -1 : 1
+        const factor = denominator ? sign * Math.sqrt(numerator / denominator) : 0
+        const cxp = factor * rx * yp / ry, cyp = factor * -ry * xp / rx
+        const cx = cos * cxp - sin * cyp + (x + ex) / 2
+        const cy = sin * cxp + cos * cyp + (y + ey) / 2
+        const ux = (xp - cxp) / rx, uy = (yp - cyp) / ry
+        const vx = (-xp - cxp) / rx, vy = (-yp - cyp) / ry
+        const angle = (ux: number, uy: number, vx: number, vy: number) => Math.atan2(ux * vy - uy * vx, ux * vx + uy * vy)
+        let start = angle(1, 0, ux, uy), sweep = angle(ux, uy, vx, vy)
+        if (!a[4] && sweep > 0) sweep -= 2 * Math.PI
+        if (a[4] && sweep < 0) sweep += 2 * Math.PI
+        const steps = Math.min(48, Math.max(1, Math.ceil(Math.abs(sweep) / (Math.PI / 12))))
+        for (let step = 1; step <= steps; step++) {
+          const theta = start + sweep * step / steps
+          push(cx + cos * rx * Math.cos(theta) - sin * ry * Math.sin(theta), cy + sin * rx * Math.cos(theta) + cos * ry * Math.sin(theta))
+        }
+        x = ex; y = ey
+        break
+      }
     }
-    if (up !== 'C' && up !== 'S' && up !== 'Q') { lcx = x; lcy = y }
+    if (up !== 'C' && up !== 'S' && up !== 'Q' && up !== 'T') { lcx = x; lcy = y }
+    lastOp = up
   }
   close()
   return polys

@@ -50,6 +50,18 @@ export async function runTrial(src: RGBAImage, params: TraceParams, base: boolea
   return { base, params: { ...params }, traceScale, svg, metrics, score: score(metrics), ms: now() - t0 }
 }
 
+async function runPixelGridTrial(src: RGBAImage, svg: string, backend: TraceBackend): Promise<Trial | null> {
+  const t0 = now()
+  try {
+    const rendered = await backend.rasterize(svg, src.width, src.height)
+    const metrics = computeMetrics(src, rendered, svg)
+    return { base: false, params: { ...presetById('pixel').params }, traceScale: 1, traceMethod: 'pixel-grid', svg, metrics, score: score(metrics), ms: now() - t0 }
+  } catch {
+    // An optional exact-grid candidate must not discard valid VTracer trials.
+    return null
+  }
+}
+
 export async function vectorize(
   src: RGBAImage,
   settings: VectorizeSettings,
@@ -77,7 +89,8 @@ export async function vectorize(
   checkCancelled()
   const failedTrials: VectorizeResult['failedTrials'] = []
   const first = trials[0].metrics
-  if (auto.enabled && (first.pctDiff > auto.threshold || first.bytes > auto.maxKB * 1024)) {
+  const needsTune = first.pctDiff > auto.threshold || first.bytes > auto.maxKB * 1024
+  if (auto.enabled && needsTune) {
     for (const [k, c] of grid.entries()) {
       checkCancelled()
       opts.onProgress?.(k + 2, total)
@@ -87,15 +100,9 @@ export async function vectorize(
     if (exactGrid !== null) {
       checkCancelled()
       opts.onProgress?.(grid.length + 2, total)
-      const t0 = now()
-      // This extra candidate is optional: a rasterizer failure must not discard
-      // the valid VTracer trials already computed.
-      try {
-        const rendered = await backend.rasterize(exactGrid, src.width, src.height)
-        checkCancelled()
-        const metrics = computeMetrics(src, rendered, exactGrid)
-        trials.push({ base: false, params: { ...presetById('pixel').params }, traceScale: 1, traceMethod: 'pixel-grid', svg: exactGrid, metrics, score: score(metrics), ms: now() - t0 })
-      } catch (error) { checkCancelled() }
+      const pixelGridTrial = await runPixelGridTrial(src, exactGrid, backend)
+      checkCancelled()
+      if (pixelGridTrial) trials.push(pixelGridTrial)
     }
     for (const [k, scale] of pixelScales.entries()) {
       checkCancelled()
@@ -108,6 +115,15 @@ export async function vectorize(
       }
       checkCancelled()
     }
+  } else if (auto.enabled && exactGrid !== null && (settings.presetId === 'pixel' || analysis.kind === 'pixel')) {
+    // Compare the exact grid even when the first VTracer result already passes.
+    // This avoids accepting visibly softened pixel art just because it is under
+    // the generic threshold. The normal score still decides whether its larger
+    // editable geometry is worth the fidelity gain.
+    const pixelGridTrial = await runPixelGridTrial(src, exactGrid, backend)
+    checkCancelled()
+    if (pixelGridTrial) trials.push(pixelGridTrial)
+    opts.onProgress?.(total, total)
   }
   const chosen = choose(trials, auto.maxKB * 1024)
   return { analysis, notes, trials, chosen, autoTuned: chosen !== 0, failedTrials }

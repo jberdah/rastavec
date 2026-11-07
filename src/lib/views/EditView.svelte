@@ -4,6 +4,7 @@
   import { filtered } from '../edit'
   import { refreshOutputMetrics } from '../pipeline'
   import { downloadSvg } from '../export'
+  import type { GroupingMetadata } from '../engine/types'
   import { num, pct, size, t } from '../i18n.svelte'
   import GroupReview from './GroupReview.svelte'
 
@@ -39,6 +40,7 @@
 
   const result = $derived(item ? filtered(item, clone(settings)) : null)
   const trial = $derived(item ? chosenTrial(item) : null)
+  function saveGrouping(grouping: GroupingMetadata) { if (item) item.grouping = grouping }
 
   // Preview URL of the filtered SVG.
   let outUrl = $state<string | null>(null)
@@ -200,7 +202,7 @@
         {#if appliedCount > 1}<span class="muted tiny">{t('edit.appliedCount', appliedCount)}</span>{/if}
       </aside>
     </div>
-    <GroupReview svg={result.svg} name={item.name} />
+    <GroupReview svg={result.svg} name={item.name} grouping={item.grouping} onGroupingChange={saveGrouping} />
   </div>
 {/if}
 

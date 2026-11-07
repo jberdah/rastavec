@@ -26,6 +26,8 @@ https://github.com/user-attachments/assets/1b9ad885-4589-423a-aafb-e8b841d84101
 - **Handles transparency**: clean silhouettes for logos and stickers, soft edges kept where they matter.
 - **Palette filters**: restyle a whole drawing in one click: fewer colours, less detail, hue shifts, a colour family swapped, or a theme palette (brand, duotone, mono, pastel, neon), applied to one image or the whole batch.
 - **Batch friendly**: whole folders, sprite sheets split into one SVG per element, a summary of what needs a second look.
+- **Animation-ready groups**: suggest nearby or spatial path groups, review their hierarchy, then edit names, roles and pivots before export.
+- **Animate and export**: create keyframes, generate role-based walk cycles, or turn matching vectorized poses into a looping SVG sequence.
 - **Private**: everything runs on your machine. Images are never uploaded.
 - **Repeatable**: same image, same settings, same SVG, byte for byte.
 
@@ -96,6 +98,17 @@ file ready for rigging or animation.
   </tbody>
 </table>
 
+## Group and animate
+
+RastaVec can group paths by proximity and SVG order, or propose spatial regions when related
+paths are far apart in the SVG. These are geometric suggestions, not recognized body parts or
+objects: inspect them, then rename, merge or split groups and assign optional roles and pivots.
+The group names, roles and pivots are included in the SVG and ZIP metadata.
+
+The animation editor supports editable pivots, keyframes for rotation and vertical movement,
+role-driven walk cycles, and looping pose sequences made from vectorized images with matching
+dimensions. Review the motion before using the exported SVG in a project.
+
 ## Try it
 
 ### Desktop app (beta)
@@ -116,7 +129,7 @@ The `rastavec` CLI uses the same engine and writes a JSON report with stable exi
 script, a CI job or a coding agent can vectorise images and check the result on its own.
 
 ```bash
-npm install -g https://github.com/jberdah/rastavec/releases/download/v0.3.0-beta.4/rastavec-0.3.0.tgz
+npm install -g https://github.com/jberdah/rastavec/releases/download/v0.3.0-beta.5/rastavec-0.3.0.tgz
 rastavec trace logo.png --compare
 rastavec trace images/ -o out/ --threshold 2 --max-size 700 --json
 ```
@@ -129,7 +142,7 @@ All commands and options: [cli/README.md](cli/README.md).
 git clone https://github.com/jberdah/rastavec.git
 cd rastavec
 npm install
-npm run dev        # http://localhost:5173
+npm run dev        # http://localhost:5179
 ```
 
 ## How it works
@@ -137,7 +150,9 @@ npm run dev        # http://localhost:5173
 1. **Analyse**: colours, gradients and transparency tell RastaVec what kind of image it is
    (flat logo, shaded illustration, line art, pixel art, photo) and which settings suit it.
 2. **Trace**: [VTracer](https://github.com/visioncortex/vtracer) turns the pixels into colour
-   paths; transparent images get a separate silhouette so edges stay crisp.
+  paths using the pinned VTracer 1.0.0-alpha.4 engine; transparent images get a separate
+  silhouette so edges stay crisp. The browser and desktop app use its WebAssembly build, while
+  the CLI uses the native Rust package.
 3. **Compare**: the SVG is rendered at the original size and measured against the source, on
    white and on a dark background.
 4. **Tune**: if an image is above the threshold or the size budget, a fixed set of alternative

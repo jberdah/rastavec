@@ -13,5 +13,8 @@
     "verbatimModuleSyntax": true
   },
   "include": ["src/**/*.ts", "../src/lib/engine/**/*.ts"],
-  "exclude": ["../src/lib/engine/browser-backend.ts"]
+  "exclude": [
+    "../src/lib/engine/browser-backend.ts",
+    "../src/lib/engine/vtracer1-backend.ts"
+  ]
 }

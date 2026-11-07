@@ -1,7 +1,7 @@
 <script lang="ts">
   import { app, go } from '../store.svelte'
   import { PRESETS, presetById } from '../engine/presets'
-  import { addFiles, addSheet, clearItems, filesFromDrop, processAll } from '../pipeline'
+  import { addFiles, addGridSheet, addSheet, clearItems, filesFromDrop, processAll } from '../pipeline'
   import type { ImageKind } from '../engine/analyze'
   import { kbUnit, kindLabel, num, pct, presetDesc, presetName, size, t } from '../i18n.svelte'
 
@@ -9,8 +9,29 @@
   let fileInput: HTMLInputElement
   let folderInput: HTMLInputElement
   let sheetInput: HTMLInputElement
+  let gridSheetInput: HTMLInputElement
   let sheetInfo = $state<string | null>(null)
   let slicing = $state(false)
+  let gridFile = $state<File | null>(null)
+  let gridPreviewUrl = $state('')
+  let gridSize = $state<{ width: number; height: number } | null>(null)
+  let gridCellWidth = $state(80)
+  let gridCellHeight = $state(110)
+  let gridMarginX = $state(0)
+  let gridMarginY = $state(0)
+  let gridSpacingX = $state(0)
+  let gridSpacingY = $state(0)
+
+  const gridColumns = $derived.by(() => {
+    if (!gridSize || gridCellWidth < 1 || gridMarginX < 0 || gridSpacingX < 0 || gridMarginX + gridCellWidth > gridSize.width) return 0
+    return Math.max(0, Math.floor((gridSize.width - gridMarginX + gridSpacingX) / (gridCellWidth + gridSpacingX)))
+  })
+  const gridRows = $derived.by(() => {
+    if (!gridSize || gridCellHeight < 1 || gridMarginY < 0 || gridSpacingY < 0 || gridMarginY + gridCellHeight > gridSize.height) return 0
+    return Math.max(0, Math.floor((gridSize.height - gridMarginY + gridSpacingY) / (gridCellHeight + gridSpacingY)))
+  })
+  const gridCellCount = $derived(gridColumns * gridRows)
+  const gridCells = $derived(Array.from({ length: Math.min(1000, gridCellCount) }, (_, index) => index))
 
   async function onSheet(e: Event) {
     const input = e.currentTarget as HTMLInputElement
@@ -22,6 +43,50 @@
     try {
       const r = await addSheet(file)
       sheetInfo = t('sheet.result', r.name, r.count, r.background !== 'transparent' ? r.background : null, r.dropped)
+    } catch (err) {
+      sheetInfo = t('sheet.error', err instanceof Error ? err.message : String(err))
+    } finally {
+      slicing = false
+    }
+  }
+
+  async function onGridSheet(e: Event) {
+    const input = e.currentTarget as HTMLInputElement
+    const file = input.files?.[0]
+    input.value = ''
+    if (!file) return
+    if (gridPreviewUrl) URL.revokeObjectURL(gridPreviewUrl)
+    gridFile = file
+    gridPreviewUrl = URL.createObjectURL(file)
+    gridSize = null
+    sheetInfo = null
+    try {
+      const bitmap = await createImageBitmap(file)
+      gridSize = { width: bitmap.width, height: bitmap.height }
+      bitmap.close()
+    } catch (err) {
+      sheetInfo = t('sheet.error', err instanceof Error ? err.message : String(err))
+      closeGridSheet()
+    }
+  }
+
+  function closeGridSheet() {
+    if (gridPreviewUrl) URL.revokeObjectURL(gridPreviewUrl)
+    gridFile = null
+    gridPreviewUrl = ''
+    gridSize = null
+  }
+
+  async function importGridSheet() {
+    if (!gridFile || !gridSize || !gridCellCount || gridCellCount > 1000) return
+    slicing = true
+    try {
+      const result = await addGridSheet(gridFile, {
+        cellWidth: gridCellWidth, cellHeight: gridCellHeight, marginX: gridMarginX, marginY: gridMarginY,
+        spacingX: gridSpacingX, spacingY: gridSpacingY,
+      })
+      sheetInfo = t('sheet.grid.result', result.name, result.count, result.columns, result.rows, result.empty)
+      closeGridSheet()
     } catch (err) {
       sheetInfo = t('sheet.error', err instanceof Error ? err.message : String(err))
     } finally {
@@ -93,6 +158,9 @@
               {#if slicing}<span class="spinner"></span>{/if}
               {t('drop.sheet')}
             </button>
+            <button type="button" class="btn" onclick={() => gridSheetInput.click()} disabled={slicing || app.running} title={t('drop.gridHint')}>
+              {t('drop.grid')}
+            </button>
             {#if app.items.length}
               <button type="button" class="btn" onclick={clearItems} disabled={app.running || slicing}>{t('drop.clear')}</button>
             {/if}
@@ -100,6 +168,7 @@
           <input bind:this={fileInput} class="sr-only" type="file" multiple accept="image/png,image/jpeg,image/webp,image/gif,image/bmp" onchange={onPick} tabindex="-1" />
           <input bind:this={folderInput} class="sr-only" type="file" multiple {...{ webkitdirectory: true }} onchange={onPick} tabindex="-1" />
           <input bind:this={sheetInput} class="sr-only" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/bmp" onchange={onSheet} tabindex="-1" />
+          <input bind:this={gridSheetInput} class="sr-only" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/bmp" onchange={onGridSheet} tabindex="-1" />
           {#if sheetInfo}<span class="small" style="color: var(--accent-text)" role="status">{sheetInfo}</span>{/if}
         </div>
         {#if app.items.length}
@@ -129,6 +198,44 @@
         {/if}
       </div>
     </div>
+
+    {#if gridFile && gridSize}
+      <section class="grid-sheet-panel" aria-labelledby="grid-sheet-title">
+        <div class="between">
+          <div class="stack" style="gap: 6px">
+            <h2 id="grid-sheet-title">{t('sheet.grid.title')}</h2>
+            <p class="muted small">{t('sheet.grid.instructions')}</p>
+          </div>
+          <button type="button" class="btn" onclick={closeGridSheet} disabled={slicing}>{t('sheet.grid.cancel')}</button>
+        </div>
+        <div class="grid-sheet-layout">
+          <div class="grid-preview" style={`aspect-ratio: ${gridSize.width} / ${gridSize.height}`}>
+            <img src={gridPreviewUrl} alt={gridFile.name} />
+            <svg viewBox={`0 0 ${gridSize.width} ${gridSize.height}`} preserveAspectRatio="none" aria-hidden="true">
+              {#each gridCells as index (index)}
+                {@const column = index % Math.max(1, gridColumns)}
+                {@const row = Math.floor(index / Math.max(1, gridColumns))}
+                <rect x={gridMarginX + column * (gridCellWidth + gridSpacingX)} y={gridMarginY + row * (gridCellHeight + gridSpacingY)} width={gridCellWidth} height={gridCellHeight} />
+              {/each}
+            </svg>
+          </div>
+          <div class="grid-controls">
+            <label><span>{t('sheet.grid.cellWidth')}</span><input type="number" min="1" max={gridSize.width} step="1" bind:value={gridCellWidth} /></label>
+            <label><span>{t('sheet.grid.cellHeight')}</span><input type="number" min="1" max={gridSize.height} step="1" bind:value={gridCellHeight} /></label>
+            <label><span>{t('sheet.grid.marginX')}</span><input type="number" min="0" max={gridSize.width} step="1" bind:value={gridMarginX} /></label>
+            <label><span>{t('sheet.grid.marginY')}</span><input type="number" min="0" max={gridSize.height} step="1" bind:value={gridMarginY} /></label>
+            <label><span>{t('sheet.grid.spacingX')}</span><input type="number" min="0" max={gridSize.width} step="1" bind:value={gridSpacingX} /></label>
+            <label><span>{t('sheet.grid.spacingY')}</span><input type="number" min="0" max={gridSize.height} step="1" bind:value={gridSpacingY} /></label>
+          </div>
+        </div>
+        <div class="between grid-sheet-footer">
+          <span class="mono muted small">{t('sheet.grid.preview', gridColumns, gridRows, gridCellCount)}</span>
+          <button type="button" class="btn btn-primary" onclick={importGridSheet} disabled={slicing || !gridCellCount || gridCellCount > 1000}>
+            {slicing ? t('cta.running') : t('sheet.grid.apply')}
+          </button>
+        </div>
+      </section>
+    {/if}
 
     <div class="stack">
       <div class="between">
@@ -244,6 +351,18 @@
   .picked { flex: 1 1 260px; display: flex; flex-direction: column; gap: 10px; }
   .thumbs { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; }
   .thumbs img { width: 100%; aspect-ratio: 1; object-fit: contain; border-radius: 8px; border: 1px solid var(--line-2); }
+  .grid-sheet-panel { display: flex; flex-direction: column; gap: 18px; border: 1px solid var(--accent); border-radius: 18px; background: var(--surface); padding: 20px; }
+  .grid-sheet-layout { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(260px, 1fr); gap: 20px; align-items: start; }
+  .grid-preview { position: relative; width: 100%; overflow: hidden; border-radius: 10px; background: var(--sunken); }
+  .grid-preview img, .grid-preview svg { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
+  .grid-preview img { object-fit: fill; }
+  .grid-preview svg { pointer-events: none; }
+  .grid-preview rect { fill: rgba(60, 194, 115, 0.13); stroke: #3cc273; stroke-width: 2; vector-effect: non-scaling-stroke; }
+  .grid-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .grid-controls label { display: flex; flex-direction: column; gap: 6px; color: var(--muted); font-size: 12px; }
+  .grid-controls input { width: 100%; min-height: 40px; padding: 0 9px; color: var(--text); background: var(--surface-2); border: 1px solid var(--line-2); border-radius: 8px; }
+  .grid-sheet-footer { gap: 12px; flex-wrap: wrap; }
+  @media (max-width: 760px) { .grid-sheet-layout { grid-template-columns: 1fr; } }
   .presets { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
   .preset { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; text-align: left; padding: 18px; min-height: 150px; border-radius: 16px; background: var(--surface); border: 1.5px solid var(--line); }
   .preset[aria-pressed='true'] { background: var(--accent-bg); border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-glow); }

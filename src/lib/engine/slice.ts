@@ -20,6 +20,16 @@ export interface SliceResult {
   dropped: number
 }
 
+export interface GridSliceOptions {
+  cellWidth: number
+  cellHeight: number
+  marginX?: number
+  marginY?: number
+  spacingX?: number
+  spacingY?: number
+}
+export interface GridBox extends Box { row: number; column: number }
+
 const CELL = 2
 
 function backgroundColor(img: RGBAImage): [number, number, number] | null {
@@ -159,6 +169,41 @@ export function sliceSheet(img: RGBAImage, opts: { pad?: number } = {}): SliceRe
     return { x, y, w: Math.min(W, b.x1 + pad) - x, h: Math.min(H, b.y1 + pad) - y }
   })
   return { boxes, background: bg ? '#' + bg.map((v) => v.toString(16).padStart(2, '0')).join('') : 'transparent', dropped }
+}
+
+/** Slice an animation sheet by its authored cell grid, preserving equal frame dimensions. */
+export function sliceGrid(img: RGBAImage, opts: GridSliceOptions): Omit<SliceResult, 'boxes'> & { boxes: GridBox[]; columns: number; rows: number } {
+  const { data, width, height } = img
+  const cellWidth = Math.floor(opts.cellWidth), cellHeight = Math.floor(opts.cellHeight)
+  const marginX = Math.floor(opts.marginX ?? 0), marginY = Math.floor(opts.marginY ?? 0)
+  const spacingX = Math.floor(opts.spacingX ?? 0), spacingY = Math.floor(opts.spacingY ?? 0)
+  if (cellWidth < 1 || cellHeight < 1 || marginX < 0 || marginY < 0 || spacingX < 0 || spacingY < 0)
+    throw new Error('Cell dimensions must be positive; margins and spacing cannot be negative.')
+  const stepX = cellWidth + spacingX, stepY = cellHeight + spacingY
+  const columns = marginX + cellWidth <= width ? Math.floor((width - marginX + spacingX) / stepX) : 0
+  const rows = marginY + cellHeight <= height ? Math.floor((height - marginY + spacingY) / stepY) : 0
+  if (columns * rows > 1000) throw new Error('Grid contains more than 1,000 cells.')
+
+  const bg = backgroundColor(img)
+  const boxes: GridBox[] = []
+  let empty = 0
+  for (let row = 0; row < rows; row++) {
+    for (let column = 0; column < columns; column++) {
+      const x = marginX + column * stepX, y = marginY + row * stepY
+      let populated = false
+      for (let py = y; py < y + cellHeight && !populated; py++) {
+        for (let px = x; px < x + cellWidth; px++) {
+          const i = (py * width + px) * 4
+          if (bg
+            ? Math.max(Math.abs(data[i] - bg[0]), Math.abs(data[i + 1] - bg[1]), Math.abs(data[i + 2] - bg[2])) > 24
+            : data[i + 3] > 0) { populated = true; break }
+        }
+      }
+      if (populated) boxes.push({ x, y, w: cellWidth, h: cellHeight, row, column })
+      else empty++
+    }
+  }
+  return { boxes, background: bg ? '#' + bg.map((v) => v.toString(16).padStart(2, '0')).join('') : 'transparent', dropped: empty, columns, rows }
 }
 
 /** Copy a rectangle out of an image. */

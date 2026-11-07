@@ -27,13 +27,13 @@ jobs:
           - name: Windows (x64)
             os: windows-latest
             target: x86_64-pc-windows-msvc
-            rust-targets: ''
+            rust-targets: wasm32-unknown-unknown
             bundle: src-tauri/target/x86_64-pc-windows-msvc/release/bundle
             artifact: rastavec-windows
           - name: macOS (universal)
             os: macos-latest
             target: universal-apple-darwin
-            rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
+            rust-targets: aarch64-apple-darwin,x86_64-apple-darwin,wasm32-unknown-unknown
             bundle: src-tauri/target/universal-apple-darwin/release/bundle
             artifact: rastavec-macos
 
@@ -54,6 +54,9 @@ jobs:
         with:
           workspaces: src-tauri -> target
           key: ${{ matrix.target }}
+
+      - name: Install wasm-pack
+        run: cargo install wasm-pack --version 0.15.1 --locked
 
       - run: npm ci
 

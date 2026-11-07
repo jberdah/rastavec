@@ -4,6 +4,7 @@ import { outputQueue } from './measurement-queue.js'
 import { analyzeShapes, applyFilters, isDefault, type FilterResult, type FilterSettings, type ShapeAnalysis } from './engine/palette'
 import type { Item } from './engine/types'
 import { chosenTrial, editKey, svgUrl } from './store.svelte'
+import { svgFingerprint } from './engine/group-nearby'
 
 const analyses = new Map<string, ShapeAnalysis>()
 const previewUrls = new Map<string, { key: string; url: string }>()
@@ -35,7 +36,9 @@ export function activeEdit(item: Item): FilterSettings | null {
 /** The SVG to export: the chosen trial, with its palette filters if any. */
 export function outputSvg(item: Item): string {
   const s = activeEdit(item)
-  return s ? filtered(item, s).svg : chosenTrial(item).svg
+  const source = s ? filtered(item, s).svg : chosenTrial(item).svg
+  const grouping = item.grouping
+  return grouping?.sourceHash === svgFingerprint(source) ? grouping.svg : source
 }
 
 /** Preview the same filtered SVG that will be exported. */

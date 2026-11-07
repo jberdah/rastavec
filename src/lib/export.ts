@@ -51,7 +51,13 @@ export function download(blob: Blob, filename: string) {
 
 export async function exportZip(items: Item[]) {
   const zip = new JSZip()
-  for (const i of items) if (i.status === 'done') zip.file(`svg/${i.name}.svg`, outputSvg(i))
+  for (const i of items) if (i.status === 'done') {
+    zip.file(`svg/${i.name}.svg`, outputSvg(i))
+    if (i.grouping && outputSvg(i) === i.grouping.svg) {
+      const { sourceHash, distance, colorMode, includeSingletons, strategy, regionCount, considered, skipped, groups } = i.grouping
+      zip.file(`group-metadata/${i.name}.json`, JSON.stringify({ sourceHash, distance, colorMode, ...(includeSingletons === undefined ? {} : { includeSingletons }), ...(strategy === undefined ? {} : { strategy }), ...(regionCount === undefined ? {} : { regionCount }), considered, skipped, groups }, null, 2) + '\n')
+    }
+  }
   zip.file('metrics.csv', metricsCsv(items))
   zip.file('config.json', JSON.stringify(config(items), null, 2) + '\n')
   download(await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' }), 'rastavec-export.zip')

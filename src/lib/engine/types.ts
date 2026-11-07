@@ -64,6 +64,49 @@ export interface Trial {
   ms: number
 }
 
+export interface GroupingMetadata {
+  /** Fingerprint of the exact SVG this grouping was generated from. */
+  sourceHash: string
+  distance: number
+  colorMode: 'proximity' | 'same-color'
+  includeSingletons?: boolean
+  strategy?: 'proximity' | 'spatial'
+  regionCount?: number
+  considered: number
+  skipped: number
+  svg: string
+  groups: {
+    id: string; key: string; pathIndices: number[]; count: number; bounds: [number, number, number, number]
+    fill: string; zone: 'top-left' | 'top' | 'top-right' | 'left' | 'center' | 'right' | 'bottom-left' | 'bottom' | 'bottom-right'; level: 0 | 1; parentId?: string
+    name: string; role?: string; locked?: boolean; pivot: [number, number]; fragmentIds?: string[]
+    members?: { pathIndex: number; bounds: [number, number, number, number]; pivot: [number, number]; fill: string; zone: 'top-left' | 'top' | 'top-right' | 'left' | 'center' | 'right' | 'bottom-left' | 'bottom' | 'bottom-right' }[]
+  }[]
+}
+
+export interface AnimationKeyframe {
+  timeMs: number
+  rotation: number
+  /** Vertical translation in the group's SVG user units. Older sessions omit it. */
+  translateY?: number
+}
+
+export interface AnimationTrack {
+  groupId: string
+  keyframes: AnimationKeyframe[]
+}
+
+/** Editable rotation animation, saved with the local session and independent from the traced SVG. */
+export interface AnimationMetadata {
+  durationMs: number
+  easing?: 'linear' | 'ease-in-out'
+  /** When set, play a sequence of existing batch items as full character poses. */
+  mode?: 'parts' | 'frames'
+  frameIds?: string[]
+  /** Uniform playback rate for a pose sequence; durationMs is its derived loop length. */
+  fps?: number
+  tracks: AnimationTrack[]
+}
+
 export type ItemStatus = 'queued' | 'tracing' | 'prepared' | 'done' | 'error'
 
 export interface Item {
@@ -92,6 +135,10 @@ export interface Item {
   outputMeasurement?: { key: string; metrics?: Metrics; error?: string }
   /** Palette filters (Edit screen), valid for one trial. */
   edit?: { settings: FilterSettings; trial: number }
+  /** Reviewed proximity grouping for the current output SVG. */
+  grouping?: GroupingMetadata
+  /** Rotation keyframes authored in the Animate screen. */
+  animation?: AnimationMetadata
 }
 
 export interface AutoTune {

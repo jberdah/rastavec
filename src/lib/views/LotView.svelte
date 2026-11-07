@@ -224,7 +224,9 @@
   .tile:disabled { opacity: 1; cursor: default; }
   .tile:hover:not(:disabled) { border-color: var(--line-3); }
   .tile.tuned { border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-glow); }
-  .thumb { position: relative; aspect-ratio: 4 / 3; border-radius: 14px; overflow: hidden; }
+  .thumb { position: relative; flex: none; border-radius: 14px; overflow: hidden; }
+  /* Keep result previews visible in older macOS WKWebViews without aspect-ratio support. */
+  .thumb::before { content: ''; display: block; padding-top: 75%; }
   .layer { position: absolute; inset: 8px; width: calc(100% - 16px); height: calc(100% - 16px); object-fit: contain; }
   .vec { clip-path: inset(0 0 0 50%); }
   .raster { image-rendering: pixelated; }

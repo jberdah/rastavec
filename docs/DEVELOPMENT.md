@@ -4,7 +4,7 @@
 
 ```bash
 npm install
-npm run dev        # http://localhost:5173
+npm run dev        # http://localhost:5179
 npm run build      # static site in dist/
 npm run check      # svelte-check + tsc
 ```
@@ -24,17 +24,22 @@ node dist/rastavec.cjs trace ../assets -o out --threshold 2 --max-size 700 --com
 ```
 src/lib/engine/core.ts             pure TS, no DOM: prepare (alpha floor, keying, silhouette mask),
                                    metrics, diff map, auto-tune grid, scoring, choice
-src/lib/engine/browser-backend.ts  TraceBackend for the browser: vtracer-webapp (wasm) + canvas
+src/lib/engine/browser-backend.ts  Browser entry point and image decode/encode helpers
+src/lib/engine/vtracer1-backend.ts VTracer 1.0.0-alpha.4 WebAssembly adapter + canvas rendering
+wasm/vtracer/                       Rust-to-WASM wrapper around the official VTracer crate
+scripts/build-vtracer-wasm.mjs      Builds the ignored wasm-bindgen package used by Vite
 src/lib/engine/presets.ts          presets, same parameter units as the raster-to-svg skill
 src/lib/engine/analyze.ts          image analysis (colours, gradients, alpha) -> Auto parameters
 src/lib/engine/compact.ts          compact path encoding (pure, deterministic)
 src/lib/engine/compose.ts          SVG assembly shared by backends (silhouette clip, soft layers, binary)
 src/lib/engine/vectorize.ts        shared loop: analysis -> trace -> measure -> auto-tune -> choice
 src/lib/engine/slice.ts            sprite-sheet / brand-board slicing into elements (pure)
+src/lib/engine/group-nearby.ts     geometric proximity/spatial grouping and group metadata
+src/lib/engine/animation.ts        role-based walk cycles and animation interpolation
 src/lib/i18n.svelte.ts             FR / EN dictionaries, locale detection, number / size formatting
 src/lib/pipeline.ts                per-image pipeline: decode → trace → render → measure → auto-tune
 src/lib/export.ts                  zip: svg/*.svg, metrics.csv, config.json (records settings)
-src/lib/views/*                    Import, Lot (batch), Detail screens (Svelte 5)
+src/lib/views/*                    Import, Lot, Detail, Edit, Groups and Animate screens (Svelte 5)
 cli/                               command-line package (Node, VTracer wasm + sharp)
 src-tauri/                         desktop shell (Tauri 2)
 e2e/                               desktop end-to-end tests
@@ -56,9 +61,11 @@ independent of the CLI limits.
 
 The generated synthetic regression corpus and its limits are described in [CORPUS.md](CORPUS.md).
 
-- **Engine**: [VTracer](https://github.com/visioncortex/vtracer) via the official
-  `vtracer-webapp` wasm build (MIT/Apache-2.0). It needs DOM elements, so it runs on the main
-  thread, time-sliced to keep the UI responsive. The CLI uses `@visioncortex/vtracer` 1.0.
+- **Engine**: the browser and desktop app compile the official
+  [`vtracer` 1.0.0-alpha.4 crate](https://github.com/visioncortex/vtracer) to WebAssembly via
+  `wasm-pack`; the CLI uses `@visioncortex/vtracer` 1.0.0-alpha.4 natively. Both backends share
+  the same `TraceBackend` contract and parameter mapping. Generated wasm-bindgen files and Cargo
+  build output are ignored; `npm run check` and `npm run build` build the WASM adapter first.
 - **Transparency**: transparent pixels are keyed, then the colour result is clipped by a
   silhouette traced separately from the alpha channel (alpha ≥ 128 by default, configurable).
   Soft edges / translucent areas below the cut are traced in colour at their mean opacity (or
@@ -75,6 +82,13 @@ The generated synthetic regression corpus and its limits are described in [CORPU
   element: connected components, small decorations attached to the nearest element, letters of
   a wordmark grouped, reading order kept. Boards with background panels behind groups of items
   are split per panel.
+- **Group review**: nearby ordered paths or compact spatial regions can be grouped without
+  changing paint order. Spatial regions are geometric proposals, not semantic recognition;
+  review groups before animation. Names, roles, pivots and protection state are editable and
+  exported as SVG annotations plus `group-metadata/*.json` in the ZIP.
+- **Animation**: the editor supports editable group pivots, rotation and vertical-motion
+  keyframes, role-based walk cycles, and looping sequences of vectorized poses with matching
+  dimensions.
 - **Auto-tune**: when an image exceeds the difference threshold or the size budget, a fixed
   grid of up to 6 parameter sets is tried; the best score (`% diff + 0.002 × KiB`) within the
   budget wins. Same input + same config → byte-identical SVG.

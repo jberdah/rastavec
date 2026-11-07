@@ -6,6 +6,7 @@
   import DetailView from './lib/views/DetailView.svelte'
   import EditView from './lib/views/EditView.svelte'
   import ComingSoon from './lib/views/ComingSoon.svelte'
+  import AnimateView from './lib/views/AnimateView.svelte'
   import { app } from './lib/store.svelte'
 
   // A batch lives in memory, including edits made after an export.
@@ -28,6 +29,8 @@
     <DetailView />
   {:else if app.route === 'edit'}
     <EditView />
+  {:else if app.route === 'animate'}
+    <AnimateView />
   {:else}
     <ComingSoon kind={app.route} />
   {/if}

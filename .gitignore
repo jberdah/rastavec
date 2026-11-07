@@ -33,3 +33,7 @@ dist-ssr
 cli/dist/
 cli/LICENSE
 cli/NOTICE
+
+# Generated VTracer 1 WebAssembly package and local Cargo build output
+src/lib/engine/vtracer1-wasm/
+wasm/vtracer/target/

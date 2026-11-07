@@ -50,5 +50,25 @@ test('small automatic images try enlarged traces and keep original SVG dimension
     assert.equal(exact.trials[exact.chosen].traceMethod, 'pixel-grid')
     assert.equal(exact.trials[exact.chosen].metrics.pctDiff, 0)
     assert.equal(exact.trials[exact.chosen].metrics.paths, 4)
+
+    const pixelSrc = { width: 16, height: 16, data: new Uint8ClampedArray(16 * 16 * 4) }
+    for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) {
+      const color = ((x >> 2) + (y >> 2)) % 2 ? [245, 45, 30] : [20, 70, 220]
+      pixelSrc.data.set([...color, 255], (y * 16 + x) * 4)
+    }
+    const underThresholdPixelBackend = {
+      name: 'under-threshold-pixel',
+      async trace() { return '<svg width="16" height="16" data-base="true"><path d="M0 0h16v16H0z" fill="#000"/></svg>' },
+      async rasterize(svg, width, height) {
+        const data = pixelSrc.data.slice()
+        if (svg.includes('data-base="true"')) data.set([0, 255, 0, 255], 0)
+        return { width, height, data }
+      },
+    }
+    const pixelAuto = await vectorize(pixelSrc, { presetId: 'auto', params: DEFAULT_PARAMS, auto: { ...auto, threshold: 3 } }, underThresholdPixelBackend)
+    assert.equal(pixelAuto.analysis.kind, 'pixel')
+    assert.equal(pixelAuto.trials.length, 2, 'Auto should compare the exact grid even when VTracer is already below threshold')
+    assert.equal(pixelAuto.trials[pixelAuto.chosen].traceMethod, 'pixel-grid')
+    assert.equal(pixelAuto.trials[pixelAuto.chosen].metrics.pctDiff, 0)
   } finally { await server.close() }
 })
