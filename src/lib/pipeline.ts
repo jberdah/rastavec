@@ -5,12 +5,14 @@ import { browserBackend, decodeFile, toPngFile } from './engine/browser-backend'
 import { crop, keyBackground, sliceGrid, sliceSheet, type GridSliceOptions } from './engine/slice'
 import { analyze } from './engine/analyze'
 import { vectorize, VectorizationCancelled, type VectorizeResult, type VectorizeSettings } from './engine/vectorize'
+import { createVectorizationWorkerPool, type VectorizationWorkerPool } from './engine/vectorization-worker-client'
 import type { Item, TraceParams } from './engine/types'
 import { app, clone, forgetUrls, outputMeasurementKey, sources } from './store.svelte'
 import { uniqueImportName } from './import-names.js'
 
 const backend: TraceBackend = browserBackend
 export const engineName = backend.name
+let activeVectorizationWorkers: VectorizationWorkerPool | null = null
 
 /** Fidelity of any SVG against the item's source image (same metrics as the trials). */
 export async function measureSvg(item: Item, svg: string) {
@@ -156,7 +158,7 @@ export async function filesFromDrop(dt: DataTransfer): Promise<File[]> {
 
 type PendingResult = { result: VectorizeResult; semiPct: number } | { error: string }
 
-async function processItem(item: Item, settings: VectorizeSettings): Promise<PendingResult> {
+async function processItem(item: Item, settings: VectorizeSettings, workerPool: VectorizationWorkerPool | null): Promise<PendingResult> {
   item.status = 'tracing'
   item.progress = ''
   item.error = undefined
@@ -164,13 +166,37 @@ async function processItem(item: Item, settings: VectorizeSettings): Promise<Pen
     await ensureAnalysis(item)
     if (app.cancelRequested) throw new VectorizationCancelled()
     if (!sources.has(item.id)) throw new Error(item.error ?? 'unreadable image')
-    const src = sources.get(item.id)!
+    let src = sources.get(item.id)!
     const semiPct = alphaStats(src).semiPct
-    const res = await vectorize(src, settings, backend, {
-      analysis: item.analysis,
-      onProgress: (k, total) => (item.progress = `${k}/${total}`),
-      shouldCancel: () => app.cancelRequested,
-    })
+    const progress = (k: number, total: number) => (item.progress = `${k}/${total}`)
+    let res: VectorizeResult
+    if (workerPool) {
+      try {
+        // `item` is Svelte-reactive, so its analysis may be a Proxy that cannot cross
+        // the structured-clone boundary. Analysis is a small plain-data record.
+        res = await workerPool.run({ source: src, settings, analysis: item.analysis ? clone(item.analysis) : undefined, onProgress: progress })
+      } catch (error) {
+        if (app.cancelRequested || (error && typeof error === 'object' && 'cancelled' in error && error.cancelled)) throw new VectorizationCancelled()
+        // A worker crash can happen after its transferable buffer has left the UI thread.
+        // Restore the source before falling back so this item remains usable in older WebViews.
+        if (src.data.byteLength !== src.width * src.height * 4) {
+          src = await decodeFile(item.file)
+          sources.set(item.id, src)
+        }
+        console.warn('Vectorization worker failed; retrying this image on the browser backend.', error)
+        res = await vectorize(src, settings, backend, {
+          analysis: item.analysis,
+          onProgress: progress,
+          shouldCancel: () => app.cancelRequested,
+        })
+      }
+    } else {
+      res = await vectorize(src, settings, backend, {
+        analysis: item.analysis,
+        onProgress: progress,
+        shouldCancel: () => app.cancelRequested,
+      })
+    }
     return { result: res, semiPct }
   } catch (e) {
     if (e instanceof VectorizationCancelled || app.cancelRequested) throw new VectorizationCancelled()
@@ -178,8 +204,12 @@ async function processItem(item: Item, settings: VectorizeSettings): Promise<Pen
   }
 }
 
-/** Request cancellation; an in-progress tracing trial finishes before the batch is rolled back. */
-export function cancelProcessing() { if (app.running) app.cancelRequested = true }
+/** Request cancellation; the workers yield between trials, then the batch is rolled back atomically. */
+export function cancelProcessing() {
+  if (!app.running) return
+  app.cancelRequested = true
+  activeVectorizationWorkers?.cancelAll()
+}
 
 export async function processAll() {
   if (app.running) return
@@ -191,6 +221,12 @@ export async function processAll() {
   const previousTimes = { startedAt: app.startedAt, finishedAt: app.finishedAt }
   const previous = app.items.map((item) => ({ item, status: item.status, error: item.error, progress: item.progress }))
   const settings = { presetId: app.presetId, params: clone(app.params), auto: clone(app.auto) }
+  const largestImagePixels = app.items.reduce((largest, item) => Math.max(largest, item.width > 0 && item.height > 0 ? item.width * item.height : 40_000_000), 0)
+  const hardwareThreads = typeof navigator === 'undefined' ? 1 : Math.max(1, navigator.hardwareConcurrency || 2)
+  // Two workers improve small batch throughput; large images stay serial to bound peak memory.
+  const desiredWorkerCount = largestImagePixels <= 4_000_000 ? Math.min(2, Math.max(1, hardwareThreads - 1)) : 1
+  const workerPool = createVectorizationWorkerPool(desiredWorkerCount)
+  activeVectorizationWorkers = workerPool
   app.batchSettings = settings
   app.startedAt = performance.now()
   app.finishedAt = 0
@@ -198,15 +234,26 @@ export async function processAll() {
     item.status = 'queued'
     item.progress = ''
   }
-  const results: PendingResult[] = []
+  const results: PendingResult[] = new Array(app.items.length)
   try {
-    for (const item of app.items) {
-      if (app.cancelRequested) throw new VectorizationCancelled()
-      results.push(await processItem(item, settings))
-      app.batchProcessed++
-      item.status = 'prepared'
-      item.progress = ''
+    let nextIndex = 0
+    const runQueue = async () => {
+      while (true) {
+        if (app.cancelRequested) throw new VectorizationCancelled()
+        const index = nextIndex++
+        if (index >= app.items.length) return
+        const item = app.items[index]
+        results[index] = await processItem(item, settings, workerPool)
+        app.batchProcessed++
+        item.status = 'prepared'
+        item.progress = ''
+      }
     }
+    const runnerCount = workerPool?.size ?? 1
+    const runnerResults = await Promise.allSettled(Array.from({ length: runnerCount }, runQueue))
+    if (app.cancelRequested || runnerResults.some((result) => result.status === 'rejected' && result.reason instanceof VectorizationCancelled)) throw new VectorizationCancelled()
+    const runnerError = runnerResults.find((result): result is PromiseRejectedResult => result.status === 'rejected')
+    if (runnerError) throw runnerError.reason
     if (app.cancelRequested) throw new VectorizationCancelled()
     // Commit the whole batch at once: a cancelled run never destroys earlier trials or edits.
     for (const [index, item] of app.items.entries()) {
@@ -230,6 +277,8 @@ export async function processAll() {
     app.batchCancelled = e instanceof VectorizationCancelled
     if (!(e instanceof VectorizationCancelled)) throw e
   } finally {
+    workerPool?.close()
+    if (activeVectorizationWorkers === workerPool) activeVectorizationWorkers = null
     app.running = false; app.cancelRequested = false; app.batchProcessed = 0
   }
 }

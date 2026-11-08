@@ -208,7 +208,7 @@
         {#if appliedCount > 1}<span class="muted tiny">{t('edit.appliedCount', appliedCount)}</span>{/if}
       </aside>
     </div>
-    <GroupReview svg={result.svg} name={item.name} grouping={item.grouping} onGroupingChange={saveGrouping} />
+    <GroupReview svg={result.svg} name={item.name} grouping={item.grouping} sourceImage={{ url: item.srcUrl, width: item.width, height: item.height }} onGroupingChange={saveGrouping} />
   </div>
 {/if}
 

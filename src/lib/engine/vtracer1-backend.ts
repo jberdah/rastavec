@@ -27,21 +27,35 @@ function optionsFor(p: TraceParams, binary: boolean) {
 }
 
 function parsePaths(svg: string, compact: boolean, precision: number): RawPath[] {
-  const doc = new DOMParser().parseFromString(svg, 'image/svg+xml')
-  if (doc.querySelector('parsererror')) throw new Error('VTracer 1 returned invalid SVG.')
   const paths: RawPath[] = []
-  for (const el of Array.from(doc.querySelectorAll('path'))) {
-    const d = el.getAttribute('d')?.trim()
-    if (!d) continue
-    const fill = normalizeHex(el.getAttribute('fill') ?? '#000000')
-    const transform = el.getAttribute('transform')
-    const small = compact ? compactPath(d, transform, precision) : null
-    paths.push(small !== null ? { d: small, fill, transform: null } : { d, fill, transform })
+  if (typeof DOMParser !== 'undefined') {
+    const doc = new DOMParser().parseFromString(svg, 'image/svg+xml')
+    if (doc.querySelector('parsererror')) throw new Error('VTracer 1 returned invalid SVG.')
+    for (const el of Array.from(doc.querySelectorAll('path'))) {
+      const d = el.getAttribute('d')?.trim()
+      if (!d) continue
+      const fill = normalizeHex(el.getAttribute('fill') ?? '#000000')
+      const transform = el.getAttribute('transform')
+      const small = compact ? compactPath(d, transform, precision) : null
+      paths.push(small !== null ? { d: small, fill, transform: null } : { d, fill, transform })
+    }
+  } else {
+    // WorkerGlobalScope has no DOMParser. VTracer emits simple path tags with quoted attributes.
+    if (!/<svg\b/i.test(svg)) throw new Error('VTracer 1 returned invalid SVG.')
+    for (const match of svg.matchAll(/<path\b([^>]*)\/?\s*>/gi)) {
+      const attributes = Object.fromEntries([...match[1].matchAll(/([\w:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g)].map((attribute) => [attribute[1].toLowerCase(), attribute[2] ?? attribute[3] ?? '']))
+      const d = attributes.d?.trim()
+      if (!d) continue
+      const fill = normalizeHex(attributes.fill ?? '#000000')
+      const transform = attributes.transform ?? null
+      const small = compact ? compactPath(d, transform, precision) : null
+      paths.push(small !== null ? { d: small, fill, transform: null } : { d, fill, transform })
+    }
   }
   return paths
 }
 
-async function runVTracer(image: RGBAImage, p: TraceParams, binary: boolean): Promise<RawPath[]> {
+export async function runVTracer(image: RGBAImage, p: TraceParams, binary: boolean): Promise<RawPath[]> {
   await loadWasm()
   const data = new Uint8Array(image.data.buffer, image.data.byteOffset, image.data.byteLength)
   const svg = vectorize_rgba(data, image.width, image.height, optionsFor(p, binary))

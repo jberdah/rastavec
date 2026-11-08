@@ -68,9 +68,10 @@ export async function vectorize(
   src: RGBAImage,
   settings: VectorizeSettings,
   backend: TraceBackend,
-  opts: { analysis?: Analysis; onProgress?: (done: number, total: number) => void; shouldCancel?: () => boolean } = {},
+  opts: { analysis?: Analysis; onProgress?: (done: number, total: number) => void; shouldCancel?: () => boolean; yieldControl?: () => Promise<void> } = {},
 ): Promise<VectorizeResult> {
   const checkCancelled = () => { if (opts.shouldCancel?.()) throw new VectorizationCancelled() }
+  const yieldControl = async () => { await opts.yieldControl?.(); checkCancelled() }
   checkCancelled()
   const analysis = opts.analysis ?? analyze(src)
   let base = { ...settings.params }
@@ -85,6 +86,7 @@ export async function vectorize(
   const grid = candidates(base, { transparent, includeHighSilhouetteCut: settings.presetId === 'auto' })
   const pixelScales = (settings.presetId === 'auto' || settings.presetId === 'pixel') && Math.max(src.width, src.height) <= 256 ? [2, 4] : []
   const exactGrid = auto.enabled && (settings.presetId === 'auto' || settings.presetId === 'pixel') ? tracePixelGrid(src) : null
+  await yieldControl()
   const trials: Trial[] = [await runTrial(src, base, true, backend)]
   checkCancelled()
   const failedTrials: VectorizeResult['failedTrials'] = []
@@ -138,30 +140,32 @@ export async function vectorize(
   reportProgress()
   if (auto.enabled && needsSoftOutlineRecovery && !needsTune) {
     const params = { ...base, softColor: false, softLayers: 1 }
+    await yieldControl()
     trials.push(await runTrial(src, params, false, backend))
     checkCancelled()
     completeTrial()
   } else if (auto.enabled && needsHighCutReview && !needsTune) {
     const params = { ...base, silhouetteCut: 224 }
+    await yieldControl()
     trials.push(await runTrial(src, params, false, backend))
     checkCancelled()
     completeTrial()
   } else if (auto.enabled && needsTune) {
     for (const c of grid) {
-      checkCancelled()
+      await yieldControl()
       trials.push(await runTrial(src, c.params, false, backend))
       checkCancelled()
       completeTrial()
     }
     if (exactGrid !== null) {
-      checkCancelled()
+      await yieldControl()
       const pixelGridTrial = await runPixelGridTrial(src, exactGrid, backend)
       checkCancelled()
       if (pixelGridTrial) trials.push(pixelGridTrial)
       completeTrial()
     }
     for (const scale of pixelScales) {
-      checkCancelled()
+      await yieldControl()
       try {
         trials.push(await runTrial(src, presetById('pixel').params, false, backend, scale))
       } catch (error) {
@@ -176,13 +180,14 @@ export async function vectorize(
     // This avoids accepting visibly softened pixel art just because it is under
     // the generic threshold. The normal score still decides whether its larger
     // editable geometry is worth the fidelity gain.
+    await yieldControl()
     const pixelGridTrial = await runPixelGridTrial(src, exactGrid, backend)
     checkCancelled()
     if (pixelGridTrial) trials.push(pixelGridTrial)
     completeTrial()
   }
   if (includePolygonReview) {
-    checkCancelled()
+    await yieldControl()
     const polygonBase = trials
       .filter((trial) => trial.traceScale === 1 && trial.traceMethod !== 'pixel-grid' && trial.params.mode !== 'polygon')
       .sort((a, b) => a.score - b.score)[0]
@@ -199,7 +204,7 @@ export async function vectorize(
   }
   let chosen = choose(trials, auto.maxKB * 1024)
   if (includeFillCalibration) {
-    checkCancelled()
+    await yieldControl()
     const calibrationStarted = now()
     const current = trials[chosen]
     if (current.traceMethod !== 'pixel-grid' && (current.traceScale ?? 1) === 1 && current.params.colormode === 'color') {
@@ -244,7 +249,7 @@ export async function vectorize(
     completeTrial()
   }
   if (includePaletteSnap) {
-    checkCancelled()
+    await yieldControl()
     const paletteStarted = now()
     const current = trials[chosen]
     if (current.traceMethod !== 'pixel-grid' && (current.traceScale ?? 1) === 1 && current.params.colormode === 'color') {
@@ -288,7 +293,7 @@ export async function vectorize(
     completeTrial()
   }
   if (includePathMerge) {
-    checkCancelled()
+    await yieldControl()
     const mergeStarted = now()
     const current = trials[chosen]
     if (current.traceMethod !== 'pixel-grid' && (current.traceScale ?? 1) === 1 && current.params.colormode === 'color') {

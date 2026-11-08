@@ -4,6 +4,15 @@
   import type { GroupingMetadata } from '../engine/types'
   import { download } from '../export'
   import { i18n } from '../i18n.svelte'
+  import { decodeFile } from '../engine/browser-backend'
+  import { binaryMaskFromRgba, selectGroupsByMask, svgViewBox, type BinarySegmentationMask } from '../engine/segmentation-mask'
+  import { MOBILE_SAM_ARTIFACTS, type MaskCandidate } from '../engine/mobile-sam-inference'
+
+  type LocalMaskProposal = MaskCandidate & { previewUrl: string }
+  type MobileSamWorkerMessage =
+    | { type: 'progress'; requestId: number; stage: 'models' | 'encoder' | 'decoder'; complete: number; total: number }
+    | { type: 'done'; requestId: number; proposals: Array<{ prompt: MaskCandidate['prompt']; score: number; width: number; height: number; data: ArrayBuffer }>; elapsedMs: number }
+    | { type: 'error'; requestId: number; code: string }
 
   function colorName(hex: string, locale: string) {
     const rgb = [1, 3, 5].map((offset) => parseInt(hex.slice(offset, offset + 2), 16) / 255)
@@ -31,7 +40,7 @@
     return (locale === 'fr' ? fr : en)[zone]
   }
 
-  let { svg, name, grouping, onGroupingChange }: { svg: string; name: string; grouping?: GroupingMetadata; onGroupingChange: (grouping: GroupingMetadata) => void } = $props()
+  let { svg, name, grouping, sourceImage, onGroupingChange }: { svg: string; name: string; grouping?: GroupingMetadata; sourceImage?: { url: string; width: number; height: number }; onGroupingChange: (grouping: GroupingMetadata) => void } = $props()
   const recommendedRegionCount = $derived(Math.max(6, Math.min(32, Math.round(Math.sqrt((svg.match(/<path\b/g) ?? []).length) * 1.35))))
   const words = $derived(i18n.locale === 'fr' ? {
     title: 'Regrouper les formes proches', description: 'Propose des groupes géométriques de chemins voisins. Ce ne sont pas des objets reconnus : vérifiez chaque groupe avant de l’utiliser.',
@@ -44,6 +53,8 @@
     previewing: 'Mise à jour de l’aperçu…', hierarchy: 'Les flèches indiquent les groupes enfants d’un ensemble large.', merge: 'Fusionner avec le suivant', split: 'Dissoudre cet ensemble', splitPaths: 'Scinder en formes', includeSingles: 'Inclure les formes seules', includeSinglesHint: 'Rend chaque chemin exploitable séparément, y compris les grandes formes exclues du regroupement automatique.', singletonLimit: 'Trop de formes seules pour les afficher ensemble. Réduisez le nombre de chemins ou désactivez cette option.',
     strategy: 'Méthode', proximityStrategy: 'Voisinage et ordre SVG', spatialStrategy: 'Zones spatiales', regionCount: 'Nombre de zones', spatialHint: 'Répartit les formes compactes en zones même si elles sont éloignées dans l’ordre SVG. Les grandes formes restent séparées; les zones ne sont pas des objets reconnus, vérifiez-les avant animation.',
     addToAssembly: 'Ajouter à l’assemblage', removeFromAssembly: 'Retirer de l’assemblage', createAssembly: (n: number) => `Assembler ${n} groupes`, clearAssembly: 'Vider la sélection', assemblyHint: 'Les chemins restent dans leur ordre de dessin ; ils partageront le même pivot et la même piste d’animation.',
+    maskTitle: 'Préselectionner avec un masque local', maskDescription: 'Importez un masque PNG créé localement par un outil de segmentation. Les pixels blancs ou opaques sont considérés comme la région sélectionnée. RastaVec compare les centres des chemins aux pixels du masque ; inspectez le résultat avant assemblage. Le masque ne fournit aucun nom d’objet ni de partie du corps.', maskImport: 'Importer un masque PNG', maskApply: 'Sélectionner les groupes dans le masque', maskPreview: 'Aperçu : la zone magenta est sélectionnée', maskLoaded: (w: number, h: number) => `Masque chargé · ${w} × ${h}`, maskSelected: (g: number, p: number) => `${g} groupes présélectionnés · ${p} centres de chemins dans le masque`, maskNoGroups: 'Aucun groupe existant ne correspond assez au masque. Vérifiez le masque ou les groupes géométriques.', maskDimensions: 'Le masque et l’image source doivent avoir le même ratio largeur/hauteur.', maskError: 'Impossible de lire ce masque PNG', maskLocalOnly: 'Le fichier est lu localement et n’est pas envoyé.',
+    samTitle: 'Propositions MobileSAM locales (facultatif)', samDescription: 'Choisissez vos deux fichiers ONNX MobileSAM. RastaVec exécute localement l’encodeur puis une grille déterministe de points positifs dans un worker WASM. Les régions proposées ne portent pas d’étiquette sémantique. Aucun modèle n’est téléchargé et aucune image ne quitte l’appareil.', samEncoder: 'Choisir l’encodeur ONNX', samDecoder: 'Choisir le décodeur ONNX', samNoFile: 'Aucun fichier choisi', samGrid: 'Grille de points', samGenerate: 'Générer des masques localement', samWorking: (stage: string, done: number, total: number) => `${stage} · ${done}/${total}`, samReady: (n: number, ms: number) => `${n} masques proposés · ${ms} ms`, samNoProposals: 'Aucun masque distinct proposé. Essayez une grille plus dense ou importez un masque PNG.', samModelError: 'Modèles incompatibles ou non pris en charge. Utilisez la paire MobileSAM listée ci-dessous.', samLocalError: 'Impossible de générer des masques sur cet appareil.', samHashError: 'Les sommes SHA-256 ne correspondent pas à la paire MobileSAM prise en charge.', samChooseModels: 'Choisissez les deux modèles ONNX et une image source.', samProposal: (n: number, score: number) => `Région ${n} · score ${score.toFixed(2)}`, samSource: 'Modèles MobileSAM (MIT) et empreintes attendues', samApplyProposal: 'Utiliser le masque aperçu',
     limitation: 'Les groupes larges contiennent les petits groupes proches ; les noms auto décrivent seulement la couleur dominante et la position. L’ordre de dessin est conservé. Les noms, rôles et pivots sont inclus dans le SVG et le ZIP.',
     error: 'Impossible de proposer les groupes',
   } : {
@@ -57,6 +68,8 @@
     previewing: 'Updating preview…', hierarchy: 'Arrows mark child groups inside a larger cluster.', merge: 'Merge with next group', split: 'Dissolve this cluster', splitPaths: 'Split into individual shapes', includeSingles: 'Include standalone shapes', includeSinglesHint: 'Make each path individually available, including large shapes excluded from automatic grouping.', singletonLimit: 'There are too many standalone shapes to show together. Reduce the path count or turn this option off.',
     strategy: 'Method', proximityStrategy: 'Proximity and SVG order', spatialStrategy: 'Spatial regions', regionCount: 'Number of regions', spatialHint: 'Partitions compact shapes into regions even when their SVG order is far apart. Large shapes stay separate; regions are not recognized objects, so review them before animation.',
     addToAssembly: 'Add to assembly', removeFromAssembly: 'Remove from assembly', createAssembly: (n: number) => `Assemble ${n} groups`, clearAssembly: 'Clear selection', assemblyHint: 'Paths stay in paint order and share one pivot and animation track.',
+    maskTitle: 'Preselect groups with a local mask', maskDescription: 'Import a PNG mask created locally by a segmentation tool. White or opaque pixels count as the selected region. RastaVec compares path centres with mask pixels; review the result before assembling. The mask does not provide object or body-part names.', maskImport: 'Import PNG mask', maskApply: 'Select groups inside mask', maskPreview: 'Preview: magenta area is selected', maskLoaded: (w: number, h: number) => `Mask loaded · ${w} × ${h}`, maskSelected: (g: number, p: number) => `${g} groups preselected · ${p} path centres inside mask`, maskNoGroups: 'No existing group matches the mask closely enough. Review the mask or geometric groups.', maskDimensions: 'The mask and source image must have the same width-to-height ratio.', maskError: 'Could not read this PNG mask', maskLocalOnly: 'The file is read locally and is not uploaded.',
+    samTitle: 'Local MobileSAM proposals (optional)', samDescription: 'Choose both MobileSAM ONNX files. RastaVec runs the encoder locally, then a deterministic grid of positive point prompts in a WASM worker. Proposed regions have no semantic labels. Models are not downloaded and the image never leaves this device.', samEncoder: 'Choose ONNX encoder', samDecoder: 'Choose ONNX decoder', samNoFile: 'No file selected', samGrid: 'Point grid', samGenerate: 'Generate masks locally', samWorking: (stage: string, done: number, total: number) => `${stage} · ${done}/${total}`, samReady: (n: number, ms: number) => `${n} masks proposed · ${ms} ms`, samNoProposals: 'No distinct masks were proposed. Try a denser grid or import a PNG mask.', samModelError: 'Models are incompatible or unsupported. Use the MobileSAM pair listed below.', samLocalError: 'Could not generate masks on this device.', samHashError: 'SHA-256 hashes do not match the supported MobileSAM pair.', samChooseModels: 'Choose both ONNX models and a source image.', samProposal: (n: number, score: number) => `Region ${n} · score ${score.toFixed(2)}`, samSource: 'MobileSAM models (MIT) and expected hashes', samApplyProposal: 'Use previewed mask',
     limitation: 'Larger groups contain nearby smaller groups; automatic names describe only dominant colour and position. Drawing order is preserved. Names, roles and pivots are included in the SVG and ZIP.',
     error: 'Could not suggest groups',
   })
@@ -81,6 +94,19 @@
   let usedRegionCount = $state(12)
   let selected = $state('')
   let assemblySelection = $state<Set<string>>(new Set())
+  let segmentationMask = $state<BinarySegmentationMask | null>(null)
+  let maskPreviewUrl = $state('')
+  let maskMessage = $state('')
+  let maskBusy = $state(false)
+  let maskSourceUrl = ''
+  let mobileSamWorker: Worker | null = null
+  let mobileSamRequestId = 0
+  let samEncoderFile = $state<File | null>(null)
+  let samDecoderFile = $state<File | null>(null)
+  let samGridSize = $state(2)
+  let samProgress = $state('')
+  let samProposals = $state.raw<LocalMaskProposal[]>([])
+  let samPreviewIndex = $state(-1)
   let groupLevel = $state<'all' | 'nearby' | 'cluster'>('all')
   let search = $state('')
   type Annotation = { name?: string; role?: string; locked?: boolean; pivot: [number, number] }
@@ -133,7 +159,162 @@
   let worker: Worker | null = null
   let destroyed = false
   let runTimer: ReturnType<typeof setTimeout> | undefined
-  onDestroy(() => { destroyed = true; worker?.terminate(); worker = null; if (runTimer) clearTimeout(runTimer) })
+  onDestroy(() => { destroyed = true; worker?.terminate(); worker = null; mobileSamWorker?.terminate(); mobileSamWorker = null; if (runTimer) clearTimeout(runTimer) })
+
+  $effect(() => {
+    const nextSource = sourceImage?.url ?? ''
+    if (nextSource === maskSourceUrl) return
+    maskSourceUrl = nextSource
+    segmentationMask = null
+    maskPreviewUrl = ''
+    maskMessage = ''
+    samProposals = []
+    samPreviewIndex = -1
+  })
+
+  function renderMaskPreview(mask: BinarySegmentationMask) {
+    const scale = Math.min(1, 512 / Math.max(mask.width, mask.height))
+    const previewWidth = Math.max(1, Math.round(mask.width * scale))
+    const previewHeight = Math.max(1, Math.round(mask.height * scale))
+    const canvas = document.createElement('canvas')
+    canvas.width = previewWidth
+    canvas.height = previewHeight
+    const context = canvas.getContext('2d')
+    if (!context) throw new Error('canvas')
+    const pixels = context.createImageData(previewWidth, previewHeight)
+    for (let y = 0; y < previewHeight; y++) for (let x = 0; x < previewWidth; x++) {
+      const sourceX = Math.min(mask.width - 1, Math.floor(x * mask.width / previewWidth))
+      const sourceY = Math.min(mask.height - 1, Math.floor(y * mask.height / previewHeight))
+      if (mask.data[sourceY * mask.width + sourceX]) {
+        const offset = (y * previewWidth + x) * 4
+        pixels.data[offset] = 255
+        pixels.data[offset + 1] = 0
+        pixels.data[offset + 2] = 180
+        pixels.data[offset + 3] = 125
+      }
+    }
+    context.putImageData(pixels, 0, 0)
+    return canvas.toDataURL('image/png')
+  }
+
+  async function importSegmentationMask(event: Event) {
+    const input = event.currentTarget as HTMLInputElement
+    const file = input.files?.[0]
+    input.value = ''
+    segmentationMask = null
+    maskPreviewUrl = ''
+    maskMessage = ''
+    if (!file || !sourceImage) return
+    const sourceUrl = sourceImage.url
+    if (file.type !== 'image/png') { maskMessage = words.maskError; return }
+    maskBusy = true
+    try {
+      const image = await decodeFile(file)
+      if (sourceImage?.url !== sourceUrl) return
+      const sourceRatio = sourceImage.width / sourceImage.height
+      if (!Number.isFinite(sourceRatio) || Math.abs(image.width / image.height - sourceRatio) > sourceRatio * 0.005) throw new Error('aspect')
+      const mask = binaryMaskFromRgba(image.data, image.width, image.height)
+      segmentationMask = mask
+      maskPreviewUrl = renderMaskPreview(mask)
+      maskMessage = words.maskLoaded(mask.width, mask.height)
+    } catch (cause) {
+      maskMessage = cause instanceof Error && cause.message === 'aspect' ? words.maskDimensions : words.maskError
+    } finally {
+      maskBusy = false
+    }
+  }
+
+  function mobileSamWorkerForPage() {
+    if (!mobileSamWorker) mobileSamWorker = new Worker(new URL('../engine/mobile-sam-worker.ts', import.meta.url), { type: 'module' })
+    return mobileSamWorker
+  }
+
+  async function generateMobileSamMasks() {
+    if (!samEncoderFile || !samDecoderFile || !sourceImage) { maskMessage = words.samChooseModels; return }
+    const sourceUrl = sourceImage.url
+    if (!sourceUrl.startsWith('blob:')) { maskMessage = words.samLocalError; return }
+    maskBusy = true
+    maskMessage = ''
+    samProgress = words.running
+    samProposals = []
+    samPreviewIndex = -1
+    const requestId = ++mobileSamRequestId
+    try {
+      const sourceResponse = await fetch(sourceUrl)
+      if (!sourceResponse.ok) throw new Error('source-local')
+      const sourceBlob = await sourceResponse.blob()
+      if (sourceImage?.url !== sourceUrl) throw new Error('source-changed')
+      const worker = mobileSamWorkerForPage()
+      await new Promise<void>((resolve, reject) => {
+        worker.onmessage = (event: MessageEvent<MobileSamWorkerMessage>) => {
+          const message = event.data
+          if (message.requestId !== requestId) return
+          if (message.type === 'progress') {
+            const stage = message.stage === 'models' ? 'ONNX' : message.stage === 'encoder' ? 'Encodeur' : 'Décodeur'
+            samProgress = words.samWorking(stage, message.complete, message.total)
+            return
+          }
+          if (message.type === 'error') {
+            maskMessage = message.code === 'model-hash' ? words.samHashError : message.code === 'model-interface' ? words.samModelError : words.samLocalError
+            reject(new Error(message.code))
+            return
+          }
+          if (sourceImage?.url !== sourceUrl) { reject(new Error('source-changed')); return }
+          try {
+            const proposals = message.proposals.map((proposal): LocalMaskProposal => {
+              const mask: BinarySegmentationMask = { width: proposal.width, height: proposal.height, data: new Uint8Array(proposal.data) }
+              const ratio = mask.width / mask.height, expectedRatio = sourceImage!.width / sourceImage!.height
+              if (Math.abs(ratio - expectedRatio) > expectedRatio * 0.005) throw new Error('aspect')
+              return { prompt: proposal.prompt, score: proposal.score, width: mask.width, height: mask.height, data: mask.data, previewUrl: renderMaskPreview(mask) }
+            })
+            samProposals = proposals
+            maskMessage = proposals.length ? words.samReady(proposals.length, message.elapsedMs) : words.samNoProposals
+            resolve()
+          } catch (cause) { reject(cause) }
+        }
+        worker.onerror = () => reject(new Error('worker'))
+        worker.postMessage({ type: 'generate', requestId, encoderFile: samEncoderFile!, decoderFile: samDecoderFile!, sourceImage: sourceBlob, gridSize: samGridSize })
+      })
+    } catch (cause) {
+      if (!maskMessage) maskMessage = cause instanceof Error && cause.message === 'aspect' ? words.maskDimensions : words.samLocalError
+    } finally {
+      if (requestId === mobileSamRequestId) { maskBusy = false; samProgress = '' }
+    }
+  }
+
+  function previewMobileSamProposal(index: number) {
+    const proposal = samProposals[index]
+    if (!proposal) return
+    samPreviewIndex = index
+    maskPreviewUrl = proposal.previewUrl
+  }
+
+  function usePreviewedMobileSamMask() {
+    const proposal = samProposals[samPreviewIndex]
+    if (!proposal) return
+    segmentationMask = { width: proposal.width, height: proposal.height, data: proposal.data }
+    maskMessage = words.maskLoaded(proposal.width, proposal.height)
+  }
+
+  function selectGroupsFromMask() {
+    if (!segmentationMask || !sourceImage || !output || !current) return
+    const viewBox = svgViewBox(output.svg)
+    if (!viewBox) { maskMessage = words.maskError; return }
+    try {
+      const result = selectGroupsByMask(output.groups, segmentationMask, viewBox, sourceImage.width, sourceImage.height)
+      const eligible = result.groupIds.filter((id) => {
+        const group = output!.groups.find((candidate) => candidate.id === id)
+        return !!group && !annotations[group.key]?.locked
+      })
+      assemblySelection = new Set(eligible)
+      if (eligible.length) selected = eligible[0]
+      maskMessage = eligible.length
+        ? words.maskSelected(eligible.length, result.matchedPaths)
+        : words.maskNoGroups
+    } catch {
+      maskMessage = words.maskError
+    }
+  }
 
   function step(offset: number) {
     const next = visibleGroups[selectedIndex + offset]
@@ -627,6 +808,66 @@
   {#if error}<span role="alert" class="small">{words.error}: {error}</span>{/if}
   {#if output && !current}<span class="muted small">{words.stale}</span>{/if}
   {#if output && current}
+    {#if sourceImage}
+      <section class="mask-tool" aria-labelledby="segmentation-mask-title">
+        <div class="mask-copy">
+          <h3 id="segmentation-mask-title" class="h3">{words.maskTitle}</h3>
+          <p class="muted tiny">{words.maskDescription}</p>
+          <div class="row mask-controls">
+            <input id="segmentation-mask-file" class="mask-file" type="file" accept="image/png,.png" onchange={importSegmentationMask} disabled={maskBusy} />
+            <label class="btn" for="segmentation-mask-file">{words.maskImport}</label>
+            <button type="button" class="btn btn-primary" onclick={selectGroupsFromMask} disabled={!segmentationMask || maskBusy || !output.groups.length}>{words.maskApply}</button>
+          </div>
+          <span class="muted tiny">{words.maskLocalOnly}</span>
+          <div class="sam-panel" aria-labelledby="mobile-sam-title">
+            <h4 id="mobile-sam-title" class="h3">{words.samTitle}</h4>
+            <p class="muted tiny">{words.samDescription}</p>
+            <div class="row mask-controls">
+              <input id="mobile-sam-encoder" class="mask-file" type="file" accept=".onnx,application/octet-stream" onchange={(event) => (samEncoderFile = (event.currentTarget as HTMLInputElement).files?.[0] ?? null)} disabled={maskBusy} />
+              <label class="btn" for="mobile-sam-encoder">{words.samEncoder}</label>
+              <span class="muted tiny model-file-name">{samEncoderFile?.name ?? words.samNoFile}</span>
+            </div>
+            <div class="row mask-controls">
+              <input id="mobile-sam-decoder" class="mask-file" type="file" accept=".onnx,application/octet-stream" onchange={(event) => (samDecoderFile = (event.currentTarget as HTMLInputElement).files?.[0] ?? null)} disabled={maskBusy} />
+              <label class="btn" for="mobile-sam-decoder">{words.samDecoder}</label>
+              <span class="muted tiny model-file-name">{samDecoderFile?.name ?? words.samNoFile}</span>
+            </div>
+            <div class="row mask-controls">
+              <label class="small" for="mobile-sam-grid">{words.samGrid}</label>
+              <select id="mobile-sam-grid" bind:value={samGridSize} disabled={maskBusy}>
+                <option value={2}>2 × 2</option><option value={3}>3 × 3</option><option value={4}>4 × 4</option>
+              </select>
+              <button type="button" class="btn" onclick={generateMobileSamMasks} disabled={maskBusy || !samEncoderFile || !samDecoderFile}>{words.samGenerate}</button>
+              {#if samProgress}<span class="muted tiny" role="status" aria-live="polite">{samProgress}</span>{/if}
+            </div>
+            <details class="sam-artifacts">
+              <summary class="muted tiny">{words.samSource}</summary>
+              <p class="tiny"><a href="https://huggingface.co/Acly/MobileSAM" target="_blank" rel="noreferrer">Acly/MobileSAM · MIT</a></p>
+              <p class="tiny">{MOBILE_SAM_ARTIFACTS.encoder.file} · SHA-256 <code>{MOBILE_SAM_ARTIFACTS.encoder.sha256}</code></p>
+              <p class="tiny">{MOBILE_SAM_ARTIFACTS.decoder.file} · SHA-256 <code>{MOBILE_SAM_ARTIFACTS.decoder.sha256}</code></p>
+            </details>
+            {#if samProposals.length}
+              <div class="sam-proposals" aria-label={words.samTitle}>
+                {#each samProposals as proposal, index}
+                  <button type="button" class="sam-proposal" aria-pressed={samPreviewIndex === index} onclick={() => previewMobileSamProposal(index)} disabled={maskBusy}>
+                    <img src={proposal.previewUrl} alt="" /><span>{words.samProposal(index + 1, proposal.score)}</span>
+                  </button>
+                {/each}
+              </div>
+              <button type="button" class="btn" onclick={usePreviewedMobileSamMask} disabled={samPreviewIndex < 0 || maskBusy}>{words.samApplyProposal}</button>
+            {/if}
+          </div>
+          {#if maskMessage}<span class="small" aria-live="polite">{maskBusy ? words.running : maskMessage}</span>{/if}
+        </div>
+        {#if maskPreviewUrl}
+          <figure class="mask-preview" style={`aspect-ratio: ${sourceImage.width} / ${sourceImage.height}`}>
+            <img class="mask-source" src={sourceImage.url} alt="" />
+            <img class="mask-overlay" src={maskPreviewUrl} alt={words.maskPreview} />
+            <figcaption class="muted tiny">{words.maskPreview}</figcaption>
+          </figure>
+        {/if}
+      </section>
+    {/if}
     <div class="result-summary"><span aria-live="polite" class="small">{output.groups.length ? words.count(output.groups.length) : words.empty}</span><span class="muted tiny">{words.details(output.considered, output.skipped)}</span></div>
     {#if output.limit === 'singleton-count'}<span role="status" class="small">{words.singletonLimit}</span>{:else if output.limit}<span role="status" class="small">{words.limit(output.limit)}</span>{/if}
     {#if busy}<span role="status" class="muted tiny">{words.previewing}</span>{/if}
@@ -700,6 +941,28 @@
   .singleton-toggle input { width: 15px; height: 15px; padding: 0; accent-color: var(--accent); }
   .distance-slider { width: min(180px, 20vw); }
   .result-summary { display: flex; gap: 16px; align-items: baseline; flex-wrap: wrap; }
+  .mask-tool { display: grid; grid-template-columns: minmax(260px, 1fr) minmax(180px, 280px); gap: 16px; align-items: center; padding: 14px; border: 1px solid var(--line-2); border-radius: 12px; background: var(--surface-2); }
+  .mask-copy { min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+  .mask-copy p { margin: 0; line-height: 1.45; }
+  .sam-panel { width: 100%; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin-top: 8px; padding: 12px; border: 1px solid var(--line-2); border-radius: 9px; background: var(--surface); }
+  .sam-panel h4 { font-size: 14px; }
+  .sam-panel > p { margin: 0; line-height: 1.45; }
+  .model-file-name { max-width: 100%; overflow-wrap: anywhere; }
+  .sam-artifacts { width: 100%; }
+  .sam-artifacts p { margin: 6px 0 0; overflow-wrap: anywhere; }
+  .sam-artifacts code { user-select: all; }
+  .sam-proposals { display: grid; width: 100%; grid-template-columns: repeat(auto-fill, minmax(86px, 1fr)); gap: 7px; }
+  .sam-proposal { min-width: 0; display: flex; flex-direction: column; align-items: stretch; gap: 4px; padding: 5px; text-align: left; border: 1px solid var(--line-2); border-radius: 7px; background: var(--checker); color: var(--text); }
+  .sam-proposal[aria-pressed='true'] { border-color: var(--accent); outline: 1px solid var(--accent); }
+  .sam-proposal img { width: 100%; aspect-ratio: 1.5; object-fit: contain; }
+  .sam-proposal span { font-size: 11px; }
+  .mask-controls { flex-wrap: wrap; }
+  .mask-file { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; clip-path: inset(50%); }
+  .mask-file:focus-visible + label { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .mask-preview { position: relative; width: 100%; max-height: 180px; margin: 0; overflow: hidden; border: 1px solid var(--line-2); border-radius: 9px; background: var(--checker); }
+  .mask-preview img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+  .mask-preview .mask-overlay { pointer-events: none; }
+  .mask-preview figcaption { position: absolute; left: 4px; bottom: 4px; padding: 3px 5px; border-radius: 4px; background: var(--surface); }
   .manager { display: grid; grid-template-columns: minmax(260px, 0.8fr) minmax(0, 1.2fr); gap: 18px; min-height: 420px; }
   .group-list, .group-detail { min-width: 0; border: 1px solid var(--line-2); border-radius: 12px; }
   .group-list { display: flex; flex-direction: column; overflow: hidden; }
@@ -727,5 +990,5 @@
   .group-review input, .group-review select { max-width: 100%; min-width: 0; padding: 8px; color: var(--text); background: var(--surface-2); border: 1px solid var(--line-2); border-radius: 8px; }
   .preview { flex: 1; min-height: 250px; max-height: 420px; background: var(--checker); border: 1px solid var(--line-2); border-radius: 12px; }
   .preview img { width: 100%; height: 100%; object-fit: contain; }
-  @media (max-width: 760px) { .heading { align-items: flex-start; flex-direction: column; gap: 12px; } .run-controls { flex-wrap: wrap; } .manager { grid-template-columns: minmax(0,1fr); } .group-items { max-height: 300px; } .preview { min-height: 220px; } }
+  @media (max-width: 760px) { .heading { align-items: flex-start; flex-direction: column; gap: 12px; } .run-controls { flex-wrap: wrap; } .manager { grid-template-columns: minmax(0,1fr); } .mask-tool { grid-template-columns: minmax(0,1fr); } .mask-preview { max-width: 280px; } .group-items { max-height: 300px; } .preview { min-height: 220px; } }
 </style>

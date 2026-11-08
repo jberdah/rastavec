@@ -282,6 +282,83 @@ export function diffImage(a: RGBAImage, b: RGBAImage): RGBAImage {
   return { data: out, width: a.width, height: a.height }
 }
 
+export interface DiffHotspot {
+  x: number
+  y: number
+  width: number
+  height: number
+  pctDiff: number
+  meanError: number
+  maxError: number
+  visiblePixels: number
+}
+
+export interface DiffSummary {
+  version: 1
+  width: number
+  height: number
+  threshold: number
+  gridSize: number
+  /** Rows run top to bottom; columns run left to right. Values are visible-difference percentages. */
+  gridPctDiff: number[][]
+  hotspots: DiffHotspot[]
+}
+
+/** Compact, spatially useful diff data for tools that cannot conveniently inspect a PNG. */
+export function summarizeDiff(a: RGBAImage, b: RGBAImage, gridSize = 8, threshold = DIFF_THRESHOLD): DiffSummary {
+  if (a.width !== b.width || a.height !== b.height || a.data.length !== b.data.length)
+    throw new Error('Diff images must have the same dimensions and pixel data length.')
+  if (!Number.isSafeInteger(gridSize) || gridSize < 1 || gridSize > 32)
+    throw new Error('Diff grid size must be an integer between 1 and 32.')
+  if (!Number.isFinite(threshold) || threshold < 0 || threshold > 255)
+    throw new Error('Diff threshold must be between 0 and 255.')
+
+  const cells = Array.from({ length: gridSize * gridSize }, () => ({ pixels: 0, visible: 0, error: 0, max: 0 }))
+  const A = a.data, B = b.data
+  for (let y = 0; y < a.height; y++) for (let x = 0; x < a.width; x++) {
+    const i = (y * a.width + x) * 4
+    const aa = A[i + 3] / 255, ab = B[i + 3] / 255
+    let worst = 0
+    for (let c = 0; c < 3; c++) {
+      const sourceWhite = A[i + c] * aa + 255 * (1 - aa)
+      const vectorWhite = B[i + c] * ab + 255 * (1 - ab)
+      const sourceDark = A[i + c] * aa + DARK * (1 - aa)
+      const vectorDark = B[i + c] * ab + DARK * (1 - ab)
+      worst = Math.max(worst, Math.abs(sourceWhite - vectorWhite), Math.abs(sourceDark - vectorDark))
+    }
+    const column = Math.min(gridSize - 1, Math.floor(x * gridSize / a.width))
+    const row = Math.min(gridSize - 1, Math.floor(y * gridSize / a.height))
+    const cell = cells[row * gridSize + column]
+    cell.pixels++
+    cell.error += worst
+    cell.max = Math.max(cell.max, worst)
+    if (worst > threshold) cell.visible++
+  }
+
+  const round1 = (value: number) => Math.round(value * 10) / 10
+  const gridPctDiff = Array.from({ length: gridSize }, (_, row) =>
+    Array.from({ length: gridSize }, (_, column) => {
+      const cell = cells[row * gridSize + column]
+      return cell.pixels ? round1(100 * cell.visible / cell.pixels) : 0
+    }),
+  )
+  const hotspots = cells.flatMap((cell, index) => {
+    if (!cell.visible) return []
+    const row = Math.floor(index / gridSize), column = index % gridSize
+    const x = Math.floor(column * a.width / gridSize), y = Math.floor(row * a.height / gridSize)
+    const right = Math.floor((column + 1) * a.width / gridSize), bottom = Math.floor((row + 1) * a.height / gridSize)
+    return [{
+      x, y, width: right - x, height: bottom - y,
+      pctDiff: round1(100 * cell.visible / cell.pixels),
+      meanError: round1(cell.error / cell.pixels),
+      maxError: round1(cell.max),
+      visiblePixels: cell.visible,
+    }]
+  }).sort((left, right) => right.visiblePixels - left.visiblePixels || right.meanError - left.meanError || left.y - right.y || left.x - right.x).slice(0, 8)
+
+  return { version: 1, width: a.width, height: a.height, threshold, gridSize, gridPctDiff, hotspots }
+}
+
 /** Ranking: visible outliers, average color error, and a light size penalty (per KiB). */
 export const SIZE_WEIGHT = 0.002
 export const COLOR_WEIGHT = 0.01

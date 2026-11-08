@@ -4,7 +4,7 @@ import { parseArgs } from 'node:util'
 import { existsSync, mkdirSync, readdirSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { basename, extname, join, resolve } from 'node:path'
 import { analyze, recommend, type Analysis } from '../../src/lib/engine/analyze'
-import { diffImage, type RGBAImage } from '../../src/lib/engine/core'
+import { diffImage, summarizeDiff, type RGBAImage } from '../../src/lib/engine/core'
 import { DEFAULT_PARAMS, PRESETS, presetById } from '../../src/lib/engine/presets'
 import { crop, keyBackground, sliceSheet } from '../../src/lib/engine/slice'
 import type { AutoTune, TraceParams } from '../../src/lib/engine/types'
@@ -34,6 +34,7 @@ Trace options
   -s, --max-size <KB>      size budget per SVG in KiB (default: 400)
       --no-auto            disable auto-tuning (single trial)
       --compare            also write <name>.comparison.png and <name>.diff.png
+      --diff-summary-json  write <name>.diff.json with an 8x8 error grid and top hotspots
       --slice              treat each input as a sheet and vectorise its elements
   -r, --recursive          include sub-folders
   -f, --force              overwrite existing output files
@@ -197,6 +198,7 @@ async function cmdTrace(positionals: string[], o: Record<string, string | boolea
   const paths = [join(out, 'report.json'), ...jobs.flatMap((j) => [
     join(out, `${j.name}.svg`),
     ...(o.compare ? [join(out, `${j.name}.comparison.png`), join(out, `${j.name}.diff.png`)] : []),
+    ...(o['diff-summary-json'] ? [join(out, `${j.name}.diff.json`)] : []),
   ])]
   // Even --force must not overwrite an input before the rest of the batch has read it.
   const inputKeys = new Set(files.flatMap(fileKeys))
@@ -220,12 +222,21 @@ async function cmdTrace(positionals: string[], o: Record<string, string | boolea
       const svgPath = join(out, `${job.name}.svg`)
       writeFileSync(svgPath, t.svg)
       let comparison: string | undefined, diff: string | undefined
-      if (o.compare) {
+      let diffSummaryPath: string | undefined
+      let diffSummary: ReturnType<typeof summarizeDiff> | undefined
+      if (o.compare || o['diff-summary-json']) {
         const render = await nodeBackend.rasterize(t.svg, src.width, src.height)
-        comparison = join(out, `${job.name}.comparison.png`)
-        diff = join(out, `${job.name}.diff.png`)
-        await writeComparison(src, render, comparison)
-        await writePng(diffImage(src, render), diff)
+        if (o.compare) {
+          comparison = join(out, `${job.name}.comparison.png`)
+          diff = join(out, `${job.name}.diff.png`)
+          await writeComparison(src, render, comparison)
+          await writePng(diffImage(src, render), diff)
+        }
+        if (o['diff-summary-json']) {
+          diffSummaryPath = join(out, `${job.name}.diff.json`)
+          diffSummary = summarizeDiff(src, render)
+          writeFileSync(diffSummaryPath, JSON.stringify(diffSummary, null, 2) + '\n')
+        }
       }
       const status = needsReviewResult(res, auto) ? 'review' : 'ok'
       if (status === 'review') review++
@@ -235,6 +246,7 @@ async function cmdTrace(positionals: string[], o: Record<string, string | boolea
         input: job.input,
         output: svgPath,
         ...(comparison ? { comparison, diff } : {}),
+        ...(diffSummaryPath ? { diffSummaryPath, diffSummary } : {}),
         status,
         width: src.width,
         height: src.height,
@@ -334,6 +346,7 @@ async function main() {
         'max-size': { type: 'string', short: 's' },
         'no-auto': { type: 'boolean' },
         compare: { type: 'boolean' },
+        'diff-summary-json': { type: 'boolean' },
         slice: { type: 'boolean' },
         recursive: { type: 'boolean', short: 'r' },
         force: { type: 'boolean', short: 'f' },
