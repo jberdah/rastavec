@@ -14,7 +14,9 @@ npm run check      # svelte-check + tsc
 ```
 
 Desktop: `npm run tauri dev` / `npm run tauri build` (needs Rust and, on Windows, the C++
-build tools).
+build tools). The Windows MSI has its own numeric version in
+`src-tauri/tauri.conf.json` under `bundle.windows.wix.version`; increment its fourth
+component for each beta because WiX does not accept the SemVer `beta` label.
 
 CLI: see [cli/README.md](../cli/README.md).
 

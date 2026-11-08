@@ -35,6 +35,11 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "windows": {
+      "wix": {
+        "version": "0.4.0.1"
+      }
+    },
     "android": {
       "debugApplicationIdSuffix": ".debug"
     }
