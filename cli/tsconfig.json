@@ -15,6 +15,10 @@
   "include": ["src/**/*.ts", "../src/lib/engine/**/*.ts"],
   "exclude": [
     "../src/lib/engine/browser-backend.ts",
-    "../src/lib/engine/vtracer1-backend.ts"
+    "../src/lib/engine/vtracer1-backend.ts",
+    "../src/lib/engine/mobile-sam-worker.ts",
+    "../src/lib/engine/worker-backend.ts",
+    "../src/lib/engine/vectorization-worker.ts",
+    "../src/lib/engine/vectorization-worker-client.ts"
   ]
 }

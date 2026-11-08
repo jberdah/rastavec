@@ -26,7 +26,7 @@ Node.js 18 or later. The beta is attached to the
 [GitHub releases](https://github.com/jberdah/rastavec/releases):
 
 ```bash
-npm install -g https://github.com/jberdah/rastavec/releases/download/v0.3.0-beta.5/rastavec-0.3.0.tgz
+npm install -g https://github.com/jberdah/rastavec/releases/download/v0.4.0-beta.1/rastavec-0.4.0-beta.1.tgz
 ```
 
 ## Commands
@@ -47,6 +47,7 @@ npm install -g https://github.com/jberdah/rastavec/releases/download/v0.3.0-beta
 | `-s, --max-size <KB>` | `400` | size budget per SVG (KiB) |
 | `--no-auto` | | single trial, no auto-tuning |
 | `--compare` | | also write `<name>.comparison.png` (source / SVG on white and dark) and `<name>.diff.png` (differences in magenta) |
+| `--diff-summary-json` | | write `<name>.diff.json` with an 8×8 visible-difference grid and up to eight hotspot regions; also embed the summary in each JSON report item |
 | `--slice` | | treat inputs as sheets and vectorise each element |
 | `-r, --recursive` | | include sub-folders |
 | `-f, --force` | | overwrite existing outputs (never overwritten otherwise) |
@@ -75,7 +76,7 @@ output over one of its input images.
 
 ```json
 {
-  "schemaVersion": 1, "tool": "rastavec", "version": "0.3.0",
+  "schemaVersion": 1, "tool": "rastavec", "version": "0.4.0-beta.1",
   "engine": "vtracer 1.0.0-alpha.4 (node) + sharp",
   "settings": { "preset": "auto", "params": null, "autoTune": { "enabled": true, "threshold": 2, "maxKB": 700 } },
   "summary": { "total": 4, "ok": 2, "review": 2, "errors": 0, "seconds": 51.2 },
@@ -95,6 +96,8 @@ output over one of its input images.
 - `iou`: overlap of opaque areas (alpha ≥ 128). `rgbWhite`, `rgbDark`, `alphaDiff`: mean differences, 0–255.
 - `traceMethod`: selected Auto variant. `paths-merged` means adjacent same-fill paths were combined only
   after a fresh render preserved the measured visible difference, silhouette, alpha and color fidelity.
+- `diffSummary`: with `--diff-summary-json`, contains a top-to-bottom grid of visible-difference percentages
+  and up to eight hotspot rectangles in source-image pixels. Its 32/255 threshold matches `pctDiff`.
 - `status`: `ok`, `review` (above threshold or budget) or `error` (with `error`).
 - Same input and same settings give the same SVG.
 

@@ -129,7 +129,7 @@ The `rastavec` CLI uses the same engine and writes a JSON report with stable exi
 script, a CI job or a coding agent can vectorise images and check the result on its own.
 
 ```bash
-npm install -g https://github.com/jberdah/rastavec/releases/download/v0.3.0-beta.5/rastavec-0.3.0.tgz
+npm install -g https://github.com/jberdah/rastavec/releases/download/v0.4.0-beta.1/rastavec-0.4.0-beta.1.tgz
 rastavec trace logo.png --compare
 rastavec trace images/ -o out/ --threshold 2 --max-size 700 --json
 ```

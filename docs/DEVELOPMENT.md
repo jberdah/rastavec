@@ -37,6 +37,8 @@ src/lib/engine/analyze.ts          image analysis (colours, gradients, alpha) ->
 src/lib/engine/compact.ts          compact path encoding (pure, deterministic)
 src/lib/engine/compose.ts          SVG assembly shared by backends (silhouette clip, soft layers, binary)
 src/lib/engine/vectorize.ts        shared loop: analysis -> trace -> measure -> auto-tune -> choice
+src/lib/engine/vectorization-worker*.ts
+                                   worker backend, transferable source buffers and bounded batch pool
 src/lib/engine/slice.ts            sprite-sheet / brand-board slicing into elements (pure)
 src/lib/engine/group-nearby.ts     geometric proximity/spatial grouping and group metadata
 src/lib/engine/animation.ts        role-based walk cycles and animation interpolation
@@ -67,9 +69,14 @@ The generated synthetic regression corpus and its limits are described in [CORPU
 
 - **Engine**: the browser and desktop app compile the official
   [`vtracer` 1.0.0-alpha.4 crate](https://github.com/visioncortex/vtracer) to WebAssembly via
-  `wasm-pack`; the CLI uses `@visioncortex/vtracer` 1.0.0-alpha.4 natively. Both backends share
+  `wasm-pack`; the CLI uses the `@visioncortex/vtracer` 1.0.0-alpha.4 WebAssembly package from Node. Both backends share
   the same `TraceBackend` contract and parameter mapping. Generated wasm-bindgen files and Cargo
   build output are ignored; `npm run dev`, `npm run check` and `npm run build` build the WASM adapter first.
+- **Batch execution**: tracing, SVG rendering and fidelity measurement run in dedicated Web Workers when
+  `OffscreenCanvas` is available. Up to two images run at once for batches whose largest image is at most
+  4 megapixels; larger images run one at a time to limit peak memory. The source RGBA buffer is transferred
+  to the worker and returned after each image, avoiding an additional full-image clone. Unsupported worker
+  rendering or a worker crash falls back to the browser backend on the main thread.
 - **Transparency**: transparent pixels are keyed, then the colour result is clipped by a
   silhouette traced separately from the alpha channel (alpha ≥ 128 by default, configurable).
   Soft edges / translucent areas below the cut are traced in colour at their mean opacity (or

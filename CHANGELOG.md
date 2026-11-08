@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.0-beta.1 — 2026-11-08
+
+### Added
+
+- Optional local MobileSAM mask proposals using a user-selected ONNX encoder/decoder pair; masks can be previewed and used to preselect existing geometric groups.
+- CLI `--diff-summary-json` reports an 8×8 difference grid and the largest error hotspots.
+
+### Improved
+
+- Small-image batches vectorize in a bounded worker pool; SVG rendering is routed through the browser canvas and cancellation keeps the previous batch results.
+
 ## 0.3.0-beta.6 — 2026-11-08
 
 ### Added
