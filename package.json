@@ -4,6 +4,7 @@
   "version": "0.3.0",
   "type": "module",
   "scripts": {
+    "predev": "npm run build:vtracer1",
     "dev": "vite",
     "build:vtracer1": "node scripts/build-vtracer-wasm.mjs",
     "precheck": "npm run build:vtracer1",

@@ -57,6 +57,8 @@ const fr = {
   'import.title1': 'Du pixel au vecteur,',
   'import.title2': 'en un glisser-déposer.',
   'import.lead': "Vectorisez une image ou un dossier entier. Chaque SVG est comparé à l'original et réglé automatiquement jusqu'à passer sous le seuil d'écart.",
+  'handoff.failure': "L’image choisie sur la page de conversion n’a pas pu être transmise. Sélectionnez-la à nouveau dans l’application.",
+  'handoff.dismiss': 'Fermer',
   'drop.region': 'Zone de dépôt des images',
   'drop.title': 'Déposez vos images ici',
   'drop.text': 'PNG, JPEG, WebP, GIF — fichiers isolés ou dossier complet. Les originaux ne sont jamais modifiés.',
@@ -114,11 +116,16 @@ const fr = {
   'auto.toggle': 'Activer le réglage automatique',
   'auto.threshold': "Seuil d'écart visible",
   'auto.maxSize': 'Poids max par SVG',
-  'auto.score': (unit: string) => `score = % écart + 0,002 × ${unit} · même entrée → même SVG`,
+  'auto.score': (unit: string) => `score = % écart + 0,01 × couleur moy. (/255) + 0,002 × ${unit} · même entrée → même SVG`,
 
   'params.title': 'Paramètres',
   'params.autoNote': 'Mode Auto : ces valeurs sont recalculées pour chaque image à partir de son analyse. Modifier un réglage passe en Personnalisé.',
   'params.colorGroup': 'Couleur',
+  'params.clusteringGroup': 'Segmentation des couleurs',
+  'params.colorCluster': 'ColorCluster',
+  'params.watershed': 'Watershed (expérimental)',
+  'params.watershedDetail': 'Détail Watershed',
+  'params.watershedHint': 'Plus la valeur augmente, plus les régions sont détaillées.',
   'params.color': 'Couleur',
   'params.binary': 'Noir & blanc',
   'params.curveGroup': 'Courbes',
@@ -224,6 +231,9 @@ const fr = {
   'trials.base': 'Préréglage',
   'trials.scaled': (n: number) => `tracé agrandi ×${n}`,
   'trials.pixelGrid': 'Grille de pixels',
+  'trials.fillCalibrated': 'Couleurs corrigées',
+  'trials.paletteCalibrated': 'Palette rapprochée',
+  'trials.pathsMerged': 'Chemins adjacents fusionnés',
   'trials.failed': (scales: string) => `Certains essais agrandis ont échoué (${scales}) ; les autres restent disponibles.`,
   'trials.meta': (size: string, paths: number, score: string) => `${size} · ${paths} chemins · score ${score}`,
   'trials.hint': 'Cliquez un essai pour le retenir à la place.',
@@ -334,6 +344,8 @@ const en: Record<Key, Msg> = {
   'import.title1': 'From pixels to vectors,',
   'import.title2': 'in one drag and drop.',
   'import.lead': 'Vectorise an image or a whole folder. Every SVG is compared with its source and tuned automatically until it passes the difference threshold.',
+  'handoff.failure': 'The image selected on the converter page could not be transferred. Choose it again in the app below.',
+  'handoff.dismiss': 'Dismiss',
   'drop.region': 'Image drop zone',
   'drop.title': 'Drop your images here',
   'drop.text': 'PNG, JPEG, WebP, GIF — single files or a whole folder. Originals are never modified.',
@@ -391,11 +403,16 @@ const en: Record<Key, Msg> = {
   'auto.toggle': 'Enable auto-tuning',
   'auto.threshold': 'Visible difference threshold',
   'auto.maxSize': 'Max size per SVG',
-  'auto.score': (unit: string) => `score = % diff + 0.002 × ${unit} · same input → same SVG`,
+  'auto.score': (unit: string) => `score = % diff + 0.01 × mean color diff (/255) + 0.002 × ${unit} · same input → same SVG`,
 
   'params.title': 'Parameters',
   'params.autoNote': 'Auto mode: these values are recomputed for each image from its analysis. Changing a setting switches to Custom.',
   'params.colorGroup': 'Colour',
+  'params.clusteringGroup': 'Colour segmentation',
+  'params.colorCluster': 'ColorCluster',
+  'params.watershed': 'Watershed (experimental)',
+  'params.watershedDetail': 'Watershed detail',
+  'params.watershedHint': 'Higher values keep more detailed regions.',
   'params.color': 'Colour',
   'params.binary': 'Black & white',
   'params.curveGroup': 'Curves',
@@ -501,6 +518,9 @@ const en: Record<Key, Msg> = {
   'trials.base': 'Preset',
   'trials.scaled': (n: number) => `traced at ×${n}`,
   'trials.pixelGrid': 'Pixel grid',
+  'trials.fillCalibrated': 'Color calibrated',
+  'trials.paletteCalibrated': 'Palette refined',
+  'trials.pathsMerged': 'Adjacent paths merged',
   'trials.failed': (scales: string) => `Some enlarged trials failed (${scales}); other results remain available.`,
   'trials.meta': (size: string, paths: number, score: string) => `${size} · ${paths} paths · score ${score}`,
   'trials.hint': 'Click a trial to keep it instead.',
@@ -611,10 +631,11 @@ export const presetDesc = (id: string) => t(`preset.${id}.desc` as Key)
 /** Short human description of tracing parameters (trial labels). */
 export function describeParams(p: TraceParams): string {
   if (p.colormode === 'binary') return t('desc.binary', p.speckle)
+  const clustering = p.clustering === 'watershed' ? `Watershed ${p.watershedDetail ?? 128} · ` : ''
   const mode = p.mode === 'polygon' ? `${t('desc.polygon')} · ` : ''
   const cut = p.silhouetteCut !== 128 ? ` · α≥${p.silhouetteCut}` : ''
   const halo = p.softColor ? ` · ${t('desc.softColor')}` : p.softLayers !== 2 ? ` · ${t('desc.halo', p.softLayers)}` : ''
-  return `${mode}cp ${p.colorPrecision} · ld ${p.layerDifference} · speckle ${p.speckle}${cut}${halo}`
+  return `${clustering}${mode}cp ${p.colorPrecision} · ld ${p.layerDifference} · speckle ${p.speckle}${cut}${halo}`
 }
 
 export function setLocale(l: Locale) {

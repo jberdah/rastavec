@@ -3,6 +3,8 @@
 // each with its own TraceBackend.
 import { analyze, recommend, type Analysis, type NoteCode } from './analyze'
 import { candidates, choose, computeMetrics, prepare, score, type RGBAImage, type TraceBackend } from './core'
+import { calibrateSolidFills, snapSolidFillsToSourcePalette } from './fill-calibration'
+import { mergeAdjacentSameFillPaths } from './merge-adjacent-paths'
 import type { AutoTune, TraceParams, Trial } from './types'
 import { presetById } from './presets'
 import { tracePixelGrid } from './pixel-grid'
@@ -80,33 +82,86 @@ export async function vectorize(
   }
   const { auto } = settings
   const transparent = src.data.some((v, k) => (k & 3) === 3 && v < 255)
-  const grid = candidates(base, { transparent })
+  const grid = candidates(base, { transparent, includeHighSilhouetteCut: settings.presetId === 'auto' })
   const pixelScales = (settings.presetId === 'auto' || settings.presetId === 'pixel') && Math.max(src.width, src.height) <= 256 ? [2, 4] : []
   const exactGrid = auto.enabled && (settings.presetId === 'auto' || settings.presetId === 'pixel') ? tracePixelGrid(src) : null
-  const total = auto.enabled ? grid.length + pixelScales.length + (exactGrid !== null ? 1 : 0) + 1 : 1
-  opts.onProgress?.(1, total)
   const trials: Trial[] = [await runTrial(src, base, true, backend)]
   checkCancelled()
   const failedTrials: VectorizeResult['failedTrials'] = []
   const first = trials[0].metrics
   const needsTune = first.pctDiff > auto.threshold || first.bytes > auto.maxKB * 1024
-  if (auto.enabled && needsTune) {
-    for (const [k, c] of grid.entries()) {
+  // Pixel-difference can undercount faint, sparse artwork: its lines may sit below the
+  // 32/255 visibility threshold while the alpha>=128 silhouette shows that most shapes
+  // disappeared. Try one low-complexity soft-layer fallback before accepting that result.
+  const needsSoftOutlineRecovery = settings.presetId === 'auto'
+    && analysis.alpha === 'soft'
+    && first.iou !== null
+    && first.iou < 0.5
+  // High-quality vector sources rasterized to PNG often have a narrow antialias fringe.
+  // For flat artwork in that category, a single 224 cut trial improves the render score
+  // on the round-trip corpus without expanding the full tuning grid for already-passing images.
+  const needsHighCutReview = settings.presetId === 'auto'
+    && analysis.kind === 'flat'
+    && analysis.alpha === 'edges'
+    && analysis.softPct < 1
+    && base.silhouetteCut === 192
+    && first.iou !== null
+  const comparePixelGrid = auto.enabled
+    && exactGrid !== null
+    && (settings.presetId === 'pixel' || analysis.kind === 'pixel')
+  // Polygon tracing preserves sharp corners better than spline tracing on vector-like
+  // raster sources. Compare it once in Auto, then let the normal fidelity score decide.
+  const includePolygonReview = auto.enabled
+    && settings.presetId === 'auto'
+    && analysis.kind !== 'pixel'
+    && base.mode !== 'polygon'
+  const needsFocusedTrial = auto.enabled && !needsTune
+    && (needsSoftOutlineRecovery || needsHighCutReview || comparePixelGrid)
+  const tuningTrials = !auto.enabled
+    ? 0
+    : needsTune
+      ? grid.length + pixelScales.length + (exactGrid !== null ? 1 : 0)
+      : needsFocusedTrial ? 1 : 0
+  const includeFillCalibration = auto.enabled
+    && settings.presetId === 'auto'
+    && base.colormode === 'color'
+    && analysis.kind !== 'pixel'
+  const includePaletteSnap = includeFillCalibration && analysis.kind === 'flat' && analysis.alpha === 'edges'
+  const includePathMerge = auto.enabled
+    && settings.presetId === 'auto'
+    && base.colormode === 'color'
+    && analysis.kind !== 'pixel'
+  const total = 1 + tuningTrials + Number(includePolygonReview) + Number(includeFillCalibration) + Number(includePaletteSnap) + Number(includePathMerge)
+  let completed = 1
+  const reportProgress = () => opts.onProgress?.(completed, total)
+  const completeTrial = () => { completed++; reportProgress() }
+  reportProgress()
+  if (auto.enabled && needsSoftOutlineRecovery && !needsTune) {
+    const params = { ...base, softColor: false, softLayers: 1 }
+    trials.push(await runTrial(src, params, false, backend))
+    checkCancelled()
+    completeTrial()
+  } else if (auto.enabled && needsHighCutReview && !needsTune) {
+    const params = { ...base, silhouetteCut: 224 }
+    trials.push(await runTrial(src, params, false, backend))
+    checkCancelled()
+    completeTrial()
+  } else if (auto.enabled && needsTune) {
+    for (const c of grid) {
       checkCancelled()
-      opts.onProgress?.(k + 2, total)
       trials.push(await runTrial(src, c.params, false, backend))
       checkCancelled()
+      completeTrial()
     }
     if (exactGrid !== null) {
       checkCancelled()
-      opts.onProgress?.(grid.length + 2, total)
       const pixelGridTrial = await runPixelGridTrial(src, exactGrid, backend)
       checkCancelled()
       if (pixelGridTrial) trials.push(pixelGridTrial)
+      completeTrial()
     }
-    for (const [k, scale] of pixelScales.entries()) {
+    for (const scale of pixelScales) {
       checkCancelled()
-      opts.onProgress?.(grid.length + (exactGrid !== null ? 1 : 0) + k + 2, total)
       try {
         trials.push(await runTrial(src, presetById('pixel').params, false, backend, scale))
       } catch (error) {
@@ -114,6 +169,7 @@ export async function vectorize(
         failedTrials.push({ traceScale: scale, message: error instanceof Error ? error.message : String(error) })
       }
       checkCancelled()
+      completeTrial()
     }
   } else if (auto.enabled && exactGrid !== null && (settings.presetId === 'pixel' || analysis.kind === 'pixel')) {
     // Compare the exact grid even when the first VTracer result already passes.
@@ -123,9 +179,158 @@ export async function vectorize(
     const pixelGridTrial = await runPixelGridTrial(src, exactGrid, backend)
     checkCancelled()
     if (pixelGridTrial) trials.push(pixelGridTrial)
-    opts.onProgress?.(total, total)
+    completeTrial()
   }
-  const chosen = choose(trials, auto.maxKB * 1024)
+  if (includePolygonReview) {
+    checkCancelled()
+    const polygonBase = trials
+      .filter((trial) => trial.traceScale === 1 && trial.traceMethod !== 'pixel-grid' && trial.params.mode !== 'polygon')
+      .sort((a, b) => a.score - b.score)[0]
+    if (polygonBase) {
+      try {
+        trials.push(await runTrial(src, { ...polygonBase.params, mode: 'polygon' }, false, backend))
+      } catch (error) {
+        checkCancelled()
+        failedTrials.push({ traceScale: 1, message: error instanceof Error ? error.message : String(error) })
+      }
+      checkCancelled()
+    }
+    completeTrial()
+  }
+  let chosen = choose(trials, auto.maxKB * 1024)
+  if (includeFillCalibration) {
+    checkCancelled()
+    const calibrationStarted = now()
+    const current = trials[chosen]
+    if (current.traceMethod !== 'pixel-grid' && (current.traceScale ?? 1) === 1 && current.params.colormode === 'color') {
+      try {
+        const rendered = await backend.rasterize(current.svg, src.width, src.height)
+        checkCancelled()
+        const calibrated = calibrateSolidFills(current.svg, src, rendered)
+        if (calibrated.changedFills) {
+          const calibratedRender = await backend.rasterize(calibrated.svg, src.width, src.height)
+          checkCancelled()
+          const metrics = computeMetrics(src, calibratedRender, calibrated.svg)
+          const calibratedScore = score(metrics)
+          const improvesColor = metrics.rgbWhite + metrics.rgbDark < current.metrics.rgbWhite + current.metrics.rgbDark - 1e-9
+          const preservesShape = metrics.iou === current.metrics.iou
+            && metrics.alphaDiff === current.metrics.alphaDiff
+            && metrics.paths === current.metrics.paths
+          // Keep the Auto score meaningful: accept only when its combined visible/color/size
+          // score, size, and silhouette do not worsen, and the average RGB error falls.
+          if (
+            improvesColor
+            && preservesShape
+            && metrics.bytes <= current.metrics.bytes
+            && calibratedScore <= current.score
+          ) {
+            trials.push({
+              ...current,
+              base: false,
+              traceMethod: 'fill-calibrated',
+              svg: calibrated.svg,
+              metrics,
+              score: calibratedScore,
+              ms: now() - calibrationStarted,
+            })
+            chosen = trials.length - 1
+          }
+        }
+      } catch {
+        checkCancelled()
+        // Color calibration is an optional fidelity candidate; preserve the trace if it fails.
+      }
+    }
+    completeTrial()
+  }
+  if (includePaletteSnap) {
+    checkCancelled()
+    const paletteStarted = now()
+    const current = trials[chosen]
+    if (current.traceMethod !== 'pixel-grid' && (current.traceScale ?? 1) === 1 && current.params.colormode === 'color') {
+      try {
+        const snapped = snapSolidFillsToSourcePalette(current.svg, src)
+        if (snapped.changedFills) {
+          const rendered = await backend.rasterize(snapped.svg, src.width, src.height)
+          checkCancelled()
+          const metrics = computeMetrics(src, rendered, snapped.svg)
+          const scoreValue = score(metrics)
+          const improvesColor = metrics.rgbWhite + metrics.rgbDark < current.metrics.rgbWhite + current.metrics.rgbDark - 1e-9
+          const preservesShape = metrics.iou === current.metrics.iou
+            && metrics.alphaDiff === current.metrics.alphaDiff
+            && metrics.paths === current.metrics.paths
+          // Palette snapping is more aggressive than per-fill calibration: retain it only
+          // when both visible difference and average color error improve.
+          if (
+            improvesColor
+            && metrics.pctDiff <= current.metrics.pctDiff
+            && preservesShape
+            && metrics.bytes <= current.metrics.bytes
+            && scoreValue <= current.score
+          ) {
+            trials.push({
+              ...current,
+              base: false,
+              traceMethod: 'palette-calibrated',
+              svg: snapped.svg,
+              metrics,
+              score: scoreValue,
+              ms: now() - paletteStarted,
+            })
+            chosen = trials.length - 1
+          }
+        }
+      } catch {
+        checkCancelled()
+        // Palette snapping is an optional candidate; retain the current trace on failure.
+      }
+    }
+    completeTrial()
+  }
+  if (includePathMerge) {
+    checkCancelled()
+    const mergeStarted = now()
+    const current = trials[chosen]
+    if (current.traceMethod !== 'pixel-grid' && (current.traceScale ?? 1) === 1 && current.params.colormode === 'color') {
+      const merged = mergeAdjacentSameFillPaths(current.svg)
+      if (merged.merged) {
+        try {
+          const rendered = await backend.rasterize(merged.svg, src.width, src.height)
+          checkCancelled()
+          const metrics = computeMetrics(src, rendered, merged.svg)
+          const scoreValue = score(metrics)
+          const preservesRendering = metrics.pctDiff <= current.metrics.pctDiff
+            && (current.metrics.iou === null
+              ? metrics.iou === null
+              : metrics.iou !== null && metrics.iou >= current.metrics.iou - 1e-6)
+            && metrics.alphaDiff <= current.metrics.alphaDiff + 0.001
+            && metrics.rgbWhite <= current.metrics.rgbWhite + 1e-6
+            && metrics.rgbDark <= current.metrics.rgbDark + 1e-6
+          if (
+            preservesRendering
+            && metrics.paths < current.metrics.paths
+            && metrics.bytes < current.metrics.bytes
+            && scoreValue <= current.score
+          ) {
+            trials.push({
+              ...current,
+              base: false,
+              traceMethod: 'paths-merged',
+              svg: merged.svg,
+              metrics,
+              score: scoreValue,
+              ms: now() - mergeStarted,
+            })
+            chosen = trials.length - 1
+          }
+        } catch {
+          checkCancelled()
+          // Keep the validated trace if this optional structural candidate fails.
+        }
+      }
+    }
+    completeTrial()
+  }
   return { analysis, notes, trials, chosen, autoTuned: chosen !== 0, failedTrials }
 }
 

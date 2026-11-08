@@ -291,4 +291,3 @@ jobs:
             ## Known limitations
             - Builds are not code-signed yet: Windows SmartScreen ("More info" > "Run anyway")
               and macOS Gatekeeper (System Settings > Privacy & Security > "Open Anyway") warn on first launch.
-            - The Animate screen is not available yet.

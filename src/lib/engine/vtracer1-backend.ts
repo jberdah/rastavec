@@ -9,7 +9,8 @@ const loadWasm = () => (wasmPromise ??= init())
 
 function optionsFor(p: TraceParams, binary: boolean) {
   return {
-    clustering: binary ? 'bw' : 'color-cluster',
+    clustering: binary ? 'bw' : (p.clustering ?? 'color-cluster'),
+    watershedDetail: p.watershedDetail ?? 128,
     ...(binary ? { binaryThreshold: 128 } : {}),
     hierarchical: 'stacked',
     mode: p.mode,

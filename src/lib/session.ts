@@ -1,8 +1,9 @@
 import type { Item, AutoTune, TraceParams } from './engine/types'
-import { app, clone, editKey, sources } from './store.svelte'
+import { app, clone, outputMeasurementKey, sources } from './store.svelte'
 import { decodeFile } from './engine/browser-backend'
 import { analyze } from './engine/analyze'
 import { refreshOutputMetrics } from './pipeline'
+import { DEFAULT_PARAMS } from './engine/presets'
 
 // One record per origin. An IndexedDB transaction replaces it atomically: a quota failure
 // leaves the preceding saved session intact. Files and SVGs remain on this device.
@@ -110,10 +111,12 @@ export async function restoreSession(record: SessionRecord): Promise<void> {
   }
   sources.clear()
   for (const [id, img] of decoded) sources.set(id, img)
-  app.params = record.params
+  app.params = { ...DEFAULT_PARAMS, ...record.params }
   app.auto = record.auto
   app.presetId = record.presetId
   app.batchSettings = record.batchSettings
+    ? { ...record.batchSettings, params: { ...DEFAULT_PARAMS, ...record.batchSettings.params } }
+    : null
   app.selectedId = record.selectedId
   app.finishedAt = performance.now()
   // performance.now() starts afresh after a reload; the previous duration can exceed it.
@@ -121,9 +124,9 @@ export async function restoreSession(record: SessionRecord): Promise<void> {
   app.items = prepared
   app.route = prepared.some((i) => i.status === 'done') ? 'lot' : 'import'
   // A measurement may have been pending at the instant of the last save. Never reuse it
-  // for a different edit; recalculate missing/stale measurements after restoring.
+  // for different output markup; recalculate missing/stale edit or grouping measurements.
   for (const item of app.items) {
-    const key = editKey(item)
+    const key = outputMeasurementKey(item)
     if (item.status === 'done' && key && (item.outputMeasurement?.key !== key || !item.outputMeasurement.metrics))
       refreshOutputMetrics(item)
   }

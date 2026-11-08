@@ -2,6 +2,8 @@ import type { TraceParams } from './types'
 
 export const DEFAULT_PARAMS: TraceParams = {
   colormode: 'color',
+  clustering: 'color-cluster',
+  watershedDetail: 128,
   mode: 'spline',
   speckle: 6,
   colorPrecision: 7,

@@ -229,7 +229,7 @@
                 <button type="button" class="trial" aria-pressed={item.chosen === k} onclick={() => { if (item.chosen !== k) { item.chosen = k; item.autoTuned = false; if (!outputMetrics(item)) refreshOutputMetrics(item) } }}>
                   <span class="dotc" class:on={item.chosen === k}></span>
                   <span class="stack" style="gap: 3px; flex: 1; min-width: 0">
-                    <span class="between" style="flex-wrap: nowrap"><span class="tl">{tr.traceMethod === 'pixel-grid' ? t('trials.pixelGrid') : `${tr.base ? `${t('trials.base')} · ` : ''}${describeParams(tr.params)}${tr.traceScale && tr.traceScale > 1 ? ` · ${t('trials.scaled', tr.traceScale)}` : ''}`}</span><span class="mono" class:accent={item.chosen === k}>{pct(tr.metrics.pctDiff)}</span></span>
+                    <span class="between" style="flex-wrap: nowrap"><span class="tl">{tr.traceMethod === 'pixel-grid' ? t('trials.pixelGrid') : tr.traceMethod === 'fill-calibrated' ? t('trials.fillCalibrated') : tr.traceMethod === 'palette-calibrated' ? t('trials.paletteCalibrated') : tr.traceMethod === 'paths-merged' ? t('trials.pathsMerged') : `${tr.base ? `${t('trials.base')} · ` : ''}${describeParams(tr.params)}${tr.traceScale && tr.traceScale > 1 ? ` · ${t('trials.scaled', tr.traceScale)}` : ''}`}</span><span class="mono" class:accent={item.chosen === k}>{pct(tr.metrics.pctDiff)}</span></span>
                     <span class="mono muted tiny">{t('trials.meta', size(tr.metrics.bytes), tr.metrics.paths, num(tr.score, 2))}</span>
                   </span>
                 </button>

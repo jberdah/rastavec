@@ -39,6 +39,7 @@
     const file = input.files?.[0]
     input.value = ''
     if (!file) return
+    app.landingHandoffFailed = false
     slicing = true
     sheetInfo = null
     try {
@@ -56,6 +57,7 @@
     const file = input.files?.[0]
     input.value = ''
     if (!file) return
+    app.landingHandoffFailed = false
     if (gridPreviewUrl) URL.revokeObjectURL(gridPreviewUrl)
     gridFile = file
     gridPreviewUrl = URL.createObjectURL(file)
@@ -104,11 +106,17 @@
   async function onDrop(e: DragEvent) {
     e.preventDefault()
     dragging = false
-    if (!app.running && !slicing && e.dataTransfer) addFiles(await filesFromDrop(e.dataTransfer))
+    if (!app.running && !slicing && e.dataTransfer) {
+      app.landingHandoffFailed = false
+      addFiles(await filesFromDrop(e.dataTransfer))
+    }
   }
   function onPick(e: Event) {
     const input = e.currentTarget as HTMLInputElement
-    if (input.files) addFiles(input.files)
+    if (input.files) {
+      app.landingHandoffFailed = false
+      addFiles(input.files)
+    }
     input.value = ''
   }
   function start() {
@@ -136,8 +144,15 @@
       <h1>{t('import.title1')}<br />{t('import.title2')}</h1>
       <p class="muted lead">{t('import.lead')}</p>
     </div>
-    <img class="hero-mascot" src={publicAsset('brand/mascot-welcome.webp')} alt="" width="220" height="220" />
+    <img class="hero-mascot" src={publicAsset('brand/mascot-welcome.webp')} alt="" width="254" height="400" />
     </div>
+
+    {#if app.landingHandoffFailed}
+      <div class="handoff-error" role="alert">
+        <span>{t('handoff.failure')}</span>
+        <button type="button" class="btn" onclick={() => (app.landingHandoffFailed = false)}>{t('handoff.dismiss')}</button>
+      </div>
+    {/if}
 
     <div
       class="drop"
@@ -166,10 +181,10 @@
               <button type="button" class="btn" onclick={clearItems} disabled={app.running || slicing}>{t('drop.clear')}</button>
             {/if}
           </div>
-          <input bind:this={fileInput} class="sr-only" type="file" multiple accept="image/png,image/jpeg,image/webp,image/gif,image/bmp" onchange={onPick} tabindex="-1" />
-          <input bind:this={folderInput} class="sr-only" type="file" multiple {...{ webkitdirectory: true }} onchange={onPick} tabindex="-1" />
-          <input bind:this={sheetInput} class="sr-only" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/bmp" onchange={onSheet} tabindex="-1" />
-          <input bind:this={gridSheetInput} class="sr-only" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/bmp" onchange={onGridSheet} tabindex="-1" />
+          <input bind:this={fileInput} class="sr-only" type="file" multiple accept="image/png,image/jpeg,image/webp,image/gif,image/bmp" onchange={onPick} tabindex="-1" aria-hidden="true" />
+          <input bind:this={folderInput} class="sr-only" type="file" multiple {...{ webkitdirectory: true }} onchange={onPick} tabindex="-1" aria-hidden="true" />
+          <input bind:this={sheetInput} class="sr-only" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/bmp" onchange={onSheet} tabindex="-1" aria-hidden="true" />
+          <input bind:this={gridSheetInput} class="sr-only" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/bmp" onchange={onGridSheet} tabindex="-1" aria-hidden="true" />
           {#if sheetInfo}<span class="small" style="color: var(--accent-text)" role="status">{sheetInfo}</span>{/if}
         </div>
         {#if app.items.length}
@@ -292,6 +307,20 @@
         <button type="button" aria-pressed={app.params.colormode === 'color'} onclick={() => { app.params.colormode = 'color'; markCustom() }}>{t('params.color')}</button>
         <button type="button" aria-pressed={app.params.colormode === 'binary'} onclick={() => { app.params.colormode = 'binary'; markCustom() }}>{t('params.binary')}</button>
       </div>
+      <div class="field">
+        <span class="label">{t('params.clusteringGroup')}</span>
+        <div class="seg" role="group" aria-label={t('params.clusteringGroup')}>
+          <button type="button" aria-pressed={(app.params.clustering ?? 'color-cluster') === 'color-cluster'} onclick={() => { app.params.clustering = 'color-cluster'; markCustom() }} disabled={app.params.colormode === 'binary'}>{t('params.colorCluster')}</button>
+          <button type="button" aria-pressed={app.params.clustering === 'watershed'} onclick={() => { app.params.clustering = 'watershed'; markCustom() }} disabled={app.params.colormode === 'binary'}>{t('params.watershed')}</button>
+        </div>
+      </div>
+      {#if app.params.colormode === 'color' && app.params.clustering === 'watershed'}
+        <div class="field">
+          <label for="wd"><span>{t('params.watershedDetail')}</span><span class="value">{app.params.watershedDetail ?? 128}</span></label>
+          <input id="wd" type="range" min="0" max="255" step="1" value={app.params.watershedDetail ?? 128} oninput={(e) => { app.params.watershedDetail = Number((e.currentTarget as HTMLInputElement).value); markCustom() }} />
+          <span class="muted small">{t('params.watershedHint')}</span>
+        </div>
+      {/if}
       <div class="seg" role="group" aria-label={t('params.curveGroup')}>
         <button type="button" aria-pressed={app.params.mode === 'spline'} onclick={() => { app.params.mode = 'spline'; markCustom() }}>{t('params.spline')}</button>
         <button type="button" aria-pressed={app.params.mode === 'polygon'} onclick={() => { app.params.mode = 'polygon'; markCustom() }}>{t('params.polygon')}</button>
@@ -334,6 +363,7 @@
 </div>
 
 <style>
+  .handoff-error { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 14px; border: 1px solid var(--warn-line); border-radius: 12px; background: var(--warn-bg); color: var(--warn-text); }
   .layout { display: flex; flex-wrap: wrap; gap: 32px; align-items: flex-start; }
   .main { flex: 999 1 620px; min-width: 0; display: flex; flex-direction: column; gap: 32px; }
   .side { flex: 1 1 340px; min-width: 0; display: flex; flex-direction: column; gap: 16px; }

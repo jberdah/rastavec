@@ -1,17 +1,19 @@
 import JSZip from 'jszip'
 import type { Item } from './engine/types'
-import { SIZE_WEIGHT } from './engine/core'
+import { COLOR_WEIGHT, SIZE_WEIGHT } from './engine/core'
 import { app, chosenTrial, clone, outputMetrics } from './store.svelte'
 import { engineName } from './pipeline'
 import { activeEdit, outputSvg } from './edit'
 
-const r4 = (x: number | null) => (x === null ? '' : String(Math.round(x * 10000) / 10000))
+const r4 = (x: number | null) => (x === null ? '' : Math.round(x * 10000) / 10000)
 
 export function metricsCsv(items: Item[]): string {
   const cols = ['name', 'silhouette_iou', 'pct_pixels_diff_gt_32', 'mean_abs_rgb_diff_on_white', 'mean_abs_rgb_diff_on_dark', 'mean_abs_alpha_diff', 'embedded_raster', 'path_count', 'svg_bytes', 'width', 'height', 'auto_tuned', 'params', 'error', 'trace_scale', 'trace_method']
   const cell = (v: unknown) => {
     const s = v === undefined || v === null ? '' : String(v)
-    return /[",;\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+    // Prefix only untrusted text; numbers, including negative numbers, remain numeric CSV cells.
+    const safe = typeof v === 'string' && /^[\s\p{Cc}]*[=+\-@]/u.test(s) ? `'${s}` : s
+    return /[",;\t\r\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe
   }
   const rows = items.map((i) => {
     if (i.status !== 'done') return [i.name, '', '', '', '', '', '', '', '', i.width, i.height, '', '', i.error ?? i.status, '', '']
@@ -30,7 +32,11 @@ export function config(items: Item[]) {
     engine: engineName,
     preset: settings.presetId,
     params: clone(settings.params),
-    autoTune: { ...clone(settings.auto), sizeWeightPerKiB: SIZE_WEIGHT },
+    autoTune: {
+      ...clone(settings.auto),
+      scoreWeights: { visibleDifference: 1, meanRgbDifference: COLOR_WEIGHT, sizePerKiB: SIZE_WEIGHT },
+      sizeWeightPerKiB: SIZE_WEIGHT,
+    },
     items: items
       .filter((i) => i.status === 'done')
       .map((i) => {

@@ -39,7 +39,9 @@ Trace options
   -f, --force              overwrite existing output files
   Parameter overrides (switch to a custom preset):
       --color-precision <1-8>  --layer-difference <n>  --speckle <px>
-      --mode <spline|polygon>  --binary
+      --mode <spline|polygon>  --binary (incompatible with clustering options)
+      --clustering <color-cluster|watershed> (colour mode only)
+      --watershed-detail <0-255> (colour mode only; selects watershed if needed)
 
 Common
       --json               print a machine-readable JSON report on stdout
@@ -109,7 +111,8 @@ const kb = (b: number) => `${Math.round(b / 1024)} KB`
 function describe(p: TraceParams) {
   if (p.colormode === 'binary') return `binary · speckle ${p.speckle}`
   const mode = p.mode === 'polygon' ? 'polygon · ' : ''
-  return `${mode}cp ${p.colorPrecision} · ld ${p.layerDifference} · speckle ${p.speckle}${p.silhouetteCut !== 128 ? ` · alpha>=${p.silhouetteCut}` : ''}${p.softColor ? ' · colour halo' : ''}`
+  const clustering = p.clustering === 'watershed' ? `watershed ${p.watershedDetail ?? 128} · ` : ''
+  return `${clustering}${mode}cp ${p.colorPrecision} · ld ${p.layerDifference} · speckle ${p.speckle}${p.silhouetteCut !== 128 ? ` · alpha>=${p.silhouetteCut}` : ''}${p.softColor ? ' · colour halo' : ''}`
 }
 
 const analysisJson = (a: Analysis) => ({
@@ -132,6 +135,7 @@ async function cmdTrace(positionals: string[], o: Record<string, string | boolea
 
   const presetId = (o.preset as string) ?? 'auto'
   if (!PRESETS.some((p) => p.id === presetId)) fail(`unknown preset "${presetId}"`)
+  const baseParams = presetId === 'auto' ? { ...DEFAULT_PARAMS } : { ...presetById(presetId).params }
   const overrides: Partial<TraceParams> = {}
   if (o['color-precision'] !== undefined) overrides.colorPrecision = num(o['color-precision'] as string, 'color-precision', 7, 1, 8)
   if (o['layer-difference'] !== undefined) overrides.layerDifference = num(o['layer-difference'] as string, 'layer-difference', 16, 1, 255)
@@ -140,9 +144,26 @@ async function cmdTrace(positionals: string[], o: Record<string, string | boolea
     if (o.mode !== 'spline' && o.mode !== 'polygon') fail('--mode must be spline or polygon')
     overrides.mode = o.mode as 'spline' | 'polygon'
   }
+  if (o.clustering !== undefined) {
+    const clustering = o.clustering
+    if (clustering !== 'color-cluster' && clustering !== 'watershed') fail('--clustering must be color-cluster or watershed')
+    overrides.clustering = clustering as 'color-cluster' | 'watershed'
+  }
+  if (o['watershed-detail'] !== undefined) {
+    const detail = num(o['watershed-detail'] as string, 'watershed-detail', 128, 0, 255)
+    if (!Number.isInteger(detail)) fail('--watershed-detail must be an integer between 0 and 255')
+    overrides.watershedDetail = detail
+    if (overrides.clustering === undefined) overrides.clustering = 'watershed'
+  }
+  if ((o.binary || baseParams.colormode === 'binary') && (o.clustering !== undefined || o['watershed-detail'] !== undefined)) {
+    const binarySource = o.binary ? '--binary' : `--preset ${presetId}`
+    fail(`${binarySource} uses BW clustering; --clustering and --watershed-detail are only available in color mode`)
+  }
+  if (o['watershed-detail'] !== undefined && o.clustering === 'color-cluster') {
+    fail('--watershed-detail requires Watershed; remove --clustering color-cluster or use --clustering watershed')
+  }
   if (o.binary) overrides.colormode = 'binary'
   const custom = Object.keys(overrides).length > 0
-  const baseParams = presetId === 'auto' ? { ...DEFAULT_PARAMS } : { ...presetById(presetId).params }
   const auto: AutoTune = {
     enabled: !o['no-auto'],
     threshold: num(o.threshold as string | undefined, 'threshold', 3, 0, 100),
@@ -320,6 +341,8 @@ async function main() {
         'layer-difference': { type: 'string' },
         speckle: { type: 'string' },
         mode: { type: 'string' },
+        clustering: { type: 'string' },
+        'watershed-detail': { type: 'string' },
         binary: { type: 'boolean' },
         json: { type: 'boolean' },
         quiet: { type: 'boolean', short: 'q' },

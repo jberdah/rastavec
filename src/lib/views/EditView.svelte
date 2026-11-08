@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { app, chosenTrial, clone, doneItems, go, outputMetrics, svgUrl } from '../store.svelte'
+  import { app, chosenTrial, clone, doneItems, go, outputMeasurementKey, outputMetrics, svgUrl } from '../store.svelte'
   import { DEFAULT_FILTERS, FILTER_PRESETS, MAX_COLOURS, isDefault, type FilterSettings, type PresetId, type ThemeId } from '../engine/palette'
   import { filtered } from '../edit'
   import { refreshOutputMetrics } from '../pipeline'
@@ -41,7 +41,12 @@
 
   const result = $derived(item ? filtered(item, clone(settings)) : null)
   const trial = $derived(item ? chosenTrial(item) : null)
-  function saveGrouping(grouping: GroupingMetadata) { if (item) item.grouping = grouping }
+  function saveGrouping(grouping: GroupingMetadata) {
+    if (!item) return
+    const previousKey = outputMeasurementKey(item)
+    item.grouping = grouping
+    if (outputMeasurementKey(item) !== previousKey) void refreshOutputMetrics(item)
+  }
 
   // Preview URL of the filtered SVG.
   let outUrl = $state<string | null>(null)

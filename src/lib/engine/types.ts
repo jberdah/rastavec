@@ -3,10 +3,15 @@ import type { FilterSettings } from './palette'
 
 export type ColorMode = 'color' | 'binary'
 export type CurveMode = 'spline' | 'polygon'
+export type ClusteringMode = 'color-cluster' | 'watershed'
 
 /** Tracing parameters, in the same units as the Python `trace.py` helper. */
 export interface TraceParams {
   colormode: ColorMode
+  /** Region clustering algorithm for color traces. Binary traces always use BW. */
+  clustering: ClusteringMode
+  /** VTracer Watershed cut detail, 0..255. */
+  watershedDetail: number
   mode: CurveMode
   /** Discard patches smaller than N px (side of a square). */
   speckle: number
@@ -55,8 +60,8 @@ export interface Trial {
   base: boolean
   /** Integer nearest-neighbour enlargement used before tracing (1 = original size). */
   traceScale?: number
-  /** Omitted for VTracer; pixel-grid reconstructs exact pixel runs. */
-  traceMethod?: 'pixel-grid'
+  /** Identifies post-trace output variants such as pixel-grid or source-guided color correction. */
+  traceMethod?: 'pixel-grid' | 'fill-calibrated' | 'palette-calibrated' | 'paths-merged'
   params: TraceParams
   svg: string
   metrics: Metrics
@@ -131,7 +136,7 @@ export interface Item {
   analysis?: Analysis
   /** Why the auto preset chose these parameters. */
   notes?: NoteCode[]
-  /** Measurement of the exact filtered SVG, keyed to the trial and filter settings. */
+  /** Measurement of the exact final SVG, keyed to the trial, edits, and grouping markup. */
   outputMeasurement?: { key: string; metrics?: Metrics; error?: string }
   /** Palette filters (Edit screen), valid for one trial. */
   edit?: { settings: FilterSettings; trial: number }

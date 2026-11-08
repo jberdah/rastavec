@@ -14,7 +14,8 @@ export const MAX_INPUT_SIDE = 16_384
 
 function vtracerOptions(p: TraceParams, binary: boolean) {
   return {
-    clustering: binary ? 'bw' : 'color-cluster',
+    clustering: binary ? 'bw' : (p.clustering ?? 'color-cluster'),
+    watershedDetail: p.watershedDetail ?? 128,
     ...(binary ? { binaryThreshold: 128 } : {}),
     hierarchical: 'stacked',
     mode: p.mode,

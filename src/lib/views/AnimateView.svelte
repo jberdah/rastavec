@@ -3,6 +3,7 @@
   import { app, doneItems, go } from '../store.svelte'
   import { outputSvg } from '../edit'
   import { download } from '../export'
+  import { refreshOutputMetrics } from '../pipeline'
   import { buildWalkCycleTracks, motionAt, walkAttachmentPivot } from '../engine/animation'
   import { attachmentPivot } from '../engine/pivot'
   import type { AnimationMetadata, AnimationTrack, GroupingMetadata, Item } from '../engine/types'
@@ -33,7 +34,7 @@
   const words = $derived(i18n.locale === 'fr' ? {
     title: 'Animer', intro: 'Animez chaque groupe autour de son pivot, image clé par image clé.',
     image: 'Illustration', chooseImage: 'Choisir une illustration', stage: 'Aperçu', noGroups: 'Aucun groupe prêt pour l’animation.',
-    prepare: 'Préparer les groupes', groups: 'Groupes', tracks: 'Pistes', noTrack: 'Aucune image clé. Placez la tête de lecture puis créez-en une.',
+    prepare: 'Préparer les groupes', groups: 'Groupes', tracks: 'Pistes', noTrack: 'Aucune image clé. Placez la tête de lecture puis créez-en une.', needMotion: 'Ajoutez au moins deux images clés à des instants différents avec des valeurs différentes pour lire ou exporter une animation.',
     duration: 'Durée', seconds: 's', play: 'Lire', pause: 'Pause', addKey: 'Créer / mettre à jour l’image clé',
     deleteKey: 'Supprimer l’image clé', rotation: 'Rotation', translateY: 'Déplacement vertical', pivot: 'Pivot', timeline: 'Timeline', export: 'Exporter le SVG animé',
     walkCycle: 'Générer une marche', walkCycleGroups: (count: number) => `${count} groupe${count > 1 ? 's' : ''} animé${count > 1 ? 's' : ''}`,
@@ -59,7 +60,7 @@
   } : {
     title: 'Animate', intro: 'Animate each group around its pivot, one keyframe at a time.',
     image: 'Artwork', chooseImage: 'Choose artwork', stage: 'Preview', noGroups: 'No groups are ready for animation.',
-    prepare: 'Prepare groups', groups: 'Groups', tracks: 'Tracks', noTrack: 'No keyframes yet. Move the playhead and create one.',
+    prepare: 'Prepare groups', groups: 'Groups', tracks: 'Tracks', noTrack: 'No keyframes yet. Move the playhead and create one.', needMotion: 'Add at least two keyframes at different times with different values to play or export an animation.',
     duration: 'Duration', seconds: 's', play: 'Play', pause: 'Pause', addKey: 'Create / update keyframe',
     deleteKey: 'Delete keyframe', rotation: 'Rotation', translateY: 'Vertical movement', pivot: 'Pivot', timeline: 'Timeline', export: 'Export animated SVG',
     walkCycle: 'Generate walk cycle', walkCycleGroups: (count: number) => `Animate ${count} tagged group${count === 1 ? '' : 's'}`,
@@ -83,6 +84,15 @@
     backToParts: 'Return to group animation', exportSequence: 'Export SVG sequence', sequenceExportHint: 'Poses are embedded in the SVG and loop continuously.',
     noFrames: 'At least two vectorized images with matching dimensions are needed.',
   })
+
+  function trackHasMotion(track: AnimationTrack) {
+    const frames = track.keyframes
+      .filter((frame) => Number.isFinite(frame.timeMs) && Number.isFinite(frame.rotation) && Number.isFinite(frame.translateY ?? 0))
+      .sort((a, b) => a.timeMs - b.timeMs)
+    return frames.some((frame, index) => index > 0
+      && frame.timeMs !== frames[index - 1].timeMs
+      && (frame.rotation !== frames[index - 1].rotation || (frame.translateY ?? 0) !== (frames[index - 1].translateY ?? 0)))
+  }
 
   const selectedGroup = $derived(groups.find((group) => group.id === selectedGroupId))
   const selectedTrack = $derived(animation.tracks.find((track) => track.groupId === selectedGroupId))
@@ -225,7 +235,10 @@
               element.setAttribute('data-rastavec-pivot-y', String(group.pivot[1]))
             }
           }
-          if (valid) item.grouping = { ...grouping, groups: nextGroups, svg: new XMLSerializer().serializeToString(doc) }
+          if (valid) {
+            item.grouping = { ...grouping, groups: nextGroups, svg: new XMLSerializer().serializeToString(doc) }
+            void refreshOutputMetrics(item)
+          }
         }
       }
     }
@@ -306,6 +319,7 @@
       element.setAttribute('data-rastavec-pivot-y', String(pivot[1]))
     }
     item.grouping = { ...grouping, svg: new XMLSerializer().serializeToString(doc), groups }
+    void refreshOutputMetrics(item)
   }
 
   function setAttachmentPivot() {
@@ -364,7 +378,9 @@
     frameRequest = requestAnimationFrame(tick)
   }
 
-  const hasAnyKeyframes = $derived(animation.mode === 'frames' ? frameItems.length >= 2 : animation.tracks.some((track) => track.keyframes.length > 0))
+  const hasAnyKeyframes = $derived(animation.mode === 'frames'
+    ? frameItems.length >= 2
+    : animation.durationMs > 0 && animation.tracks.some((track) => groups.some((group) => group.id === track.groupId) && trackHasMotion(track)))
 
   function previewMarkup(source: string, metadata: GroupingMetadata | undefined, data: AnimationMetadata, time: number, activeId: string) {
     if (!source) return ''
@@ -410,7 +426,11 @@
   })
 
   function exportAnimated() {
-    if (!item || !grouping || !hasAnyKeyframes) return
+    if (!item || !grouping) return
+    if (!animation.tracks.some((track) => grouping.groups.some((group) => group.id === track.groupId) && trackHasMotion(track))) {
+      error = words.needMotion
+      return
+    }
     try {
       const doc = new DOMParser().parseFromString(svg, 'image/svg+xml')
       if (doc.querySelector('parsererror')) throw new Error(words.unsupported)
@@ -732,6 +752,7 @@
         {:else}
           <p class="muted tiny no-keys">{words.noTrack}</p>
         {/if}
+        {#if !hasAnyKeyframes && animation.tracks.some((track) => track.keyframes.length > 0)}<p class="muted tiny no-keys">{words.needMotion}</p>{/if}
         <div class="export-row"><button type="button" class="btn btn-primary" onclick={exportAnimated} disabled={!hasAnyKeyframes}>{words.export}</button><span class="muted tiny">{words.exportHint}</span></div>
         {#if error}<span class="error" role="alert">{error}</span>{/if}
       </section>

@@ -6,6 +6,7 @@ use wasm_bindgen::prelude::*;
 #[serde(default, rename_all = "camelCase")]
 struct Options {
     clustering: Option<String>,
+    watershed_detail: Option<u32>,
     hierarchical: Option<String>,
     mode: Option<String>,
     filter_speckle: Option<usize>,
@@ -34,6 +35,9 @@ fn config_from(options: JsValue) -> Result<Config, JsValue> {
     let mut config = Config::default();
     if let Some(value) = options.clustering {
         config.clustering = value.parse().map_err(js_error)?;
+    }
+    if let Some(value) = options.watershed_detail {
+        config.watershed_detail = value;
     }
     if let Some(value) = options.hierarchical {
         config.hierarchical = value.parse().map_err(js_error)?;

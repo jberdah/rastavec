@@ -8,7 +8,7 @@
   --line-3: #333846;
   --text: #f2f4f7;
   --muted: #9aa3b2;
-  --faint: #5b6472;
+  --faint: #8d97a5;
   /* Accent = logo green. Fills (buttons, active tabs, bars) use --accent with dark text (4.8:1);
      text and thin strokes on the dark UI use --accent-text (same hue, lighter). */
   --accent: #1f8f4a;

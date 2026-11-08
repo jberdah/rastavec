@@ -138,6 +138,9 @@ All commands and options: [cli/README.md](cli/README.md).
 
 ### Web app, from source
 
+The local web build needs Rust and `wasm-pack` to compile the VTracer WebAssembly backend. See
+[development setup](docs/DEVELOPMENT.md) for the prerequisites.
+
 ```bash
 git clone https://github.com/jberdah/rastavec.git
 cd rastavec

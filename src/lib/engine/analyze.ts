@@ -136,6 +136,8 @@ export function recommend(a: Analysis): { params: TraceParams; notes: NoteCode[]
       notes.push('photo')
       break
   }
+  // Flat artwork with narrow alpha fringes benefits from a tighter contour without an extra trace pass.
+  if (a.kind === 'flat' && a.alpha === 'edges' && a.softPct < 1) p.silhouetteCut = 192
   if (a.alpha === 'soft') {
     p.softLayers = 2
     p.softColor = true

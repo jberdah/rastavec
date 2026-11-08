@@ -282,12 +282,14 @@ export function diffImage(a: RGBAImage, b: RGBAImage): RGBAImage {
   return { data: out, width: a.width, height: a.height }
 }
 
-/** Ranking: visible difference plus a light size penalty (per KiB). */
+/** Ranking: visible outliers, average color error, and a light size penalty (per KiB). */
 export const SIZE_WEIGHT = 0.002
-export const score = (m: Metrics) => m.pctDiff + (m.bytes / 1024) * SIZE_WEIGHT
+export const COLOR_WEIGHT = 0.01
+export const score = (m: Metrics) =>
+  m.pctDiff + ((m.rgbWhite + m.rgbDark) / 2) * COLOR_WEIGHT + (m.bytes / 1024) * SIZE_WEIGHT
 
 /** Deterministic auto-tune grid derived from the base parameters. */
-export function candidates(base: TraceParams, opts: { transparent: boolean } = { transparent: false }): { label: string; params: TraceParams }[] {
+export function candidates(base: TraceParams, opts: { transparent: boolean; includeHighSilhouetteCut?: boolean } = { transparent: false }): { label: string; params: TraceParams }[] {
   const raw: Partial<TraceParams>[] =
     base.colormode === 'binary'
       ? [{ speckle: Math.max(1, Math.round(base.speckle / 2)) }, { speckle: base.speckle + 4 }]
@@ -299,7 +301,14 @@ export function candidates(base: TraceParams, opts: { transparent: boolean } = {
           { layerDifference: 8, colorPrecision: 8, speckle: Math.max(2, Math.round(base.speckle / 2)) },
           { layerDifference: 6, colorPrecision: 8, speckle: base.speckle + 4 },
           // Soft edges / glows: a tighter silhouette.
-          ...(opts.transparent ? [{ silhouetteCut: 160 }, { silhouetteCut: 192 }, { softColor: !base.softColor }] : []),
+          ...(opts.transparent
+            ? [
+                { silhouetteCut: 160 },
+                { silhouetteCut: 192 },
+                ...(opts.includeHighSilhouetteCut ? [{ silhouetteCut: 224 }] : []),
+                { softColor: !base.softColor },
+              ]
+            : []),
         ]
   const seen = new Set([JSON.stringify(base)])
   const out: { label: string; params: TraceParams }[] = []

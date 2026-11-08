@@ -26,6 +26,9 @@ dist-ssr
 # Local test material (never committed)
 .tmp/
 .playwright-mcp/
+.playwright-cli/
+output/
+docs/screenshot-detail.png
 .claude/.bclaw-session
 .brainclaw/
 

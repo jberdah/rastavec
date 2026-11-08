@@ -6,7 +6,7 @@ import { crop, keyBackground, sliceGrid, sliceSheet, type GridSliceOptions } fro
 import { analyze } from './engine/analyze'
 import { vectorize, VectorizationCancelled, type VectorizeResult, type VectorizeSettings } from './engine/vectorize'
 import type { Item, TraceParams } from './engine/types'
-import { app, clone, editKey, forgetUrls, sources } from './store.svelte'
+import { app, clone, forgetUrls, outputMeasurementKey, sources } from './store.svelte'
 import { uniqueImportName } from './import-names.js'
 
 const backend: TraceBackend = browserBackend
@@ -234,19 +234,19 @@ export async function processAll() {
   }
 }
 
-/** Invalidate immediately, coalesce slider changes, and measure one output at a time. */
+/** Invalidate immediately, coalesce output changes, and measure one final SVG at a time. */
 export function refreshOutputMetrics(item: Item) {
-  const key = editKey(item)
+  const key = outputMeasurementKey(item)
   if (!key) { outputQueue.cancel(item.id); item.outputMeasurement = undefined; return }
   item.outputMeasurement = { key }
   outputQueue.schedule(item.id, async () => {
-    if (editKey(item) !== key || item.outputMeasurement?.key !== key) return
+    if (outputMeasurementKey(item) !== key || item.outputMeasurement?.key !== key) return
     try {
       const metrics = await measureSvg(item, outputSvg(item))
       if (!metrics) throw new Error('source image unavailable')
-      if (editKey(item) === key && item.outputMeasurement?.key === key) item.outputMeasurement = { key, metrics }
+      if (outputMeasurementKey(item) === key && item.outputMeasurement?.key === key) item.outputMeasurement = { key, metrics }
     } catch (e) {
-      if (editKey(item) === key && item.outputMeasurement?.key === key)
+      if (outputMeasurementKey(item) === key && item.outputMeasurement?.key === key)
         item.outputMeasurement = { key, error: e instanceof Error ? e.message : String(e) }
     }
   })

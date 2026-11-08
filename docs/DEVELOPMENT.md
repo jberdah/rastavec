@@ -2,6 +2,10 @@
 
 ## Run
 
+The browser dev server and app builds generate the ignored VTracer WebAssembly module. Install Rust, add the
+`wasm32-unknown-unknown` target with `rustup target add wasm32-unknown-unknown`, and install
+`wasm-pack` (`cargo install wasm-pack --version 0.15.1 --locked`).
+
 ```bash
 npm install
 npm run dev        # http://localhost:5179
@@ -65,7 +69,7 @@ The generated synthetic regression corpus and its limits are described in [CORPU
   [`vtracer` 1.0.0-alpha.4 crate](https://github.com/visioncortex/vtracer) to WebAssembly via
   `wasm-pack`; the CLI uses `@visioncortex/vtracer` 1.0.0-alpha.4 natively. Both backends share
   the same `TraceBackend` contract and parameter mapping. Generated wasm-bindgen files and Cargo
-  build output are ignored; `npm run check` and `npm run build` build the WASM adapter first.
+  build output are ignored; `npm run dev`, `npm run check` and `npm run build` build the WASM adapter first.
 - **Transparency**: transparent pixels are keyed, then the colour result is clipped by a
   silhouette traced separately from the alpha channel (alpha ≥ 128 by default, configurable).
   Soft edges / translucent areas below the cut are traced in colour at their mean opacity (or
@@ -90,8 +94,11 @@ The generated synthetic regression corpus and its limits are described in [CORPU
   keyframes, role-based walk cycles, and looping sequences of vectorized poses with matching
   dimensions.
 - **Auto-tune**: when an image exceeds the difference threshold or the size budget, a fixed
-  grid of up to 6 parameter sets is tried; the best score (`% diff + 0.002 × KiB`) within the
-  budget wins. Same input + same config → byte-identical SVG.
+  grid of parameter sets is tried; the best score (`% diff + 0.01 × mean RGB error (/255) +
+  0.002 × KiB`) within the budget wins. Auto also tests source-guided color refinements for flat
+  artwork: small per-fill corrections and a dominant-source-palette snap. Palette snapping is
+  retained only when visible difference and mean color error both improve without changing the
+  silhouette or path count. Same input + same config → byte-identical SVG.
 - For images up to 256 px on their longest side, the Auto and Pixel art presets also try
   nearest-neighbour enlargement by 2 and 4 before tracing with the pixel preset. SVGs retain
   their original display dimensions; the measured score and size budget still select the winner.

@@ -51,6 +51,8 @@ npm install -g https://github.com/jberdah/rastavec/releases/download/v0.3.0-beta
 | `-r, --recursive` | | include sub-folders |
 | `-f, --force` | | overwrite existing outputs (never overwritten otherwise) |
 | `--color-precision`, `--layer-difference`, `--speckle`, `--mode`, `--binary` | | parameter overrides (custom preset) |
+| `--clustering <color-cluster|watershed>` | `color-cluster` | choose the colour-region clustering method |
+| `--watershed-detail <0-255>` | `128` | Watershed cut detail; selecting it also enables Watershed |
 | `--json` | | JSON report on stdout |
 | `-q, --quiet` | | no progress output |
 
@@ -91,6 +93,8 @@ output over one of its input images.
 
 - `pctDiff`: % of pixels whose worst-channel difference (on white or on #202020) exceeds 32/255.
 - `iou`: overlap of opaque areas (alpha ≥ 128). `rgbWhite`, `rgbDark`, `alphaDiff`: mean differences, 0–255.
+- `traceMethod`: selected Auto variant. `paths-merged` means adjacent same-fill paths were combined only
+  after a fresh render preserved the measured visible difference, silhouette, alpha and color fidelity.
 - `status`: `ok`, `review` (above threshold or budget) or `error` (with `error`).
 - Same input and same settings give the same SVG.
 
