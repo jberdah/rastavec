@@ -4,10 +4,10 @@ import { build } from 'esbuild'
 import { resolve } from 'node:path'
 
 const bundle = await build({
-  stdin: { contents: `export { makePromptGrid, uniqueMaskCandidates } from './src/lib/engine/mobile-sam-inference.ts'`, resolveDir: resolve('.'), sourcefile: 'mobile-sam-inference-entry.ts' },
+  stdin: { contents: `export { filterPromptGridToMasks, makePromptGrid, selectMobileSamPromptGrid, uniqueMaskCandidates } from './src/lib/engine/mobile-sam-inference.ts'`, resolveDir: resolve('.'), sourcefile: 'mobile-sam-inference-entry.ts' },
   bundle: true, write: false, format: 'esm', platform: 'node',
 })
-const { makePromptGrid, uniqueMaskCandidates } = await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text).toString('base64')}`)
+const { filterPromptGridToMasks, makePromptGrid, selectMobileSamPromptGrid, uniqueMaskCandidates } = await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text).toString('base64')}`)
 
 test('prompt grid is deterministic, row-major and bounded to the resized image', () => {
   const points = makePromptGrid(100, 60, 2)
@@ -26,4 +26,66 @@ test('proposal filtering removes empty and near-identical masks without reorderi
   const distinct = candidate(2, [0, 0, 1, 1, 0, 0, 1, 1])
   const empty = candidate(3, [0, 0, 0, 0, 0, 0, 0, 0])
   assert.deepEqual(uniqueMaskCandidates([first, duplicate, distinct, empty]), [first, distinct])
+})
+
+test('foreground component masks filter background prompts across different raster sizes', () => {
+  const prompts = makePromptGrid(8, 4, 2)
+  const foreground = new Uint8Array(4 * 2)
+  foreground[0] = 1
+  foreground[1] = 1
+  foreground[4] = 1
+  foreground[5] = 1
+  const result = filterPromptGridToMasks(prompts, { width: 8, height: 4 }, [{ width: 4, height: 2, data: foreground }])
+  assert.deepEqual(result.prompts, [prompts[0], prompts[2]])
+  assert.deepEqual(result, { prompts: [prompts[0], prompts[2]], requestedCount: 4, retainedCount: 2, skippedCount: 2, applied: true })
+})
+
+test('foreground prompt filtering falls back to the full grid when component analysis abstains', () => {
+  const prompts = makePromptGrid(12, 12, 3)
+  const result = filterPromptGridToMasks(prompts, { width: 12, height: 12 }, [])
+  assert.deepEqual(result, { prompts, requestedCount: 9, retainedCount: 9, skippedCount: 0, applied: false })
+})
+
+test('prompt routing gates only when connected components have supported background evidence', () => {
+  const prompts = makePromptGrid(8, 4, 2)
+  const foreground = new Uint8Array(8).fill(1)
+  foreground[2] = foreground[3] = foreground[6] = foreground[7] = 0
+  const proposal = (background, truncated = 0) => ({
+    status: 'proposed',
+    hypotheses: [{ mask: { width: 4, height: 2, data: foreground } }],
+    diagnostics: { background, components: { truncated } },
+  })
+
+  const supported = selectMobileSamPromptGrid(prompts, { width: 8, height: 4 }, proposal({ kind: 'opaque-border-median', flatColorSupport: 1 }))
+  assert.equal(supported.mode, 'foreground-gated')
+  assert.equal(supported.reason, 'opaque-border-support-at-least-0.75')
+  assert.equal(supported.retainedCount, 2)
+
+  const weakBorder = selectMobileSamPromptGrid(prompts, { width: 8, height: 4 }, proposal({ kind: 'opaque-border-median', flatColorSupport: 0.6 }))
+  assert.equal(weakBorder.mode, 'full-grid')
+  assert.equal(weakBorder.reason, 'opaque-background-support-below-0.75')
+  assert.deepEqual(weakBorder.prompts, prompts)
+
+  const truncated = selectMobileSamPromptGrid(prompts, { width: 8, height: 4 }, proposal({ kind: 'transparent-border' }, 1))
+  assert.equal(truncated.mode, 'full-grid')
+  assert.equal(truncated.reason, 'foreground-components-truncated')
+
+  const transparent = selectMobileSamPromptGrid(prompts, { width: 8, height: 4 }, proposal({ kind: 'transparent-border' }))
+  assert.equal(transparent.mode, 'foreground-gated')
+  assert.equal(transparent.reason, 'transparent-border-alpha-components')
+})
+
+test('prompt routing falls back when no grid point lands inside supported foreground', () => {
+  const prompts = makePromptGrid(8, 4, 2)
+  const foreground = new Uint8Array(8)
+  foreground[0] = 1
+  const components = {
+    status: 'proposed',
+    hypotheses: [{ mask: { width: 4, height: 2, data: foreground } }],
+    diagnostics: { background: { kind: 'opaque-border-median', flatColorSupport: 1 }, components: { truncated: 0 } },
+  }
+  const selection = selectMobileSamPromptGrid(prompts, { width: 8, height: 4 }, components)
+  assert.equal(selection.mode, 'full-grid')
+  assert.equal(selection.reason, 'no-grid-prompt-inside-supported-foreground')
+  assert.deepEqual(selection.prompts, prompts)
 })

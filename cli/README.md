@@ -17,6 +17,7 @@ Same engine as the [RastaVec web app](https://github.com/jberdah/rastavec), ever
 rastavec trace logo.png
 rastavec trace images/ -o out/ --preset auto --threshold 2 --max-size 700 --compare --json
 rastavec analyze images/ --json        # what Auto would do, writes nothing
+rastavec objects venn.png -o hypotheses/ # propose supported object masks for review
 rastavec slice board.png -o elements/   # one PNG per element of a sprite sheet
 ```
 
@@ -35,7 +36,60 @@ npm install -g https://github.com/jberdah/rastavec/releases/download/v0.4.0-beta
 |---|---|
 | `trace <input...>` | Vectorise files and/or folders. Writes `<name>.svg` and `report.json` to the output folder. |
 | `analyze <input...>` | Classifies each image (flat logo, shaded illustration, line art, pixel art, photo), detects transparency, prints the parameters Auto would use. |
+| `objects <input...>` | Runs source-raster object proposal providers, writing a JSON report and one transparent PNG mask per proposal. Routes cover visible connected regions, a three-circle fit, a planar graph of dominant flat-color states and optional MobileSAM masks. |
 | `slice <sheet>` | Splits a transparent or uniform-background sheet into one PNG per element. |
+
+`objects` is a proposal command, not an automatic reconstruction guarantee. The circle
+provider needs three circles with distinct exposed flat-color arcs on a flat opaque
+background. The planar-color route is shape-family agnostic but needs two to four overlapping
+objects represented by frequent flat-color states on a flat opaque background. Each route
+records its own provenance, fit evidence, warnings and explicit abstentions. Proposed
+objects remain `human-review-required`. Inference reads only the raster. Each mask PNG is
+white on transparency and may be downsampled to the provider's analysis size; its exact
+dimensions are recorded in `report.json`. The planar-color TypeScript port has been measured
+on the 24-scene object-detection corpus: 18/55 visible objects matched at IoU 0.5, with no
+false positives and 3/24 exact counts. Gradient paint fitting and a general-purpose
+detector for arbitrary shapes are not wired into this command yet. The connected-component
+route covers visible regions on transparent canvases or images with a border-derived
+background; it does not complete occluded shapes, and it can merge touching objects or split
+one object with disconnected parts.
+
+The report also includes a raster-only `routeRecommendation`. It prioritizes the circle fitter
+when all three relative radial residuals are at most 0.01, and the planar route when its
+compositing RMSE is at most 10 RGB levels (or its accepted graph is a tree with no fit score).
+If neither specialist passes, it recommends MobileSAM when enabled, then visible connected
+components. If two specialists pass, it reports the conflict without selecting one. Every
+recommendation still requires human review. These are development gates adapted from prior
+experiments, not calibrated confidence scores for arbitrary imagery.
+
+MobileSAM runs only when both model paths are provided. It verifies the supported
+Acly/MobileSAM encoder and decoder by SHA-256, uses the local ONNX Runtime WebAssembly
+backend, and never downloads a model or sends the image over the network. Its deterministic
+positive-point grid produces visible-region masks; it does not infer semantic labels, hidden
+geometry or paint order. Before decoding, RastaVec applies the connected-component prompt gate
+only when component detection has no truncated regions and the border evidence is usable
+(transparent border, or opaque-border support of at least 0.75). It keeps the full grid if the
+component route abstains, support is weak, components were truncated, or no grid point falls
+inside a supported foreground mask. This filters prompt locations; it does not split merged
+regions or complete occluded geometry. To include MobileSAM, obtain the supported ONNX pair from
+[Acly/MobileSAM](https://huggingface.co/Acly/MobileSAM) and pass both files explicitly:
+
+```bash
+rastavec objects venn.png -o hypotheses/ --sam-encoder mobile_sam_image_encoder.onnx --sam-decoder sam_mask_decoder_single.onnx --sam-grid 4
+```
+
+The grid defaults to 3×3; values from 2 to 6 control the maximum number of positive prompts
+(grid size squared). Duplicate masks are removed deterministically. MobileSAM inference is
+local and sequential. The current published `0.4.0-beta.1`
+package predates this CLI route; build from the repository checkout to use it.
+When multiple routes propose objects, `providerComparison` reports counts from all routes and
+maximum-IoU one-to-one mask matches for the routes listed in `maskComparableProviders`.
+Visible-region masks are excluded from completed-object mask matching because their meanings
+differ, while their counts remain visible. These are cross-route consistency measures, not
+calibrated confidence or proof that either route is correct. The text summary calls out count
+disagreements and summarizes matched-mask IoU.
+The command is available from a local checkout after `npm run build` in `cli/`; the already
+published `0.4.0-beta.1` package does not contain this addition.
 
 ## Trace options
 
@@ -68,8 +122,8 @@ output over one of its input images.
 
 | Code | Meaning |
 |---|---|
-| `0` | every image is under the threshold and the size budget |
-| `1` | at least one image needs review |
+| `0` | trace is under its threshold and size budget; `analyze` and `slice` completed |
+| `1` | trace needs review, or `objects` produced hypotheses/abstentions that require review |
 | `2` | error: bad arguments, unreadable input, existing outputs without `--force` |
 
 ## JSON report (`schemaVersion: 1`)

@@ -4,6 +4,12 @@ import { parseArgs } from 'node:util'
 import { existsSync, mkdirSync, readdirSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { basename, extname, join, resolve } from 'node:path'
 import { analyze, recommend, type Analysis } from '../../src/lib/engine/analyze'
+import { proposeThreeCircleOverlaps } from '../../src/lib/engine/circle-overlap-hypotheses'
+import { proposeConnectedComponentHypotheses, type ConnectedComponentProposalResult } from '../../src/lib/engine/connected-component-hypotheses'
+import { compareProviderHypothesisSets, type ObjectHypothesis } from '../../src/lib/engine/object-hypotheses'
+import { recommendObjectRoute } from '../../src/lib/engine/object-route-planner'
+import { proposePlanarColorHypotheses } from '../../src/lib/engine/planar-color-hypotheses'
+import { createMobileSamCliProvider, type MobileSamCliProvider } from './mobile-sam-node'
 import { diffImage, summarizeDiff, type RGBAImage } from '../../src/lib/engine/core'
 import { DEFAULT_PARAMS, PRESETS, presetById } from '../../src/lib/engine/presets'
 import { crop, keyBackground, sliceSheet } from '../../src/lib/engine/slice'
@@ -25,6 +31,7 @@ Raster to SVG with image analysis, fidelity metrics and deterministic auto-tunin
 Usage
   rastavec trace <input...> [options]     vectorise images and/or folders
   rastavec analyze <input...> [--json]    analyse images, print the settings Auto would use (writes nothing)
+  rastavec objects <input...> [options]   propose reviewable object masks from available raster routes
   rastavec slice <sheet> -o <dir>         split a sprite sheet / brand board into one PNG per element
 
 Trace options
@@ -44,6 +51,14 @@ Trace options
       --clustering <color-cluster|watershed> (colour mode only)
       --watershed-detail <0-255> (colour mode only; selects watershed if needed)
 
+Objects options
+  -o, --out <dir>          output folder (default: ./rastavec-objects-out)
+  -r, --recursive          include sub-folders
+  -f, --force              overwrite existing outputs
+      --sam-encoder <file>  optional supported MobileSAM image encoder ONNX file
+      --sam-decoder <file>  optional matching MobileSAM mask decoder ONNX file
+      --sam-grid <2-6>      positive point grid size (default: 3; runs grid² prompts)
+
 Common
       --json               print a machine-readable JSON report on stdout
   -q, --quiet              no progress output
@@ -51,11 +66,12 @@ Common
   -v, --version            print the version
 
 Exit codes
-  0  every image is under the threshold and the size budget
-  1  at least one image needs review (above threshold or budget)
+  0  trace is under the threshold and size budget; analyze/slice completed
+  1  trace needs review, or objects produced reviewable hypotheses/abstentions
   2  error (bad arguments, unreadable input, existing outputs without --force)
 
 A report.json is always written to the output folder (trace).
+The objects command also writes report.json and one transparent PNG mask per proposed object.
 `
 
 // ------------------------------------------------------------------ helpers
@@ -108,6 +124,11 @@ const fileKeys = (p: string): string[] => {
 }
 const r4 = (x: number | null) => (x === null ? null : Math.round(x * 10000) / 10000)
 const kb = (b: number) => `${Math.round(b / 1024)} KB`
+
+type ObjectProviderResult =
+  | { status: 'proposed'; hypotheses: ObjectHypothesis[]; diagnostics: unknown }
+  | { status: 'abstained'; reason: string; diagnostics?: unknown }
+type ObjectProvider = { id: string; run: (image: RGBAImage) => ObjectProviderResult | Promise<ObjectProviderResult>; compareMasks?: boolean }
 
 function describe(p: TraceParams) {
   if (p.colormode === 'binary') return `binary · speckle ${p.speckle}`
@@ -304,6 +325,154 @@ async function cmdAnalyze(positionals: string[], o: Record<string, string | bool
   return items.some((i) => 'error' in i) ? EXIT.ERROR : EXIT.OK
 }
 
+async function cmdObjects(positionals: string[], o: Record<string, string | boolean | undefined>) {
+  if (!positionals.length) fail('objects needs at least one input (file or folder)')
+  const files = listImages(positionals, !!o.recursive)
+  const samEncoderPath = typeof o['sam-encoder'] === 'string' ? resolve(o['sam-encoder']) : undefined
+  const samDecoderPath = typeof o['sam-decoder'] === 'string' ? resolve(o['sam-decoder']) : undefined
+  const samRequested = Boolean(samEncoderPath || samDecoderPath)
+  if (Boolean(samEncoderPath) !== Boolean(samDecoderPath)) fail('MobileSAM requires both --sam-encoder and --sam-decoder')
+  if (o['sam-grid'] !== undefined && !samRequested) fail('--sam-grid requires both MobileSAM model paths')
+  if (samEncoderPath && !existsSync(samEncoderPath)) fail(`MobileSAM encoder not found: ${samEncoderPath}`)
+  if (samDecoderPath && !existsSync(samDecoderPath)) fail(`MobileSAM decoder not found: ${samDecoderPath}`)
+  const samGridSize = num(o['sam-grid'] as string | undefined, 'sam-grid', 3, 2, 6)
+  if (!Number.isSafeInteger(samGridSize)) fail('--sam-grid must be an integer from 2 to 6')
+  const out = resolve((o.out as string) ?? 'rastavec-objects-out')
+  const used = new Set<string>()
+  const jobs = files.map((input) => {
+    const base = stem(input)
+    let name = base, suffix = 2
+    while (used.has(name.toLowerCase())) name = `${base}-${suffix++}`
+    used.add(name.toLowerCase())
+    return { input, name }
+  })
+  const reportPath = join(out, 'report.json')
+  const possibleOutputs = [reportPath, ...jobs.flatMap(({ name }) => [
+    ...[1, 2, 3].map((index) => join(out, `${name}.circle-${index}.mask.png`)),
+    ...[1, 2, 3, 4].map((index) => join(out, `${name}.planar-object-${index}.mask.png`)),
+    ...Array.from({ length: 32 }, (_, index) => join(out, `${name}.component-${String(index + 1).padStart(3, '0')}.mask.png`)),
+    ...Array.from({ length: samRequested ? samGridSize * samGridSize : 0 }, (_, index) =>
+      join(out, `${name}.mobile-sam-${Math.floor(index / samGridSize)}-${index % samGridSize}.mask.png`)),
+  ])]
+  const inputKeys = new Set(files.flatMap(fileKeys))
+  const inputClash = possibleOutputs.find((path) => fileKeys(path).some((key) => inputKeys.has(key)))
+  if (inputClash) fail(`output would overwrite an input: ${inputClash}`)
+  if (!o.force) {
+    const clash = possibleOutputs.find((path) => existsSync(path))
+    if (clash) fail(`${clash} already exists (use --force to overwrite)`)
+  }
+  mkdirSync(out, { recursive: true })
+  const mobileSamProvider: MobileSamCliProvider | null = samEncoderPath && samDecoderPath
+    ? await createMobileSamCliProvider(samEncoderPath, samDecoderPath)
+    : null
+
+  const items: Record<string, unknown>[] = []
+  let scenesWithProposals = 0, scenesWithProviderCountDisagreement = 0, proposedProviders = 0, abstainedProviders = 0, errors = 0
+  for (const [index, job] of jobs.entries()) {
+    try {
+      const image = await decode(job.input)
+      const routes = []
+      const providerHypothesisSets: Array<{ provider: string; hypotheses: ObjectHypothesis[] }> = []
+      let sceneProposals = 0, sceneAbstentions = 0, sceneErrors = 0
+      const providers: ObjectProvider[] = [
+        { id: 'circle-visible-arc-fit', run: proposeThreeCircleOverlaps },
+        { id: 'planar-color-adjacency', run: proposePlanarColorHypotheses },
+      ]
+      let foregroundComponents: ConnectedComponentProposalResult | null = null
+      providers.push({ id: 'visible-connected-components', run: async (source) => {
+        const result = proposeConnectedComponentHypotheses(source)
+        foregroundComponents = result
+        return result
+      }, compareMasks: false })
+      if (mobileSamProvider) providers.push({ id: 'mobile-sam', run: async (source) => {
+        const result = await mobileSamProvider.propose(source, samGridSize, foregroundComponents)
+        return result.hypotheses.length
+          ? { status: 'proposed', ...result }
+          : { status: 'abstained', reason: 'No distinct non-empty masks survived MobileSAM proposal filtering.', diagnostics: result.diagnostics }
+      } })
+      for (const provider of providers) {
+        try {
+          const result = await provider.run(image)
+          if (result.status === 'abstained') {
+            sceneAbstentions++
+            abstainedProviders++
+            routes.push({ provider: provider.id, status: 'abstained', reason: result.reason, ...(result.diagnostics ? { diagnostics: result.diagnostics } : {}) })
+            continue
+          }
+          sceneProposals++
+          proposedProviders++
+          providerHypothesisSets.push({ provider: provider.id, hypotheses: result.hypotheses, ...('compareMasks' in provider && provider.compareMasks === false ? { compareMasks: false } : {}) })
+          const hypotheses = []
+          for (const hypothesis of result.hypotheses) {
+            const maskFile = `${job.name}.${hypothesis.id}.mask.png`
+            const rgba = new Uint8ClampedArray(hypothesis.mask.width * hypothesis.mask.height * 4)
+            for (let pixel = 0; pixel < hypothesis.mask.data.length; pixel++) if (hypothesis.mask.data[pixel]) {
+              const offset = pixel * 4
+              rgba[offset] = rgba[offset + 1] = rgba[offset + 2] = rgba[offset + 3] = 255
+            }
+            await writePng({ data: rgba, width: hypothesis.mask.width, height: hypothesis.mask.height }, join(out, maskFile))
+            const { mask, ...metadata } = hypothesis
+            hypotheses.push({ ...metadata, mask: { width: mask.width, height: mask.height, file: maskFile } })
+          }
+          routes.push({ provider: provider.id, status: 'proposed', decision: 'human-review-required', hypotheses, diagnostics: result.diagnostics })
+        } catch (e) {
+          sceneErrors++
+          errors++
+          routes.push({ provider: provider.id, status: 'error', error: e instanceof Error ? e.message : String(e) })
+        }
+      }
+      if (sceneProposals) scenesWithProposals++
+      const providerComparison = compareProviderHypothesisSets(providerHypothesisSets)
+      const routeRecommendation = recommendObjectRoute(routes, Boolean(mobileSamProvider))
+      if (providerComparison.status === 'counts-disagree') scenesWithProviderCountDisagreement++
+      items.push({
+        name: job.name, input: job.input, width: image.width, height: image.height,
+        status: sceneProposals ? 'proposed' : sceneErrors ? 'error' : 'abstained',
+        ...(sceneProposals ? { decision: 'human-review-required' } : {}), routes, providerComparison,
+        routeRecommendation,
+      })
+      const disagreement = providerComparison.status === 'counts-disagree'
+        ? ` · provider proposal counts differ (${providerComparison.providers.map(({ provider, count }) => `${provider}=${count}`).join(', ')})`
+        : ''
+      const maskSummary = providerComparison.maskComparisons.map((comparison) => {
+        const meanIoU = comparison.meanMatchedIoU === null ? 'n/a' : comparison.meanMatchedIoU.toFixed(3)
+        const unmatched = comparison.unmatchedLeft.length + comparison.unmatchedRight.length
+        const meaningNote = comparison.maskMeaningsComparable ? '' : ', mask meanings differ'
+        return `mask IoU mean=${meanIoU}, ${comparison.matchesAtThreshold}/${comparison.matches.length} pair(s) >= ${comparison.matchingThreshold.toFixed(2)}, ${unmatched} unmatched${meaningNote}`
+      }).join(' · ')
+      const maskSummaryText = maskSummary ? ` · ${maskSummary}` : ''
+      if (!o.quiet && !o.json) process.stdout.write(`[${index + 1}/${jobs.length}] ${job.name}: ${sceneProposals} provider proposal(s), ${sceneAbstentions} abstention(s), ${sceneErrors} error(s)${disagreement}${maskSummaryText}\n`)
+    } catch (e) {
+      errors++
+      const error = e instanceof Error ? e.message : String(e)
+      items.push({ name: job.name, input: job.input, status: 'error', error })
+      if (!o.quiet && !o.json) process.stdout.write(`[${index + 1}/${jobs.length}] ERROR ${job.name}: ${error}\n`)
+    }
+  }
+
+  await mobileSamProvider?.dispose()
+  const report = {
+    schemaVersion: SCHEMA_VERSION,
+    tool: 'rastavec',
+    version: VERSION,
+    command: 'objects',
+    providers: [
+      { id: 'circle-visible-arc-fit', scope: 'Three completed circles with distinct exposed flat colors on a flat opaque background; source-over order is provisional.' },
+      { id: 'planar-color-adjacency', scope: 'Two to four overlapping objects represented by dominant color states on a flat opaque backdrop; masks and painting remain experimental hypotheses.' },
+      { id: 'visible-connected-components', scope: 'Visible foreground regions isolated from transparent alpha or a border-derived opaque background; touching shapes may merge and disconnected pieces may split.' },
+      { id: 'mobile-sam', scope: 'Optional local visible-region proposals from a verified MobileSAM ONNX pair and deterministic positive-point grid; does not infer hidden geometry or semantic labels.' },
+    ],
+    inferenceUsesSourceSvg: false,
+    mobileSam: { enabled: samRequested, ...(samRequested ? { gridSize: samGridSize, modelFilesVerifiedBySha256: true } : {}) },
+    summary: { total: jobs.length, scenesWithProposals, scenesWithProviderCountDisagreement, proposedProviders, abstainedProviders, errors },
+    items,
+  }
+  writeFileSync(reportPath, JSON.stringify(report, null, 2) + '\n')
+  if (o.json) process.stdout.write(JSON.stringify(report, null, 2) + '\n')
+  else if (!o.quiet) process.stdout.write(`\n${scenesWithProposals} scenes proposed · ${abstainedProviders} provider abstentions · ${errors} errors → ${out}\n`)
+  return errors ? EXIT.ERROR : scenesWithProposals || abstainedProviders ? EXIT.REVIEW : EXIT.OK
+}
+
 async function cmdSlice(positionals: string[], o: Record<string, string | boolean | undefined>) {
   if (positionals.length !== 1) fail('slice needs exactly one sheet image')
   const file = resolve(positionals[0])
@@ -357,6 +526,9 @@ async function main() {
         clustering: { type: 'string' },
         'watershed-detail': { type: 'string' },
         binary: { type: 'boolean' },
+        'sam-encoder': { type: 'string' },
+        'sam-decoder': { type: 'string' },
+        'sam-grid': { type: 'string' },
         json: { type: 'boolean' },
         quiet: { type: 'boolean', short: 'q' },
         help: { type: 'boolean', short: 'h' },
@@ -373,8 +545,9 @@ async function main() {
   const code =
     command === 'trace' ? await cmdTrace(rest, o)
     : command === 'analyze' ? await cmdAnalyze(rest, o)
+    : command === 'objects' ? await cmdObjects(rest, o)
     : command === 'slice' ? await cmdSlice(rest, o)
-    : fail(`unknown command "${command}" (expected trace, analyze or slice)`)
+    : fail(`unknown command "${command}" (expected trace, analyze, objects or slice)`)
   process.exitCode = code
 }
 

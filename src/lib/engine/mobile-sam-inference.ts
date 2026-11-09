@@ -1,3 +1,6 @@
+import type { BinarySegmentationMask } from './segmentation-mask'
+import type { ConnectedComponentProposalResult } from './connected-component-hypotheses'
+
 /**
  * Offline MobileSAM artifact checks and deterministic point prompts.
  * The expected files are the public Acly/MobileSAM encoder and decoder ONNX pair.
@@ -23,6 +26,73 @@ export interface MaskCandidate {
   data: Uint8Array
 }
 
+export interface PromptGridFilterResult {
+  prompts: PromptPoint[]
+  requestedCount: number
+  retainedCount: number
+  skippedCount: number
+  applied: boolean
+}
+
+export interface PromptGridSelection extends PromptGridFilterResult {
+  mode: 'foreground-gated' | 'full-grid'
+  reason: string
+  foregroundMaskCount: number
+}
+
+/** Keep automatic positive prompts on a foreground region when an independent raster mask is available. */
+export function filterPromptGridToMasks(
+  prompts: readonly PromptPoint[],
+  promptImage: { width: number; height: number },
+  foregroundMasks: readonly BinarySegmentationMask[],
+): PromptGridFilterResult {
+  if (!Number.isSafeInteger(promptImage.width) || !Number.isSafeInteger(promptImage.height) || promptImage.width < 1 || promptImage.height < 1)
+    throw new Error('image-size')
+  if (!foregroundMasks.length)
+    return { prompts: [...prompts], requestedCount: prompts.length, retainedCount: prompts.length, skippedCount: 0, applied: false }
+  for (const mask of foregroundMasks) if (!Number.isSafeInteger(mask.width) || !Number.isSafeInteger(mask.height)
+    || mask.width < 1 || mask.height < 1 || mask.data.length !== mask.width * mask.height)
+    throw new Error('mask-size')
+
+  const retained = prompts.filter((prompt) => {
+    const imageX = Math.max(0, Math.min(promptImage.width - 1, Math.floor(prompt.x)))
+    const imageY = Math.max(0, Math.min(promptImage.height - 1, Math.floor(prompt.y)))
+    return foregroundMasks.some((mask) => {
+      const x = Math.min(mask.width - 1, Math.floor((imageX + 0.5) * mask.width / promptImage.width))
+      const y = Math.min(mask.height - 1, Math.floor((imageY + 0.5) * mask.height / promptImage.height))
+      return mask.data[y * mask.width + x] !== 0
+    })
+  })
+  return { prompts: retained, requestedCount: prompts.length, retainedCount: retained.length,
+    skippedCount: prompts.length - retained.length, applied: true }
+}
+
+/** Route to a foreground-gated or full MobileSAM grid from component-analysis evidence. */
+export function selectMobileSamPromptGrid(
+  prompts: readonly PromptPoint[],
+  promptImage: { width: number; height: number },
+  components: ConnectedComponentProposalResult | null | undefined,
+): PromptGridSelection {
+  const fullGrid = (reason: string, foregroundMaskCount = 0): PromptGridSelection => ({
+    prompts: [...prompts], requestedCount: prompts.length, retainedCount: prompts.length,
+    skippedCount: 0, applied: false, mode: 'full-grid', reason, foregroundMaskCount,
+  })
+  if (!components || components.status !== 'proposed') return fullGrid('component-analysis-abstained')
+  const foregroundMaskCount = components.hypotheses.length
+  const diagnostics = components.diagnostics
+  if (diagnostics.components.truncated > 0) return fullGrid('foreground-components-truncated', foregroundMaskCount)
+  if (diagnostics.background.kind === 'opaque-border-median'
+    && (diagnostics.background.flatColorSupport ?? 0) < 0.75)
+    return fullGrid('opaque-background-support-below-0.75', foregroundMaskCount)
+
+  const filtered = filterPromptGridToMasks(prompts, promptImage, components.hypotheses.map(({ mask }) => mask))
+  if (!filtered.retainedCount) return fullGrid('no-grid-prompt-inside-supported-foreground', foregroundMaskCount)
+  const reason = diagnostics.background.kind === 'transparent-border'
+    ? 'transparent-border-alpha-components'
+    : 'opaque-border-support-at-least-0.75'
+  return { ...filtered, mode: 'foreground-gated', reason, foregroundMaskCount }
+}
+
 export async function sha256Hex(bytes: Uint8Array): Promise<string> {
   const exactBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
   const digest = await crypto.subtle.digest('SHA-256', exactBuffer)
@@ -40,7 +110,7 @@ export async function verifyMobileSamPair(encoder: Uint8Array, decoder: Uint8Arr
 export function makePromptGrid(width: number, height: number, gridSize: number): PromptPoint[] {
   if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height) || width < 1 || height < 1)
     throw new Error('image-size')
-  if (!Number.isSafeInteger(gridSize) || gridSize < 2 || gridSize > 4)
+  if (!Number.isSafeInteger(gridSize) || gridSize < 2 || gridSize > 6)
     throw new Error('grid-size')
   const points: PromptPoint[] = []
   for (let row = 0; row < gridSize; row++) for (let column = 0; column < gridSize; column++) {
