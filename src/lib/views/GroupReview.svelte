@@ -7,12 +7,25 @@
   import { decodeFile } from '../engine/browser-backend'
   import { binaryMaskFromRgba, selectGroupsByMask, svgViewBox, type BinarySegmentationMask } from '../engine/segmentation-mask'
   import { MOBILE_SAM_ARTIFACTS, type MaskCandidate } from '../engine/mobile-sam-inference'
+  import { compareProviderHypothesisSets, createMaskHypothesis, type ObjectHypothesis } from '../engine/object-hypotheses'
+  import type { CircleOverlapDiagnostics, CircleOverlapProposalResult } from '../engine/circle-overlap-hypotheses'
+  import type { ConnectedComponentDiagnostics, ConnectedComponentProposalResult } from '../engine/connected-component-hypotheses'
+  import type { PlanarColorDiagnostics, PlanarColorProposalResult } from '../engine/planar-color-hypotheses'
 
-  type LocalMaskProposal = MaskCandidate & { previewUrl: string }
+  type LocalMaskProposal = ObjectHypothesis & { previewUrl: string }
   type MobileSamWorkerMessage =
     | { type: 'progress'; requestId: number; stage: 'models' | 'encoder' | 'decoder'; complete: number; total: number }
-    | { type: 'done'; requestId: number; proposals: Array<{ prompt: MaskCandidate['prompt']; score: number; width: number; height: number; data: ArrayBuffer }>; elapsedMs: number }
+    | { type: 'done'; requestId: number; proposals: Array<{ prompt: MaskCandidate['prompt']; score: number; width: number; height: number; data: ArrayBuffer }>; elapsedMs: number; promptFilter: { requested: number; retained: number; skipped: number; applied: boolean; foregroundMasks: number; mode: 'foreground-gated' | 'full-grid'; reason: string } }
     | { type: 'error'; requestId: number; code: string }
+  type CircleWorkerMessage =
+    | { type: 'done'; requestId: number; result: CircleOverlapProposalResult }
+    | { type: 'error'; requestId: number }
+  type ConnectedComponentWorkerMessage =
+    | { type: 'done'; requestId: number; result: ConnectedComponentProposalResult }
+    | { type: 'error'; requestId: number }
+  type PlanarColorWorkerMessage =
+    | { type: 'done'; requestId: number; result: PlanarColorProposalResult }
+    | { type: 'error'; requestId: number }
 
   function colorName(hex: string, locale: string) {
     const rgb = [1, 3, 5].map((offset) => parseInt(hex.slice(offset, offset + 2), 16) / 255)
@@ -54,7 +67,7 @@
     strategy: 'Méthode', proximityStrategy: 'Voisinage et ordre SVG', spatialStrategy: 'Zones spatiales', regionCount: 'Nombre de zones', spatialHint: 'Répartit les formes compactes en zones même si elles sont éloignées dans l’ordre SVG. Les grandes formes restent séparées; les zones ne sont pas des objets reconnus, vérifiez-les avant animation.',
     addToAssembly: 'Ajouter à l’assemblage', removeFromAssembly: 'Retirer de l’assemblage', createAssembly: (n: number) => `Assembler ${n} groupes`, clearAssembly: 'Vider la sélection', assemblyHint: 'Les chemins restent dans leur ordre de dessin ; ils partageront le même pivot et la même piste d’animation.',
     maskTitle: 'Préselectionner avec un masque local', maskDescription: 'Importez un masque PNG créé localement par un outil de segmentation. Les pixels blancs ou opaques sont considérés comme la région sélectionnée. RastaVec compare les centres des chemins aux pixels du masque ; inspectez le résultat avant assemblage. Le masque ne fournit aucun nom d’objet ni de partie du corps.', maskImport: 'Importer un masque PNG', maskApply: 'Sélectionner les groupes dans le masque', maskPreview: 'Aperçu : la zone magenta est sélectionnée', maskLoaded: (w: number, h: number) => `Masque chargé · ${w} × ${h}`, maskSelected: (g: number, p: number) => `${g} groupes présélectionnés · ${p} centres de chemins dans le masque`, maskNoGroups: 'Aucun groupe existant ne correspond assez au masque. Vérifiez le masque ou les groupes géométriques.', maskDimensions: 'Le masque et l’image source doivent avoir le même ratio largeur/hauteur.', maskError: 'Impossible de lire ce masque PNG', maskLocalOnly: 'Le fichier est lu localement et n’est pas envoyé.',
-    samTitle: 'Propositions MobileSAM locales (facultatif)', samDescription: 'Choisissez vos deux fichiers ONNX MobileSAM. RastaVec exécute localement l’encodeur puis une grille déterministe de points positifs dans un worker WASM. Les régions proposées ne portent pas d’étiquette sémantique. Aucun modèle n’est téléchargé et aucune image ne quitte l’appareil.', samEncoder: 'Choisir l’encodeur ONNX', samDecoder: 'Choisir le décodeur ONNX', samNoFile: 'Aucun fichier choisi', samGrid: 'Grille de points', samGenerate: 'Générer des masques localement', samWorking: (stage: string, done: number, total: number) => `${stage} · ${done}/${total}`, samReady: (n: number, ms: number) => `${n} masques proposés · ${ms} ms`, samNoProposals: 'Aucun masque distinct proposé. Essayez une grille plus dense ou importez un masque PNG.', samModelError: 'Modèles incompatibles ou non pris en charge. Utilisez la paire MobileSAM listée ci-dessous.', samLocalError: 'Impossible de générer des masques sur cet appareil.', samHashError: 'Les sommes SHA-256 ne correspondent pas à la paire MobileSAM prise en charge.', samChooseModels: 'Choisissez les deux modèles ONNX et une image source.', samProposal: (n: number, score: number) => `Région ${n} · score ${score.toFixed(2)}`, samSource: 'Modèles MobileSAM (MIT) et empreintes attendues', samApplyProposal: 'Utiliser le masque aperçu',
+    samTitle: 'Propositions MobileSAM locales (facultatif)', samDescription: 'Choisissez vos deux fichiers ONNX MobileSAM. RastaVec exécute localement l’encodeur puis filtre les points positifs de la grille sur les régions de premier plan détectées; si cette analyse s’abstient, il garde toute la grille. Les régions proposées ne portent pas d’étiquette sémantique et ne complètent pas les parties cachées. Aucun modèle n’est téléchargé et aucune image ne quitte l’appareil.', samEncoder: 'Choisir l’encodeur ONNX', samDecoder: 'Choisir le décodeur ONNX', samNoFile: 'Aucun fichier choisi', samGrid: 'Grille de points', samGenerate: 'Générer des masques localement', samWorking: (stage: string, done: number, total: number) => `${stage} · ${done}/${total}`, samReady: (n: number, ms: number) => `${n} masques proposés · ${ms} ms`, samNoProposals: 'Aucun masque distinct proposé. Essayez une grille plus dense ou importez un masque PNG.', samModelError: 'Modèles incompatibles ou non pris en charge. Utilisez la paire MobileSAM listée ci-dessous.', samLocalError: 'Impossible de générer des masques sur cet appareil.', samHashError: 'Les sommes SHA-256 ne correspondent pas à la paire MobileSAM prise en charge.', samChooseModels: 'Choisissez les deux modèles ONNX et une image source.', samProposal: (n: number, score: number) => `Région ${n} · score ${score.toFixed(2)}`, samSource: 'Modèles MobileSAM (MIT) et empreintes attendues', samApplyProposal: 'Utiliser le masque aperçu',
     limitation: 'Les groupes larges contiennent les petits groupes proches ; les noms auto décrivent seulement la couleur dominante et la position. L’ordre de dessin est conservé. Les noms, rôles et pivots sont inclus dans le SVG et le ZIP.',
     error: 'Impossible de proposer les groupes',
   } : {
@@ -69,9 +82,58 @@
     strategy: 'Method', proximityStrategy: 'Proximity and SVG order', spatialStrategy: 'Spatial regions', regionCount: 'Number of regions', spatialHint: 'Partitions compact shapes into regions even when their SVG order is far apart. Large shapes stay separate; regions are not recognized objects, so review them before animation.',
     addToAssembly: 'Add to assembly', removeFromAssembly: 'Remove from assembly', createAssembly: (n: number) => `Assemble ${n} groups`, clearAssembly: 'Clear selection', assemblyHint: 'Paths stay in paint order and share one pivot and animation track.',
     maskTitle: 'Preselect groups with a local mask', maskDescription: 'Import a PNG mask created locally by a segmentation tool. White or opaque pixels count as the selected region. RastaVec compares path centres with mask pixels; review the result before assembling. The mask does not provide object or body-part names.', maskImport: 'Import PNG mask', maskApply: 'Select groups inside mask', maskPreview: 'Preview: magenta area is selected', maskLoaded: (w: number, h: number) => `Mask loaded · ${w} × ${h}`, maskSelected: (g: number, p: number) => `${g} groups preselected · ${p} path centres inside mask`, maskNoGroups: 'No existing group matches the mask closely enough. Review the mask or geometric groups.', maskDimensions: 'The mask and source image must have the same width-to-height ratio.', maskError: 'Could not read this PNG mask', maskLocalOnly: 'The file is read locally and is not uploaded.',
-    samTitle: 'Local MobileSAM proposals (optional)', samDescription: 'Choose both MobileSAM ONNX files. RastaVec runs the encoder locally, then a deterministic grid of positive point prompts in a WASM worker. Proposed regions have no semantic labels. Models are not downloaded and the image never leaves this device.', samEncoder: 'Choose ONNX encoder', samDecoder: 'Choose ONNX decoder', samNoFile: 'No file selected', samGrid: 'Point grid', samGenerate: 'Generate masks locally', samWorking: (stage: string, done: number, total: number) => `${stage} · ${done}/${total}`, samReady: (n: number, ms: number) => `${n} masks proposed · ${ms} ms`, samNoProposals: 'No distinct masks were proposed. Try a denser grid or import a PNG mask.', samModelError: 'Models are incompatible or unsupported. Use the MobileSAM pair listed below.', samLocalError: 'Could not generate masks on this device.', samHashError: 'SHA-256 hashes do not match the supported MobileSAM pair.', samChooseModels: 'Choose both ONNX models and a source image.', samProposal: (n: number, score: number) => `Region ${n} · score ${score.toFixed(2)}`, samSource: 'MobileSAM models (MIT) and expected hashes', samApplyProposal: 'Use previewed mask',
+    samTitle: 'Local MobileSAM proposals (optional)', samDescription: 'Choose both MobileSAM ONNX files. RastaVec runs the encoder locally, then filters positive grid points to detected foreground regions; if that analysis abstains, it keeps the full grid. Proposed regions have no semantic labels and do not complete hidden parts. Models are not downloaded and the image never leaves this device.', samEncoder: 'Choose ONNX encoder', samDecoder: 'Choose ONNX decoder', samNoFile: 'No file selected', samGrid: 'Point grid', samGenerate: 'Generate masks locally', samWorking: (stage: string, done: number, total: number) => `${stage} · ${done}/${total}`, samReady: (n: number, ms: number) => `${n} masks proposed · ${ms} ms`, samNoProposals: 'No distinct masks were proposed. Try a denser grid or import a PNG mask.', samModelError: 'Models are incompatible or unsupported. Use the MobileSAM pair listed below.', samLocalError: 'Could not generate masks on this device.', samHashError: 'SHA-256 hashes do not match the supported MobileSAM pair.', samChooseModels: 'Choose both ONNX models and a source image.', samProposal: (n: number, score: number) => `Region ${n} · score ${score.toFixed(2)}`, samSource: 'MobileSAM models (MIT) and expected hashes', samApplyProposal: 'Use previewed mask',
     limitation: 'Larger groups contain nearby smaller groups; automatic names describe only dominant colour and position. Drawing order is preserved. Names, roles and pivots are included in the SVG and ZIP.',
     error: 'Could not suggest groups',
+  })
+  const circleWords = $derived(i18n.locale === 'fr' ? {
+    title: 'Proposer trois cercles superposés (expérimental)',
+    description: 'Essai local pour trois cercles de couleur unie avec arcs visibles sur un fond opaque uni. Les masques complètent les cercles cachés; couleur, alpha et ordre source-over restent à vérifier. Utiliser un masque présélectionne seulement les groupes de chemins existants par leurs centres.',
+    run: 'Analyser les arcs visibles', running: 'Ajustement des cercles…',
+    noFit: 'Aucune proposition : les couleurs, le fond ou les arcs ne correspondent pas aux préconditions de cet essai.',
+    ready: (count: number) => `${count} hypothèses de cercle proposées`,
+    candidate: (index: number, errorPercent: number) => `Cercle ${index} · erreur radiale relative ${errorPercent.toFixed(2)} %`,
+    order: (order: string, margin: number) => `Ordre candidat dessous → dessus : ${order} · écart au second ajustement ${margin.toFixed(2)}`,
+    warning: 'L’ajustement de peinture suppose un compositing source-over; il ne distingue pas Multiply ni l’opacité de groupe.',
+  } : {
+    title: 'Propose three overlapping circles (experimental)',
+    description: 'Local probe for three flat-color circles with exposed arcs against a flat opaque backdrop. Masks complete the hidden circles; color, alpha and source-over order are hypotheses to review. Using a mask only preselects existing path groups by their centres.',
+    run: 'Fit visible arcs', running: 'Fitting circles…',
+    noFit: 'No proposal: this image does not meet this experiment’s color, backdrop or arc requirements.',
+    ready: (count: number) => `${count} circle hypotheses proposed`,
+    candidate: (index: number, errorPercent: number) => `Circle ${index} · relative radial error ${errorPercent.toFixed(2)}%`,
+    order: (order: string, margin: number) => `Candidate order bottom → top: ${order} · gap to second fit ${margin.toFixed(2)}`,
+    warning: 'Paint fitting assumes source-over compositing; it does not distinguish Multiply or group opacity.',
+  })
+  const planarWords = $derived(i18n.locale === 'fr' ? {
+    title: 'Proposer des masques par graphe de couleurs (expérimental)',
+    description: 'Route locale pour 2 à 4 formes superposées à aplats, sur fond opaque uni. Elle infère les appartenances depuis les adjacences de couleurs; elle ne garantit ni la famille de forme ni la géométrie entièrement cachée.',
+    run: 'Analyser les adjacences',
+    noFit: 'Aucune proposition : cette image ne fournit pas un graphe de couleurs compatible avec cet essai.',
+    ready: (count: number) => `${count} masques d’objet proposés · à vérifier`,
+    candidate: (index: number, model: string) => `Objet ${index} · peinture ${model}`,
+  } : {
+    title: 'Propose masks from a color graph (experimental)',
+    description: 'Local route for 2–4 overlapping flat-color shapes on a flat opaque backdrop. It infers membership from color adjacency; it does not guarantee a shape family or fully hidden geometry.',
+    run: 'Analyze color adjacency',
+    noFit: 'No proposal: this image did not produce a compatible color-state graph for this experiment.',
+    ready: (count: number) => `${count} object masks proposed · review required`,
+    candidate: (index: number, model: string) => `Object ${index} · ${model} paint`,
+  })
+  const componentWords = $derived(i18n.locale === 'fr' ? {
+    title: 'Proposer les régions visibles (composantes connexes, expérimental)',
+    description: 'Sépare les régions visibles depuis l’alpha du fond ou le contraste avec la bordure. Un dégradé reste dans une même région connectée. Les formes superposées ou qui se touchent peuvent fusionner; aucun contour caché n’est complété.',
+    run: 'Trouver les régions visibles', running: 'Recherche des régions…',
+    noFit: 'Aucune région visible ne dépasse les seuils de contraste et de taille.',
+    ready: (count: number) => `${count} région${count > 1 ? 's' : ''} visible${count > 1 ? 's' : ''} proposée${count > 1 ? 's' : ''} · à vérifier`,
+    candidate: (index: number, area: number) => `Région ${index} · ${area.toLocaleString()} px d’analyse`,
+  } : {
+    title: 'Propose visible regions (connected components, experimental)',
+    description: 'Separates visible regions using border alpha or contrast. A gradient stays within one connected region. Overlapping or touching shapes can merge; hidden contours are not completed.',
+    run: 'Find visible regions', running: 'Finding regions…',
+    noFit: 'No visible region passed the contrast and size thresholds.',
+    ready: (count: number) => `${count} visible region${count === 1 ? '' : 's'} proposed · review required`,
+    candidate: (index: number, area: number) => `Region ${index} · ${area.toLocaleString()} analysis px`,
   })
   const maxDistance = $derived.by(() => {
     const match = svg.match(/\bviewBox="\s*[-+\d.eE]+[\s,]+[-+\d.eE]+[\s,]+([-+\d.eE]+)[\s,]+([-+\d.eE]+)/)
@@ -94,7 +156,7 @@
   let usedRegionCount = $state(12)
   let selected = $state('')
   let assemblySelection = $state<Set<string>>(new Set())
-  let segmentationMask = $state<BinarySegmentationMask | null>(null)
+  let segmentationHypothesis = $state<ObjectHypothesis | null>(null)
   let maskPreviewUrl = $state('')
   let maskMessage = $state('')
   let maskBusy = $state(false)
@@ -107,6 +169,48 @@
   let samProgress = $state('')
   let samProposals = $state.raw<LocalMaskProposal[]>([])
   let samPreviewIndex = $state(-1)
+  let circleWorker: Worker | null = null
+  let circleRequestId = 0
+  let circleProposals = $state.raw<LocalMaskProposal[]>([])
+  let circlePreviewIndex = $state(-1)
+  let circleDiagnostics = $state.raw<CircleOverlapDiagnostics | null>(null)
+  let planarWorker: Worker | null = null
+  let planarRequestId = 0
+  let planarProposals = $state.raw<LocalMaskProposal[]>([])
+  let planarPreviewIndex = $state(-1)
+  let planarDiagnostics = $state.raw<PlanarColorDiagnostics | null>(null)
+  let componentWorker: Worker | null = null
+  let componentRequestId = 0
+  let componentProposals = $state.raw<LocalMaskProposal[]>([])
+  let componentPreviewIndex = $state(-1)
+  let componentDiagnostics = $state.raw<ConnectedComponentDiagnostics | null>(null)
+  const objectProviderComparison = $derived(compareProviderHypothesisSets([
+    { provider: 'circle-visible-arc-fit', hypotheses: circleProposals },
+    { provider: 'planar-color-adjacency', hypotheses: planarProposals },
+  ]))
+  const objectProviderComparisonMessage = $derived.by(() => {
+    if (objectProviderComparison.status === 'insufficient-data') return ''
+    const counts = objectProviderComparison.providers.map(({ provider, count }) => {
+      const label = i18n.locale === 'fr'
+        ? provider === 'circle-visible-arc-fit' ? 'Ajustement des cercles' : 'Graphe des aplats'
+        : provider === 'circle-visible-arc-fit' ? 'Circle fit' : 'Flat-color graph'
+      return `${label}: ${count}`
+    }).join(' · ')
+    const maskSummary = objectProviderComparison.maskComparisons.map((comparison) => {
+      const mean = comparison.meanMatchedIoU === null ? 'n/a' : comparison.meanMatchedIoU.toFixed(2)
+      const unmatched = [...comparison.unmatchedLeft, ...comparison.unmatchedRight]
+      const ids = comparison.matches.map(({ leftHypothesisId, rightHypothesisId, iou }) => `${leftHypothesisId} ↔ ${rightHypothesisId} (${iou.toFixed(2)})`).join(', ')
+      return i18n.locale === 'fr'
+        ? `IoU moyen ${mean}; ${comparison.matchesAtThreshold}/${comparison.matches.length} paires ≥ ${comparison.matchingThreshold.toFixed(2)}${ids ? ` · ${ids}` : ''}${unmatched.length ? ` · sans paire : ${unmatched.join(', ')}` : ''}${comparison.maskMeaningsComparable ? '' : ' · sens des masques différent, IoU à interpréter avec prudence'}`
+        : `mean IoU ${mean}; ${comparison.matchesAtThreshold}/${comparison.matches.length} pairs ≥ ${comparison.matchingThreshold.toFixed(2)}${ids ? ` · ${ids}` : ''}${unmatched.length ? ` · unmatched: ${unmatched.join(', ')}` : ''}${comparison.maskMeaningsComparable ? '' : ' · mask meanings differ; interpret IoU with care'}`
+    }).join(' | ')
+    const conclusion = objectProviderComparison.status === 'counts-disagree'
+      ? i18n.locale === 'fr' ? `Les essais proposent des nombres de formes différents (${counts}).` : `The routes propose different object counts (${counts}).`
+      : i18n.locale === 'fr' ? `Les essais proposent le même nombre de formes (${counts}).` : `The routes propose the same object count (${counts}).`
+    return `${conclusion} ${i18n.locale === 'fr'
+      ? `Comparaison 1-à-1 des masques par IoU (${maskSummary}); ces scores ne désignent pas le bon fournisseur, vérifiez les masques.`
+      : `One-to-one mask comparison by IoU (${maskSummary}); these scores do not identify the correct provider, so review the masks.`}`
+  })
   let groupLevel = $state<'all' | 'nearby' | 'cluster'>('all')
   let search = $state('')
   type Annotation = { name?: string; role?: string; locked?: boolean; pivot: [number, number] }
@@ -159,17 +263,26 @@
   let worker: Worker | null = null
   let destroyed = false
   let runTimer: ReturnType<typeof setTimeout> | undefined
-  onDestroy(() => { destroyed = true; worker?.terminate(); worker = null; mobileSamWorker?.terminate(); mobileSamWorker = null; if (runTimer) clearTimeout(runTimer) })
+  onDestroy(() => { destroyed = true; worker?.terminate(); worker = null; mobileSamWorker?.terminate(); mobileSamWorker = null; circleWorker?.terminate(); circleWorker = null; planarWorker?.terminate(); planarWorker = null; componentWorker?.terminate(); componentWorker = null; if (runTimer) clearTimeout(runTimer) })
 
   $effect(() => {
     const nextSource = sourceImage?.url ?? ''
     if (nextSource === maskSourceUrl) return
     maskSourceUrl = nextSource
-    segmentationMask = null
+    segmentationHypothesis = null
     maskPreviewUrl = ''
     maskMessage = ''
     samProposals = []
     samPreviewIndex = -1
+    circleProposals = []
+    circlePreviewIndex = -1
+    circleDiagnostics = null
+    planarProposals = []
+    planarPreviewIndex = -1
+    planarDiagnostics = null
+    componentProposals = []
+    componentPreviewIndex = -1
+    componentDiagnostics = null
   })
 
   function renderMaskPreview(mask: BinarySegmentationMask) {
@@ -201,7 +314,7 @@
     const input = event.currentTarget as HTMLInputElement
     const file = input.files?.[0]
     input.value = ''
-    segmentationMask = null
+    segmentationHypothesis = null
     maskPreviewUrl = ''
     maskMessage = ''
     if (!file || !sourceImage) return
@@ -214,7 +327,9 @@
       const sourceRatio = sourceImage.width / sourceImage.height
       if (!Number.isFinite(sourceRatio) || Math.abs(image.width / image.height - sourceRatio) > sourceRatio * 0.005) throw new Error('aspect')
       const mask = binaryMaskFromRgba(image.data, image.width, image.height)
-      segmentationMask = mask
+      segmentationHypothesis = createMaskHypothesis({
+        id: 'imported-mask', mask, source: { provider: 'imported-mask', description: file.name },
+      })
       maskPreviewUrl = renderMaskPreview(mask)
       maskMessage = words.maskLoaded(mask.width, mask.height)
     } catch (cause) {
@@ -265,7 +380,16 @@
               const mask: BinarySegmentationMask = { width: proposal.width, height: proposal.height, data: new Uint8Array(proposal.data) }
               const ratio = mask.width / mask.height, expectedRatio = sourceImage!.width / sourceImage!.height
               if (Math.abs(ratio - expectedRatio) > expectedRatio * 0.005) throw new Error('aspect')
-              return { prompt: proposal.prompt, score: proposal.score, width: mask.width, height: mask.height, data: mask.data, previewUrl: renderMaskPreview(mask) }
+              const hypothesis = createMaskHypothesis({
+                id: `mobile-sam:${proposal.prompt.row}:${proposal.prompt.column}`,
+                mask,
+                source: { provider: 'mobile-sam', model: 'MobileSAM', prompt: proposal.prompt,
+                  description: message.promptFilter.applied
+                    ? `Visible-region proposal from a positive prompt retained inside a supported foreground component (${message.promptFilter.reason}); hidden geometry is not completed.`
+                    : `Visible-region proposal from the full positive-point grid (${message.promptFilter.reason}); hidden geometry is not completed.` },
+                score: { value: proposal.score, kind: 'provider-native', label: 'decoder score' },
+              })
+              return { ...hypothesis, previewUrl: renderMaskPreview(mask) }
             })
             samProposals = proposals
             maskMessage = proposals.length ? words.samReady(proposals.length, message.elapsedMs) : words.samNoProposals
@@ -292,16 +416,217 @@
   function usePreviewedMobileSamMask() {
     const proposal = samProposals[samPreviewIndex]
     if (!proposal) return
-    segmentationMask = { width: proposal.width, height: proposal.height, data: proposal.data }
-    maskMessage = words.maskLoaded(proposal.width, proposal.height)
+    segmentationHypothesis = proposal
+    maskMessage = words.maskLoaded(proposal.mask.width, proposal.mask.height)
+  }
+
+  function circleOverlapWorkerForPage() {
+    if (!circleWorker) circleWorker = new Worker(new URL('../engine/circle-overlap-worker.ts', import.meta.url), { type: 'module' })
+    return circleWorker
+  }
+
+  async function generateCircleOverlapMasks() {
+    if (!sourceImage || !sourceImage.url.startsWith('blob:')) { maskMessage = circleWords.noFit; return }
+    const sourceUrl = sourceImage.url
+    const requestId = ++circleRequestId
+    maskBusy = true
+    maskMessage = ''
+    circleProposals = []
+    circlePreviewIndex = -1
+    circleDiagnostics = null
+    try {
+      const response = await fetch(sourceUrl)
+      if (!response.ok || sourceImage?.url !== sourceUrl) throw new Error('source')
+      const blob = await response.blob()
+      const image = await decodeFile(new File([blob], 'rastavec-source', { type: blob.type || 'image/png' }))
+      if (sourceImage?.url !== sourceUrl) throw new Error('source-changed')
+      const worker = circleOverlapWorkerForPage()
+      const pixels = image.data.buffer as ArrayBuffer
+      await new Promise<void>((resolve, reject) => {
+        worker.onmessage = (event: MessageEvent<CircleWorkerMessage>) => {
+          const message = event.data
+          if (message.requestId !== requestId) return
+          if (message.type === 'error') { reject(new Error('circle-worker')); return }
+          if (sourceImage?.url !== sourceUrl) { reject(new Error('source-changed')); return }
+          const result = message.result
+          if (result.status === 'abstained') {
+            circleDiagnostics = null
+            maskMessage = circleWords.noFit
+            resolve()
+            return
+          }
+          circleDiagnostics = result.diagnostics
+          circleProposals = result.hypotheses.map((hypothesis): LocalMaskProposal => ({
+            ...hypothesis,
+            previewUrl: renderMaskPreview(hypothesis.mask),
+          }))
+          maskMessage = circleWords.ready(circleProposals.length)
+          resolve()
+        }
+        worker.onerror = () => reject(new Error('circle-worker'))
+        worker.postMessage({ type: 'propose', requestId, width: image.width, height: image.height, pixels }, [pixels])
+      })
+    } catch {
+      if (requestId === circleRequestId) maskMessage = circleWords.noFit
+    } finally {
+      if (requestId === circleRequestId) maskBusy = false
+    }
+  }
+
+  function previewCircleHypothesis(index: number) {
+    const proposal = circleProposals[index]
+    if (!proposal) return
+    circlePreviewIndex = index
+    maskPreviewUrl = proposal.previewUrl
+  }
+
+  function usePreviewedCircleHypothesis() {
+    const proposal = circleProposals[circlePreviewIndex]
+    if (!proposal) return
+    segmentationHypothesis = proposal
+    maskMessage = words.maskLoaded(proposal.mask.width, proposal.mask.height)
+  }
+
+  function planarColorWorkerForPage() {
+    if (!planarWorker) planarWorker = new Worker(new URL('../engine/planar-color-worker.ts', import.meta.url), { type: 'module' })
+    return planarWorker
+  }
+
+  async function generatePlanarColorMasks() {
+    if (!sourceImage || !sourceImage.url.startsWith('blob:')) { maskMessage = planarWords.noFit; return }
+    const sourceUrl = sourceImage.url
+    const requestId = ++planarRequestId
+    maskBusy = true
+    maskMessage = ''
+    planarProposals = []
+    planarPreviewIndex = -1
+    planarDiagnostics = null
+    try {
+      const response = await fetch(sourceUrl)
+      if (!response.ok || sourceImage?.url !== sourceUrl) throw new Error('source')
+      const blob = await response.blob()
+      const image = await decodeFile(new File([blob], 'rastavec-source', { type: blob.type || 'image/png' }))
+      if (sourceImage?.url !== sourceUrl) throw new Error('source-changed')
+      const worker = planarColorWorkerForPage()
+      const pixels = image.data.buffer as ArrayBuffer
+      await new Promise<void>((resolve, reject) => {
+        worker.onmessage = (event: MessageEvent<PlanarColorWorkerMessage>) => {
+          const message = event.data
+          if (message.requestId !== requestId) return
+          if (message.type === 'error') { reject(new Error('planar-worker')); return }
+          if (sourceImage?.url !== sourceUrl) { reject(new Error('source-changed')); return }
+          const result = message.result
+          if (result.status === 'abstained') {
+            planarDiagnostics = null
+            maskMessage = planarWords.noFit
+            resolve()
+            return
+          }
+          planarDiagnostics = result.diagnostics
+          planarProposals = result.hypotheses.map((hypothesis): LocalMaskProposal => ({
+            ...hypothesis,
+            previewUrl: renderMaskPreview(hypothesis.mask),
+          }))
+          maskMessage = planarWords.ready(planarProposals.length)
+          resolve()
+        }
+        worker.onerror = () => reject(new Error('planar-worker'))
+        worker.postMessage({ type: 'propose', requestId, width: image.width, height: image.height, pixels }, [pixels])
+      })
+    } catch {
+      if (requestId === planarRequestId) maskMessage = planarWords.noFit
+    } finally {
+      if (requestId === planarRequestId) maskBusy = false
+    }
+  }
+
+  function previewPlanarColorHypothesis(index: number) {
+    const proposal = planarProposals[index]
+    if (!proposal) return
+    planarPreviewIndex = index
+    maskPreviewUrl = proposal.previewUrl
+  }
+
+  function usePreviewedPlanarColorHypothesis() {
+    const proposal = planarProposals[planarPreviewIndex]
+    if (!proposal) return
+    segmentationHypothesis = proposal
+    maskMessage = words.maskLoaded(proposal.mask.width, proposal.mask.height)
+  }
+
+  function connectedComponentWorkerForPage() {
+    if (!componentWorker) componentWorker = new Worker(new URL('../engine/connected-component-worker.ts', import.meta.url), { type: 'module' })
+    return componentWorker
+  }
+
+  async function generateConnectedComponentMasks() {
+    if (!sourceImage || !sourceImage.url.startsWith('blob:')) { maskMessage = componentWords.noFit; return }
+    const sourceUrl = sourceImage.url
+    const requestId = ++componentRequestId
+    maskBusy = true
+    maskMessage = ''
+    componentProposals = []
+    componentPreviewIndex = -1
+    componentDiagnostics = null
+    try {
+      const response = await fetch(sourceUrl)
+      if (!response.ok || sourceImage?.url !== sourceUrl) throw new Error('source')
+      const blob = await response.blob()
+      const image = await decodeFile(new File([blob], 'rastavec-source', { type: blob.type || 'image/png' }))
+      if (sourceImage?.url !== sourceUrl) throw new Error('source-changed')
+      const worker = connectedComponentWorkerForPage()
+      const pixels = image.data.buffer as ArrayBuffer
+      await new Promise<void>((resolve, reject) => {
+        worker.onmessage = (event: MessageEvent<ConnectedComponentWorkerMessage>) => {
+          const message = event.data
+          if (message.requestId !== requestId) return
+          if (message.type === 'error') { reject(new Error('component-worker')); return }
+          if (sourceImage?.url !== sourceUrl) { reject(new Error('source-changed')); return }
+          const result = message.result
+          if (result.status === 'abstained') {
+            componentDiagnostics = null
+            maskMessage = `${componentWords.noFit} ${result.reason}`
+            resolve()
+            return
+          }
+          componentDiagnostics = result.diagnostics
+          componentProposals = result.hypotheses.map((hypothesis): LocalMaskProposal => ({
+            ...hypothesis,
+            previewUrl: renderMaskPreview(hypothesis.mask),
+          }))
+          maskMessage = componentWords.ready(componentProposals.length)
+          resolve()
+        }
+        worker.onerror = () => reject(new Error('component-worker'))
+        worker.postMessage({ type: 'propose', requestId, width: image.width, height: image.height, pixels }, [pixels])
+      })
+    } catch {
+      if (requestId === componentRequestId) maskMessage = componentWords.noFit
+    } finally {
+      if (requestId === componentRequestId) maskBusy = false
+    }
+  }
+
+  function previewConnectedComponentHypothesis(index: number) {
+    const proposal = componentProposals[index]
+    if (!proposal) return
+    componentPreviewIndex = index
+    maskPreviewUrl = proposal.previewUrl
+  }
+
+  function usePreviewedConnectedComponentHypothesis() {
+    const proposal = componentProposals[componentPreviewIndex]
+    if (!proposal) return
+    segmentationHypothesis = proposal
+    maskMessage = words.maskLoaded(proposal.mask.width, proposal.mask.height)
   }
 
   function selectGroupsFromMask() {
-    if (!segmentationMask || !sourceImage || !output || !current) return
+    if (!segmentationHypothesis || !sourceImage || !output || !current) return
     const viewBox = svgViewBox(output.svg)
     if (!viewBox) { maskMessage = words.maskError; return }
     try {
-      const result = selectGroupsByMask(output.groups, segmentationMask, viewBox, sourceImage.width, sourceImage.height)
+      const result = selectGroupsByMask(output.groups, segmentationHypothesis.mask, viewBox, sourceImage.width, sourceImage.height)
       const eligible = result.groupIds.filter((id) => {
         const group = output!.groups.find((candidate) => candidate.id === id)
         return !!group && !annotations[group.key]?.locked
@@ -816,9 +1141,29 @@
           <div class="row mask-controls">
             <input id="segmentation-mask-file" class="mask-file" type="file" accept="image/png,.png" onchange={importSegmentationMask} disabled={maskBusy} />
             <label class="btn" for="segmentation-mask-file">{words.maskImport}</label>
-            <button type="button" class="btn btn-primary" onclick={selectGroupsFromMask} disabled={!segmentationMask || maskBusy || !output.groups.length}>{words.maskApply}</button>
+            <button type="button" class="btn btn-primary" onclick={selectGroupsFromMask} disabled={!segmentationHypothesis || maskBusy || !output.groups.length}>{words.maskApply}</button>
           </div>
           <span class="muted tiny">{words.maskLocalOnly}</span>
+          <div class="sam-panel" aria-labelledby="connected-components-title">
+            <h4 id="connected-components-title" class="h3">{componentWords.title}</h4>
+            <p class="muted tiny">{componentWords.description}</p>
+            <div class="row mask-controls">
+              <button type="button" class="btn" onclick={generateConnectedComponentMasks} disabled={maskBusy || !sourceImage}>{componentWords.run}</button>
+            </div>
+            {#if componentProposals.length}
+              <div class="sam-proposals" aria-label={componentWords.title}>
+                {#each componentProposals as proposal, index}
+                  <button type="button" class="sam-proposal" aria-pressed={componentPreviewIndex === index} onclick={() => previewConnectedComponentHypothesis(index)} disabled={maskBusy}>
+                    <img src={proposal.previewUrl} alt="" /><span>{componentWords.candidate(index + 1, Number(proposal.geometry?.parameters?.analysisPixelArea ?? 0))}</span>
+                  </button>
+                {/each}
+              </div>
+              <button type="button" class="btn" onclick={usePreviewedConnectedComponentHypothesis} disabled={componentPreviewIndex < 0 || maskBusy}>{words.samApplyProposal}</button>
+              {#if componentDiagnostics?.warnings.length}
+                <ul class="muted tiny">{#each componentDiagnostics.warnings as warning}<li>{warning}</li>{/each}</ul>
+              {/if}
+            {/if}
+          </div>
           <div class="sam-panel" aria-labelledby="mobile-sam-title">
             <h4 id="mobile-sam-title" class="h3">{words.samTitle}</h4>
             <p class="muted tiny">{words.samDescription}</p>
@@ -836,6 +1181,7 @@
               <label class="small" for="mobile-sam-grid">{words.samGrid}</label>
               <select id="mobile-sam-grid" bind:value={samGridSize} disabled={maskBusy}>
                 <option value={2}>2 × 2</option><option value={3}>3 × 3</option><option value={4}>4 × 4</option>
+                <option value={5}>5 × 5</option><option value={6}>6 × 6</option>
               </select>
               <button type="button" class="btn" onclick={generateMobileSamMasks} disabled={maskBusy || !samEncoderFile || !samDecoderFile}>{words.samGenerate}</button>
               {#if samProgress}<span class="muted tiny" role="status" aria-live="polite">{samProgress}</span>{/if}
@@ -850,11 +1196,58 @@
               <div class="sam-proposals" aria-label={words.samTitle}>
                 {#each samProposals as proposal, index}
                   <button type="button" class="sam-proposal" aria-pressed={samPreviewIndex === index} onclick={() => previewMobileSamProposal(index)} disabled={maskBusy}>
-                    <img src={proposal.previewUrl} alt="" /><span>{words.samProposal(index + 1, proposal.score)}</span>
+                    <img src={proposal.previewUrl} alt="" /><span>{words.samProposal(index + 1, proposal.score?.value ?? 0)}</span>
                   </button>
                 {/each}
               </div>
               <button type="button" class="btn" onclick={usePreviewedMobileSamMask} disabled={samPreviewIndex < 0 || maskBusy}>{words.samApplyProposal}</button>
+            {/if}
+          </div>
+          {#if objectProviderComparisonMessage}
+            <p class="muted tiny" role="status">{objectProviderComparisonMessage}</p>
+          {/if}
+          <div class="sam-panel" aria-labelledby="planar-color-title">
+            <h4 id="planar-color-title" class="h3">{planarWords.title}</h4>
+            <p class="muted tiny">{planarWords.description}</p>
+            <div class="row mask-controls">
+              <button type="button" class="btn" onclick={generatePlanarColorMasks} disabled={maskBusy || !sourceImage}>{planarWords.run}</button>
+            </div>
+            {#if planarProposals.length}
+              <div class="sam-proposals" aria-label={planarWords.title}>
+                {#each planarProposals as proposal, index}
+                  <button type="button" class="sam-proposal" aria-pressed={planarPreviewIndex === index} onclick={() => previewPlanarColorHypothesis(index)} disabled={maskBusy}>
+                    <img src={proposal.previewUrl} alt="" /><span>{planarWords.candidate(index + 1, planarDiagnostics?.paintFit?.model ?? 'unknown')}</span>
+                  </button>
+                {/each}
+              </div>
+              <button type="button" class="btn" onclick={usePreviewedPlanarColorHypothesis} disabled={planarPreviewIndex < 0 || maskBusy}>{words.samApplyProposal}</button>
+              {#if planarDiagnostics?.paintFit?.bottomToTop}
+                <p class="muted tiny">{planarDiagnostics.paintFit.bottomToTop.join(' → ')}</p>
+              {/if}
+              {#if planarDiagnostics?.warnings.length}
+                <ul class="muted tiny">{#each planarDiagnostics.warnings as warning}<li>{warning}</li>{/each}</ul>
+              {/if}
+            {/if}
+          </div>
+          <div class="sam-panel" aria-labelledby="circle-overlap-title">
+            <h4 id="circle-overlap-title" class="h3">{circleWords.title}</h4>
+            <p class="muted tiny">{circleWords.description}</p>
+            <div class="row mask-controls">
+              <button type="button" class="btn" onclick={generateCircleOverlapMasks} disabled={maskBusy || !sourceImage}>{circleWords.run}</button>
+            </div>
+            {#if circleProposals.length}
+              <div class="sam-proposals" aria-label={circleWords.title}>
+                {#each circleProposals as proposal, index}
+                  <button type="button" class="sam-proposal" aria-pressed={circlePreviewIndex === index} onclick={() => previewCircleHypothesis(index)} disabled={maskBusy}>
+                    <img src={proposal.previewUrl} alt="" /><span>{circleWords.candidate(index + 1, (proposal.score?.value ?? 0) * 100)}</span>
+                  </button>
+                {/each}
+              </div>
+              <button type="button" class="btn" onclick={usePreviewedCircleHypothesis} disabled={circlePreviewIndex < 0 || maskBusy}>{words.samApplyProposal}</button>
+              {#if circleDiagnostics?.orderFit}
+                <p class="muted tiny">{circleWords.order(circleDiagnostics.orderFit.bottomToTop.join(' → '), circleDiagnostics.orderFit.margin)}</p>
+              {/if}
+              {#if circleDiagnostics?.warnings.length}<p class="muted tiny">{circleWords.warning}</p>{/if}
             {/if}
           </div>
           {#if maskMessage}<span class="small" aria-live="polite">{maskBusy ? words.running : maskMessage}</span>{/if}

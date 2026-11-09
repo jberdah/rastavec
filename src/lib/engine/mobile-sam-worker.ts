@@ -1,7 +1,9 @@
 /// <reference lib="webworker" />
 import * as ort from 'onnxruntime-web/wasm'
 import wasmUrl from 'onnxruntime-web/ort-wasm-simd-threaded.wasm?url'
-import { makePromptGrid, uniqueMaskCandidates, verifyMobileSamPair, type MaskCandidate } from './mobile-sam-inference'
+import { makePromptGrid, selectMobileSamPromptGrid, uniqueMaskCandidates, verifyMobileSamPair, type MaskCandidate } from './mobile-sam-inference'
+import { proposeConnectedComponentHypotheses } from './connected-component-hypotheses'
+import type { RGBAImage } from './core'
 
 type GenerateRequest = {
   type: 'generate'
@@ -15,7 +17,7 @@ type WorkerRequest = GenerateRequest
 type ProposalMessage = { prompt: MaskCandidate['prompt']; score: number; width: number; height: number; data: ArrayBuffer }
 type WorkerResponse =
   | { type: 'progress'; requestId: number; stage: 'models' | 'encoder' | 'decoder'; complete: number; total: number }
-  | { type: 'done'; requestId: number; proposals: ProposalMessage[]; elapsedMs: number }
+  | { type: 'done'; requestId: number; proposals: ProposalMessage[]; elapsedMs: number; promptFilter: { requested: number; retained: number; skipped: number; applied: boolean; foregroundMasks: number; mode: 'foreground-gated' | 'full-grid'; reason: string } }
   | { type: 'error'; requestId: number; code: string }
 
 const scope = self as unknown as DedicatedWorkerGlobalScope
@@ -71,7 +73,10 @@ function makeRgbTensor(bitmap: ImageBitmap) {
     rgb[dst + 1] = rgba[src + 1]
     rgb[dst + 2] = rgba[src + 2]
   }
-  return { width, height, tensor: new ort.Tensor('float32', rgb, [height, width, 3]) }
+  return {
+    width, height, tensor: new ort.Tensor('float32', rgb, [height, width, 3]),
+    source: { width, height, data: rgba } satisfies RGBAImage,
+  }
 }
 
 function maskToBinary(tensor: ort.Tensor, width: number, height: number) {
@@ -100,7 +105,10 @@ async function generate(request: GenerateRequest) {
     if (!(embeddings instanceof ort.Tensor)) throw new Error('model-output')
     post({ type: 'progress', requestId: request.requestId, stage: 'encoder', complete: 1, total: 1 })
 
-    const points = makePromptGrid(image.width, image.height, request.gridSize)
+    const requestedPoints = makePromptGrid(image.width, image.height, request.gridSize)
+    const componentResult = proposeConnectedComponentHypotheses(image.source)
+    const promptFilter = selectMobileSamPromptGrid(requestedPoints, image, componentResult)
+    const points = promptFilter.prompts
     const candidates: MaskCandidate[] = []
     for (let index = 0; index < points.length; index++) {
       const prompt = points[index]
@@ -124,7 +132,10 @@ async function generate(request: GenerateRequest) {
     }))
     const transfer = proposals.map((proposal) => proposal.data)
     post({ type: 'progress', requestId: request.requestId, stage: 'decoder', complete: points.length, total: points.length })
-    post({ type: 'done', requestId: request.requestId, proposals, elapsedMs: Math.round(performance.now() - started) }, transfer)
+    post({ type: 'done', requestId: request.requestId, proposals, elapsedMs: Math.round(performance.now() - started),
+      promptFilter: { requested: promptFilter.requestedCount, retained: promptFilter.retainedCount,
+        skipped: promptFilter.skippedCount, applied: promptFilter.applied, foregroundMasks: promptFilter.foregroundMaskCount,
+        mode: promptFilter.mode, reason: promptFilter.reason } }, transfer)
   } finally {
     bitmap.close()
   }

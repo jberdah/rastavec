@@ -11,7 +11,7 @@ await build({
   target: 'node18',
   format: 'cjs',
   outfile: 'dist/rastavec.cjs',
-  external: ['sharp', '@visioncortex/vtracer'],
+  external: ['sharp', '@visioncortex/vtracer', 'onnxruntime-web'],
   banner: { js: '#!/usr/bin/env node' },
   define: { __VERSION__: JSON.stringify(pkg.version) },
   legalComments: 'none',
