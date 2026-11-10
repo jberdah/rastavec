@@ -11,6 +11,8 @@ export interface PlanarColorDiagnostics {
   graph: { objectCount: number; vertices: number; edges: number; isTree: boolean; thetaClassCount: number }
   adjacency: {
     minimumStatePixels: number
+    outOfModelPixelCount: number
+    outOfModelFraction: number
     requestedMinimumBorderPixels: number
     selectedMinimumBorderPixels: number
     radiusPixels: number
@@ -320,9 +322,9 @@ export function proposePlanarColorHypotheses(image: RGBAImage, options: PlanarCo
   if (palette.length < 3 || palette.length > MAX_PALETTE_SIZE)
     return { status: 'abstained', reason: `Expected 3–${MAX_PALETTE_SIZE} dominant color states including the background; found ${palette.length}.` }
 
-  const labels = new Uint8Array(pixelCount)
-  const nearestErrors = new Uint32Array(pixelCount)
+  const labels = new Int16Array(pixelCount).fill(-1)
   const stateCounts = new Uint32Array(palette.length)
+  let outOfModelPixelCount = 0
   for (let y = 0; y < raster.height; y++) for (let x = 0; x < raster.width; x++) {
     const offset = (y * raster.width + x) * 4
     const color: RGB = [raster.data[offset], raster.data[offset + 1], raster.data[offset + 2]]
@@ -332,9 +334,10 @@ export function proposePlanarColorHypotheses(image: RGBAImage, options: PlanarCo
       if (error < nearestError) { nearest = state; nearestError = error }
     }
     const index = y * raster.width + x
-    labels[index] = nearest
-    nearestErrors[index] = nearestError
-    stateCounts[nearest]++
+    if (nearestError <= maxInteriorError) {
+      labels[index] = nearest
+      stateCounts[nearest]++
+    } else outOfModelPixelCount++
   }
 
   const adjacency: Graph = Array.from({ length: palette.length }, () => new Map<number, number>())
@@ -347,17 +350,17 @@ export function proposePlanarColorHypotheses(image: RGBAImage, options: PlanarCo
   for (let distance = 1; distance <= adjacencyRadius; distance++) offsets.push([distance, 0], [0, distance])
   for (let y = 0; y < raster.height; y++) for (let x = 0; x < raster.width; x++) {
     const index = y * raster.width + x
-    if (nearestErrors[index] > maxInteriorError) continue
+    if (labels[index] < 0) continue
     for (const [dx, dy] of offsets) {
       const nx = x + dx, ny = y + dy
       if (nx >= raster.width || ny >= raster.height) continue
       const neighbor = ny * raster.width + nx
-      if (nearestErrors[neighbor] > maxInteriorError || labels[index] === labels[neighbor]) continue
+      if (labels[neighbor] < 0 || labels[index] === labels[neighbor]) continue
       const steps = Math.abs(dx) + Math.abs(dy)
       let blockedByThirdState = false
       for (let step = 1; step < steps; step++) {
         const between = (y + dy * step / steps) * raster.width + x + dx * step / steps
-        if (nearestErrors[between] <= maxInteriorError && labels[between] !== labels[index] && labels[between] !== labels[neighbor]) {
+        if (labels[between] >= 0 && labels[between] !== labels[index] && labels[between] !== labels[neighbor]) {
           blockedByThirdState = true
           break
         }
@@ -406,6 +409,7 @@ export function proposePlanarColorHypotheses(image: RGBAImage, options: PlanarCo
     'Membership masks come from dominant-color adjacency; this does not identify a semantic label or primitive family.',
     'The masks do not establish fully hidden geometry beyond the color-state memberships visible in this raster.',
   ]
+  if (outOfModelPixelCount) warnings.push(`${outOfModelPixelCount} analysis pixels (${(outOfModelPixelCount / pixelCount * 100).toFixed(2)}%) exceeded the maximum interior color error and were excluded from state counts, paint fitting, adjacency, and masks.`)
   if (paint.model === 'multiply') {
     if (!paint.modelIdentifiable) warnings.push('The color residuals do not clearly distinguish Multiply from source-over; treat the paint model as ambiguous.')
     warnings.push('Multiply factors commute; the source paint order is not identifiable.')
@@ -417,7 +421,10 @@ export function proposePlanarColorHypotheses(image: RGBAImage, options: PlanarCo
 
   const hypotheses = layerIds.map((id, objectIndex) => {
     const maskData = new Uint8Array(pixelCount)
-    for (let pixel = 0; pixel < pixelCount; pixel++) if (stateMasks[labels[pixel]] & (1 << objectIndex)) maskData[pixel] = 1
+    for (let pixel = 0; pixel < pixelCount; pixel++) {
+      const state = labels[pixel]
+      if (state >= 0 && stateMasks[state] & (1 << objectIndex)) maskData[pixel] = 1
+    }
     const hypothesis = createMaskHypothesis({
       id,
       mask: { width: raster.width, height: raster.height, data: maskData },
@@ -458,6 +465,8 @@ export function proposePlanarColorHypotheses(image: RGBAImage, options: PlanarCo
       graph: { objectCount, vertices: palette.length, edges: selected.embedding.edges.length, isTree, thetaClassCount: selected.embedding.thetaClasses.length },
       adjacency: {
         minimumStatePixels: minStatePixels,
+        outOfModelPixelCount,
+        outOfModelFraction: outOfModelPixelCount / pixelCount,
         requestedMinimumBorderPixels: requestedMinAdjacency,
         selectedMinimumBorderPixels: selected.threshold,
         radiusPixels: adjacencyRadius,

@@ -78,9 +78,10 @@ export interface ProviderMaskSetComparison {
   rightMaskMeanings: ObjectMaskMeaning[]
   maskMeaningsComparable: boolean
   matchingThreshold: number
+  meanAssignedIoU: number | null
   meanMatchedIoU: number | null
   matchesAtThreshold: number
-  matches: Array<{ leftHypothesisId: string; rightHypothesisId: string; iou: number }>
+  matches: Array<{ leftHypothesisId: string; rightHypothesisId: string; iou: number; acceptedAtThreshold: boolean }>
   unmatchedLeft: string[]
   unmatchedRight: string[]
 }
@@ -196,24 +197,42 @@ export function compareProviderHypothesisSets(
     const a = maskComparable[left], b = maskComparable[right]
     const leftMaskMeanings = [...new Set(a.hypotheses.map(({ maskMeaning }) => maskMeaning))]
     const rightMaskMeanings = [...new Set(b.hypotheses.map(({ maskMeaning }) => maskMeaning))]
-    const maskMeaningsComparable = leftMaskMeanings.length === rightMaskMeanings.length
-      && leftMaskMeanings.every((meaning) => rightMaskMeanings.includes(meaning))
-    const matrix = a.hypotheses.map((leftHypothesis) => b.hypotheses.map((rightHypothesis) => maskIoU(leftHypothesis.mask, rightHypothesis.mask) ?? 0))
-    const assignments = maximumAssignment(matrix)
-    const matchedPairs = assignments.map(([leftIndex, rightIndex]) => ({
+    const meaningCounts = (hypotheses: ProviderHypothesisSet['hypotheses']) => {
+      const counts = new Map<ObjectMaskMeaning, number>()
+      for (const hypothesis of hypotheses) counts.set(hypothesis.maskMeaning, (counts.get(hypothesis.maskMeaning) ?? 0) + 1)
+      return counts
+    }
+    const leftCounts = meaningCounts(a.hypotheses), rightCounts = meaningCounts(b.hypotheses)
+    const maskMeaningsComparable = !leftCounts.has('unknown') && !rightCounts.has('unknown')
+      && leftCounts.size === rightCounts.size
+      && [...leftCounts].every(([meaning, count]) => rightCounts.get(meaning) === count)
+    const sharedKnownMeanings = [...leftCounts.keys()].filter((meaning) => meaning !== 'unknown' && rightCounts.has(meaning))
+    const assignedPairs: Array<{ leftIndex: number; rightIndex: number; iou: number }> = []
+    for (const meaning of sharedKnownMeanings) {
+      const leftIndices = a.hypotheses.flatMap((hypothesis, index) => hypothesis.maskMeaning === meaning ? [index] : [])
+      const rightIndices = b.hypotheses.flatMap((hypothesis, index) => hypothesis.maskMeaning === meaning ? [index] : [])
+      const matrix = leftIndices.map((leftIndex) => rightIndices.map((rightIndex) =>
+        maskIoU(a.hypotheses[leftIndex].mask, b.hypotheses[rightIndex].mask) ?? 0))
+      for (const [localLeft, localRight] of maximumAssignment(matrix))
+        assignedPairs.push({ leftIndex: leftIndices[localLeft], rightIndex: rightIndices[localRight], iou: matrix[localLeft][localRight] })
+    }
+    const matches = assignedPairs.map(({ leftIndex, rightIndex, iou }) => ({
       leftHypothesisId: a.hypotheses[leftIndex].id,
       rightHypothesisId: b.hypotheses[rightIndex].id,
-      iou: matrix[leftIndex][rightIndex],
+      iou,
+      acceptedAtThreshold: iou >= matchingThreshold,
     }))
-    const accepted = assignments.filter(([leftIndex, rightIndex]) => matrix[leftIndex][rightIndex] >= matchingThreshold)
-    const matchedLeft = new Set(accepted.map(([index]) => index))
-    const matchedRight = new Set(accepted.map(([, index]) => index))
+    const accepted = assignedPairs.filter(({ iou }) => iou >= matchingThreshold)
+    const matchedLeft = new Set(accepted.map(({ leftIndex }) => leftIndex))
+    const matchedRight = new Set(accepted.map(({ rightIndex }) => rightIndex))
+    const acceptedIous = accepted.map(({ iou }) => iou)
     maskComparisons.push({
       leftProvider: a.provider, rightProvider: b.provider, leftMaskMeanings, rightMaskMeanings,
       maskMeaningsComparable, matchingThreshold,
-      meanMatchedIoU: matchedPairs.length ? matchedPairs.reduce((sum, pair) => sum + pair.iou, 0) / matchedPairs.length : null,
-      matchesAtThreshold: matchedPairs.filter(({ iou }) => iou >= matchingThreshold).length,
-      matches: matchedPairs,
+      meanAssignedIoU: assignedPairs.length ? assignedPairs.reduce((sum, pair) => sum + pair.iou, 0) / assignedPairs.length : null,
+      meanMatchedIoU: acceptedIous.length ? acceptedIous.reduce((sum, value) => sum + value, 0) / acceptedIous.length : null,
+      matchesAtThreshold: accepted.length,
+      matches,
       unmatchedLeft: a.hypotheses.filter((_, index) => !matchedLeft.has(index)).map(({ id }) => id),
       unmatchedRight: b.hypotheses.filter((_, index) => !matchedRight.has(index)).map(({ id }) => id),
     })

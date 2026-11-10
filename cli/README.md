@@ -46,10 +46,12 @@ objects represented by frequent flat-color states on a flat opaque background. E
 records its own provenance, fit evidence, warnings and explicit abstentions. Proposed
 objects remain `human-review-required`. Inference reads only the raster. Each mask PNG is
 white on transparency and may be downsampled to the provider's analysis size; its exact
-dimensions are recorded in `report.json`. The planar-color TypeScript port has been measured
-on the 24-scene object-detection corpus: 18/55 visible objects matched at IoU 0.5, with no
-false positives and 3/24 exact counts. Gradient paint fitting and a general-purpose
-detector for arbitrary shapes are not wired into this command yet. The connected-component
+dimensions are recorded in `report.json`. One internal synthetic-development measurement of
+the planar-color TypeScript port used a 24-scene/55-object corpus: 18/55 visible objects
+matched at IoU 0.5, with no false positives and 3/24 exact counts. These are previously-seen
+development results, not natural-art accuracy or independent validation. Gradient paint
+fitting and a general-purpose detector for arbitrary shapes are not wired into this command
+yet. The connected-component
 route covers visible regions on transparent canvases or images with a border-derived
 background; it does not complete occluded shapes, and it can merge touching objects or split
 one object with disconnected parts.
@@ -80,14 +82,17 @@ rastavec objects venn.png -o hypotheses/ --sam-encoder mobile_sam_image_encoder.
 
 The grid defaults to 3×3; values from 2 to 6 control the maximum number of positive prompts
 (grid size squared). Duplicate masks are removed deterministically. MobileSAM inference is
-local and sequential. The current published `0.4.0-beta.1`
+local and sequential. CI covers prompt-selection helpers and package loading, but does not
+currently run encoder/decoder inference with the ONNX model pair; model-backed execution and
+session teardown remain unverified by automated tests. The current published `0.4.0-beta.1`
 package predates this CLI route; build from the repository checkout to use it.
 When multiple routes propose objects, `providerComparison` reports counts from all routes and
 maximum-IoU one-to-one mask matches for the routes listed in `maskComparableProviders`.
-Visible-region masks are excluded from completed-object mask matching because their meanings
-differ, while their counts remain visible. These are cross-route consistency measures, not
-calibrated confidence or proof that either route is correct. The text summary calls out count
-disagreements and summarizes matched-mask IoU.
+Only masks with the same known meaning are compared by IoU; unknown or incompatible categories
+are excluded while counts remain visible. The reported mean matched IoU includes only
+threshold-qualified pairs, and mean assigned IoU remains a separate diagnostic. These are
+cross-route consistency measures, not calibrated confidence or proof that either route is
+correct. The text summary calls out count disagreements and summarizes matched-mask IoU.
 The command is available from a local checkout after `npm run build` in `cli/`; the already
 published `0.4.0-beta.1` package does not contain this addition.
 
