@@ -4,8 +4,12 @@ import { createMaskHypothesis, type ObjectHypothesis } from './object-hypotheses
 export interface CircleOverlapDiagnostics {
   analysisSize: { width: number; height: number }
   background: [number, number, number]
+  backgroundBorderSupportFraction: number
+  backgroundCornerSupportCount: number
   seedColors: Array<[number, number, number]>
   boundaryPointCounts: number[]
+  boundaryArcCoverageDegrees: number[]
+  minimumBoundaryArcCoverageDegrees: number
   relativeRadialRms: number[]
   membershipPixelCounts: number[]
   orderFit?: { bestRmse: number; runnerUpRmse: number; margin: number; orderIdentifiable: boolean; bottomToTop?: string[] }
@@ -17,16 +21,19 @@ export type CircleOverlapProposalResult =
   | { status: 'abstained'; reason: string; diagnostics?: Partial<CircleOverlapDiagnostics> }
 
 interface ColorEntry { color: [number, number, number]; count: number; firstPixel: number; exposedBoundary: number }
-interface CircleFit { cx: number; cy: number; radius: number; boundaryPoints: number; radialRms: number }
+interface CircleFit { cx: number; cy: number; radius: number; boundaryPoints: number; angularCoverageDegrees: number; radialRms: number }
 interface OrderFit { order: number[]; opacity: number[]; rmse: number }
 type SeedDiscoveryResult =
-  | { ok: true; background: [number, number, number]; seeds: Array<[number, number, number]>; colors: number }
-  | { ok: false; error: string }
+  | { ok: true; background: [number, number, number]; backgroundBorderSupportFraction: number; backgroundCornerSupportCount: number; seeds: Array<[number, number, number]>; colors: number }
+  | { ok: false; error: string; backgroundBorderSupportFraction?: number; backgroundCornerSupportCount?: number }
 
 const COLOR_TOLERANCE = 24
 const BACKGROUND_TOLERANCE = 24
 const MAX_ANALYSIS_DIMENSION = 800
 const MAX_PALETTE_COLORS = 4096
+const MIN_BACKGROUND_BORDER_SUPPORT_FRACTION = 0.75
+const MIN_BACKGROUND_CORNER_SUPPORT_COUNT = 4
+const MIN_BOUNDARY_ARC_COVERAGE_DEGREES = 150
 
 function colorDistanceSquared(a: ArrayLike<number>, b: ArrayLike<number>) {
   return (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2
@@ -55,7 +62,46 @@ function analyzeRaster(image: RGBAImage) {
   return { data: rgba, width, height }
 }
 
+function estimateBorderBackground(data: Uint8Array, width: number, height: number) {
+  const histogram = new Map<string, { color: [number, number, number]; count: number }>()
+  const add = (x: number, y: number) => {
+    const color = pixelRgb(data, y * width + x)
+    const key = color.join(',')
+    const entry = histogram.get(key)
+    if (entry) entry.count++
+    else histogram.set(key, { color, count: 1 })
+  }
+  for (let x = 0; x < width; x++) { add(x, 0); add(x, height - 1) }
+  for (let y = 1; y < height - 1; y++) { add(0, y); add(width - 1, y) }
+
+  const borderPixelCount = 2 * width + 2 * height - 4
+  const candidate = [...histogram.values()].sort((a, b) => b.count - a.count)[0]
+  if (!candidate) return { background: [0, 0, 0] as [number, number, number], supportFraction: 0, cornerSupportCount: 0 }
+  const toleranceSquared = BACKGROUND_TOLERANCE ** 2
+  let support = 0
+  for (let x = 0; x < width; x++) {
+    if (colorDistanceSquared(pixelRgb(data, x), candidate.color) <= toleranceSquared) support++
+    const bottom = (height - 1) * width + x
+    if (colorDistanceSquared(pixelRgb(data, bottom), candidate.color) <= toleranceSquared) support++
+  }
+  for (let y = 1; y < height - 1; y++) {
+    if (colorDistanceSquared(pixelRgb(data, y * width), candidate.color) <= toleranceSquared) support++
+    const right = y * width + width - 1
+    if (colorDistanceSquared(pixelRgb(data, right), candidate.color) <= toleranceSquared) support++
+  }
+  const corners = [0, width - 1, (height - 1) * width, height * width - 1]
+  const cornerSupportCount = corners.filter((index) => colorDistanceSquared(pixelRgb(data, index), candidate.color) <= toleranceSquared).length
+  return { background: candidate.color, supportFraction: support / borderPixelCount, cornerSupportCount }
+}
+
 function discoverSeeds(data: Uint8Array, width: number, height: number): SeedDiscoveryResult {
+  const border = estimateBorderBackground(data, width, height)
+  if (border.supportFraction < MIN_BACKGROUND_BORDER_SUPPORT_FRACTION || border.cornerSupportCount < MIN_BACKGROUND_CORNER_SUPPORT_COUNT) return {
+    ok: false,
+    error: `The image border does not reliably identify a flat background (${(border.supportFraction * 100).toFixed(1)}% border support; ${border.cornerSupportCount}/4 corners). At least ${MIN_BACKGROUND_BORDER_SUPPORT_FRACTION * 100}% border support and all four corners are required.`,
+    backgroundBorderSupportFraction: border.supportFraction,
+    backgroundCornerSupportCount: border.cornerSupportCount,
+  }
   const histogram = new Map<string, ColorEntry>()
   const pixelCount = width * height
   for (let pixelIndex = 0; pixelIndex < pixelCount; pixelIndex++) {
@@ -70,15 +116,17 @@ function discoverSeeds(data: Uint8Array, width: number, height: number): SeedDis
   }
   const palette = [...histogram.values()].sort((a, b) => b.count - a.count)
   if (palette.length < 4) return { ok: false, error: 'A flat background and three distinct exposed circle colors are required.' }
-  const background = palette[0]
+  const backgroundColor = border.background
   const backgroundToleranceSquared = BACKGROUND_TOLERANCE ** 2
-  const candidatePalette = palette.slice(1, 65)
+  const candidatePalette = palette
+    .filter((entry) => colorDistanceSquared(entry.color, backgroundColor) > backgroundToleranceSquared)
+    .slice(0, 64)
   for (let y = 1; y < height - 1; y++) for (let x = 1; x < width - 1; x++) {
     const index = y * width + x
     const color = pixelRgb(data, index)
-    if (colorDistanceSquared(color, background.color) <= backgroundToleranceSquared) continue
+    if (colorDistanceSquared(color, backgroundColor) <= backgroundToleranceSquared) continue
     const neighbors = [index - 1, index + 1, index - width, index + width]
-    if (!neighbors.some((neighbor) => colorDistanceSquared(pixelRgb(data, neighbor), background.color) <= backgroundToleranceSquared)) continue
+    if (!neighbors.some((neighbor) => colorDistanceSquared(pixelRgb(data, neighbor), backgroundColor) <= backgroundToleranceSquared)) continue
     for (const candidate of candidatePalette)
       if (colorDistanceSquared(color, candidate.color) <= COLOR_TOLERANCE ** 2) candidate.exposedBoundary++
   }
@@ -93,7 +141,11 @@ function discoverSeeds(data: Uint8Array, width: number, height: number): SeedDis
     if (selected.length === 3) break
   }
   if (selected.length !== 3) return { ok: false, error: `Only ${selected.length}/3 distinct exposed flat colors were found.` }
-  return { ok: true, background: background.color, seeds: selected.map((entry) => entry.color), colors: histogram.size }
+  return {
+    ok: true, background: backgroundColor, backgroundBorderSupportFraction: border.supportFraction,
+    backgroundCornerSupportCount: border.cornerSupportCount,
+    seeds: selected.map((entry) => entry.color), colors: histogram.size,
+  }
 }
 
 function solve3(matrix: number[][], rhs: number[]) {
@@ -131,8 +183,12 @@ function fitCircle(points: Array<[number, number]>): CircleFit | null {
   const [cx, cy, constant] = solved
   const radius = Math.sqrt(Math.max(0, constant + cx * cx + cy * cy))
   if (!Number.isFinite(radius) || radius < 2) return null
+  const angles = points.map(([x, y]) => Math.atan2(y - cy, x - cx)).sort((a, b) => a - b)
+  let largestGap = angles[0] + Math.PI * 2 - angles[angles.length - 1]
+  for (let index = 0; index < angles.length - 1; index++) largestGap = Math.max(largestGap, angles[index + 1] - angles[index])
+  const angularCoverageDegrees = (Math.PI * 2 - largestGap) * 180 / Math.PI
   const radialRms = Math.sqrt(points.reduce((sum, [x, y]) => sum + (Math.hypot(x - cx, y - cy) - radius) ** 2, 0) / points.length)
-  return { cx, cy, radius, boundaryPoints: points.length, radialRms }
+  return { cx, cy, radius, boundaryPoints: points.length, angularCoverageDegrees, radialRms }
 }
 
 function extractBoundaryPoints(labels: Int8Array, width: number, height: number, label: number): Array<[number, number]> {
@@ -207,7 +263,15 @@ export function proposeThreeCircleOverlaps(image: RGBAImage): CircleOverlapPropo
 
   const raster = analyzeRaster(image)
   const palette = discoverSeeds(raster.data, raster.width, raster.height)
-  if (!palette.ok) return { status: 'abstained', reason: palette.error }
+  if (!palette.ok) return {
+    status: 'abstained', reason: palette.error,
+    ...(palette.backgroundBorderSupportFraction !== undefined
+      ? { diagnostics: {
+        backgroundBorderSupportFraction: palette.backgroundBorderSupportFraction,
+        ...(palette.backgroundCornerSupportCount !== undefined ? { backgroundCornerSupportCount: palette.backgroundCornerSupportCount } : {}),
+      } }
+      : {}),
+  }
 
   const labels = new Int8Array(raster.width * raster.height)
   labels.fill(-1)
@@ -225,6 +289,23 @@ export function proposeThreeCircleOverlaps(image: RGBAImage): CircleOverlapPropo
   const fits = palette.seeds.map((_, index) => fitCircle(extractBoundaryPoints(labels, raster.width, raster.height, index + 1)))
   if (fits.some((fit) => !fit)) return { status: 'abstained', reason: 'At least one exposed arc is too short or degenerate to fit a circle.' }
   const circles = fits as CircleFit[]
+  const boundaryArcCoverageDegrees = circles.map((circle) => circle.angularCoverageDegrees)
+  if (boundaryArcCoverageDegrees.some((coverage) => coverage < MIN_BOUNDARY_ARC_COVERAGE_DEGREES)) return {
+    status: 'abstained',
+    reason: `At least one fitted circle has less than ${MIN_BOUNDARY_ARC_COVERAGE_DEGREES}° of exposed-arc coverage; its completed geometry is too underconstrained.`,
+    diagnostics: {
+      analysisSize: { width: raster.width, height: raster.height },
+      background: palette.background,
+      backgroundBorderSupportFraction: palette.backgroundBorderSupportFraction,
+      backgroundCornerSupportCount: palette.backgroundCornerSupportCount,
+      seedColors: palette.seeds,
+      boundaryPointCounts: circles.map((circle) => circle.boundaryPoints),
+      boundaryArcCoverageDegrees,
+      minimumBoundaryArcCoverageDegrees: MIN_BOUNDARY_ARC_COVERAGE_DEGREES,
+      relativeRadialRms: circles.map((circle) => circle.radialRms / circle.radius),
+      warnings: ['The color labels fit circles, but at least one visible arc covers too little of its circumference for safe completion.'],
+    },
+  }
   const regionSums = Array.from({ length: 8 }, () => [0, 0, 0])
   const regionCounts = new Uint32Array(8)
   const sampleMargin = 4
@@ -310,8 +391,12 @@ export function proposeThreeCircleOverlaps(image: RGBAImage): CircleOverlapPropo
     diagnostics: {
       analysisSize: { width: raster.width, height: raster.height },
       background: palette.background,
+      backgroundBorderSupportFraction: palette.backgroundBorderSupportFraction,
+      backgroundCornerSupportCount: palette.backgroundCornerSupportCount,
       seedColors: palette.seeds,
       boundaryPointCounts: circles.map((circle) => circle.boundaryPoints),
+      boundaryArcCoverageDegrees,
+      minimumBoundaryArcCoverageDegrees: MIN_BOUNDARY_ARC_COVERAGE_DEGREES,
       relativeRadialRms: circles.map((circle) => circle.radialRms / circle.radius),
       membershipPixelCounts,
       ...(orderFit ? { orderFit } : {}),

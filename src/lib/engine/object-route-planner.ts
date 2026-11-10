@@ -38,16 +38,34 @@ export function recommendObjectRoute(
 
   const circles = byProvider.get('circle-visible-arc-fit')
   if (circles?.status === 'proposed') {
-    const residuals: unknown = record(circles.diagnostics)?.relativeRadialRms
+    const circleDiagnostics = record(circles.diagnostics)
+    const residuals: unknown = circleDiagnostics?.relativeRadialRms
+    const arcCoverage: unknown = circleDiagnostics?.boundaryArcCoverageDegrees
+    const minimumArcCoverage = circleDiagnostics?.minimumBoundaryArcCoverageDegrees
+    const backgroundBorderSupport = circleDiagnostics?.backgroundBorderSupportFraction
+    const backgroundCornerSupport = circleDiagnostics?.backgroundCornerSupportCount
+    const backgroundBorderSupportFraction = typeof backgroundBorderSupport === 'number' ? backgroundBorderSupport : NaN
+    const backgroundCornerSupportCount = typeof backgroundCornerSupport === 'number' ? backgroundCornerSupport : -1
+    const requiredArcCoverage = typeof minimumArcCoverage === 'number' && Number.isFinite(minimumArcCoverage)
+      ? minimumArcCoverage
+      : Infinity
     const usable = Array.isArray(residuals) && residuals.length === 3
       && residuals.every((value) => typeof value === 'number' && Number.isFinite(value))
+      && Array.isArray(arcCoverage) && arcCoverage.length === 3
+      && arcCoverage.every((value) => typeof value === 'number' && Number.isFinite(value))
+      && Number.isFinite(requiredArcCoverage)
+      && Number.isFinite(backgroundBorderSupportFraction)
+      && Number.isSafeInteger(backgroundCornerSupportCount)
     const maximumResidual = usable ? Math.max(...(residuals as number[])) : Infinity
+    const minimumObservedCoverage = usable ? Math.min(...(arcCoverage as number[])) : -Infinity
+    const coveragePasses = usable && minimumObservedCoverage >= requiredArcCoverage
+    const backgroundPasses = usable && backgroundBorderSupportFraction >= 0.75 && backgroundCornerSupportCount === 4
     assessments.push({
       provider: circles.provider,
-      eligible: usable && maximumResidual <= 0.01,
-      basis: usable
-        ? `maximum relative radial residual ${maximumResidual.toFixed(4)} ${maximumResidual <= 0.01 ? 'passes' : 'exceeds'} the 0.01 specialist gate`
-        : 'three finite circle residuals are unavailable',
+      eligible: usable && maximumResidual <= 0.01 && coveragePasses && backgroundPasses,
+      basis: !usable
+        ? 'three finite radial residuals, three exposed-arc coverage values, configured minimum coverage, border support, and corner support are all required'
+        : `maximum relative radial residual ${maximumResidual.toFixed(4)} ${maximumResidual <= 0.01 ? 'passes' : 'exceeds'} the 0.01 gate; minimum exposed-arc coverage ${minimumObservedCoverage.toFixed(1)}° ${coveragePasses ? 'passes' : 'is below'} the ${requiredArcCoverage.toFixed(1)}° gate; background evidence ${backgroundPasses ? 'passes' : 'fails'} (border ${(backgroundBorderSupportFraction * 100).toFixed(1)}%, corners ${backgroundCornerSupportCount}/4)`,
     })
   }
 
