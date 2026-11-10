@@ -77,16 +77,16 @@ export async function createMobileSamCliProvider(encoderPath: string, decoderPat
     async propose(image, gridSize, components = null) {
       if (!Number.isSafeInteger(gridSize) || gridSize < 2 || gridSize > 6)
         throw new Error('MobileSAM grid must be an integer from 2 to 6.')
-      // Match the worker's per-image timing; provider/model initialization happened above.
-      const started = performance.now()
       const input = await makeInput(image)
+      const requestedPrompts = makePromptGrid(input.width, input.height, gridSize)
+      const promptSelection = selectMobileSamPromptGrid(requestedPrompts, input, components)
+      const prompts = promptSelection.prompts
+      // Same measurement boundary as the worker: encoder/decoder inference and mask post-processing.
+      const started = performance.now()
       const encoded = await encoder.run({ input_image: input.tensor })
       const embeddings = encoded.image_embeddings
       if (!(embeddings instanceof ort.Tensor)) throw new Error('MobileSAM encoder returned no image embeddings.')
 
-      const requestedPrompts = makePromptGrid(input.width, input.height, gridSize)
-      const promptSelection = selectMobileSamPromptGrid(requestedPrompts, input, components)
-      const prompts = promptSelection.prompts
       const candidates: MaskCandidate[] = []
       for (const prompt of prompts) {
         const decoded = await decoder!.run({
@@ -105,6 +105,7 @@ export async function createMobileSamCliProvider(encoderPath: string, decoderPat
       }
 
       const uniqueCandidates = uniqueMaskCandidates(candidates)
+      const elapsedMs = Math.round(performance.now() - started)
       const hypotheses = createMobileSamHypotheses(uniqueCandidates, promptSelection)
       return {
         hypotheses,
@@ -113,7 +114,7 @@ export async function createMobileSamCliProvider(encoderPath: string, decoderPat
           gridSize,
           promptSelection,
           uniqueMasks: uniqueCandidates.length,
-          elapsedMs: Math.round(performance.now() - started),
+          elapsedMs,
           modelsVerifiedBySha256: true,
         }),
       }

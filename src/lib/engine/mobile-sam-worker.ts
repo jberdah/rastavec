@@ -95,21 +95,21 @@ async function generate(request: GenerateRequest) {
   await loadModels(encoderBytes, decoderBytes)
   post({ type: 'progress', requestId: request.requestId, stage: 'models', complete: 1, total: 1 })
 
-  // Match the CLI's per-image timing: exclude model file reads and session creation.
-  const started = performance.now()
   const bitmap = await createImageBitmap(request.sourceImage)
   try {
     const image = makeRgbTensor(bitmap)
+    const requestedPoints = makePromptGrid(image.width, image.height, request.gridSize)
+    const componentResult = proposeConnectedComponentHypotheses(image.source)
+    const promptFilter = selectMobileSamPromptGrid(requestedPoints, image, componentResult)
+    const points = promptFilter.prompts
+    // Same measurement boundary as the CLI: encoder/decoder inference and mask post-processing.
+    const started = performance.now()
     post({ type: 'progress', requestId: request.requestId, stage: 'encoder', complete: 0, total: 1 })
     const encoded = await encoderSession!.run({ input_image: image.tensor })
     const embeddings = encoded.image_embeddings
     if (!(embeddings instanceof ort.Tensor)) throw new Error('model-output')
     post({ type: 'progress', requestId: request.requestId, stage: 'encoder', complete: 1, total: 1 })
 
-    const requestedPoints = makePromptGrid(image.width, image.height, request.gridSize)
-    const componentResult = proposeConnectedComponentHypotheses(image.source)
-    const promptFilter = selectMobileSamPromptGrid(requestedPoints, image, componentResult)
-    const points = promptFilter.prompts
     const candidates: MaskCandidate[] = []
     for (let index = 0; index < points.length; index++) {
       const prompt = points[index]
@@ -129,6 +129,7 @@ async function generate(request: GenerateRequest) {
       candidates.push({ prompt, score, width: image.width, height: image.height, data: maskToBinary(masks, image.width, image.height) })
     }
     const uniqueCandidates = uniqueMaskCandidates(candidates)
+    const elapsedMs = Math.round(performance.now() - started)
     const proposals = uniqueCandidates.map((candidate): ProposalMessage => ({
       prompt: candidate.prompt, score: candidate.score, width: candidate.width, height: candidate.height, data: candidate.data.buffer as ArrayBuffer,
     }))
@@ -140,7 +141,7 @@ async function generate(request: GenerateRequest) {
         gridSize: request.gridSize,
         promptSelection: promptFilter,
         uniqueMasks: uniqueCandidates.length,
-        elapsedMs: Math.round(performance.now() - started),
+        elapsedMs,
         modelsVerifiedBySha256: true,
       }) }, transfer)
   } finally {

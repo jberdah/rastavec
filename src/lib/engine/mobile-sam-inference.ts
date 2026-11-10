@@ -53,7 +53,7 @@ export interface MobileSamRunDiagnostics {
   promptSelectionReason: string
   foregroundComponentMasks: number
   uniqueMasks: number
-  /** Per-image preprocessing, inference, and mask processing; excludes model loading. */
+  /** Encoder/decoder inference and mask candidate post-processing; excludes model loading, input preparation, and component analysis. */
   elapsedMs: number
   modelsVerifiedBySha256: boolean
 }
