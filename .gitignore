@@ -40,3 +40,6 @@ cli/NOTICE
 # Generated VTracer 1 WebAssembly package and local Cargo build output
 src/lib/engine/vtracer1-wasm/
 wasm/vtracer/target/
+
+# Internal research and project coordination archive (never committed)
+/internal-docs/
