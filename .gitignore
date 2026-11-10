@@ -42,4 +42,4 @@ src/lib/engine/vtracer1-wasm/
 wasm/vtracer/target/
 
 # Internal research and project coordination archive (never committed)
-internal-docs/
+/internal-docs/
