@@ -45,26 +45,22 @@ background. The planar-color route is shape-family agnostic but needs two to fou
 objects represented by frequent flat-color states on a flat opaque background. Each route
 records its own provenance, fit evidence, warnings and explicit abstentions. Proposed
 objects remain `human-review-required`. Inference reads only the raster. Each mask PNG is
-white on transparency and may be downsampled to the provider's analysis size; its exact
-dimensions are recorded in `report.json`. One internal synthetic-development measurement of
-the planar-color TypeScript port used a 24-scene/55-object corpus: 18/55 visible objects
-matched at IoU 0.5, with no false positives and 3/24 exact counts. These are previously-seen
-development results, not natural-art accuracy or independent validation. Gradient paint
-fitting and a general-purpose detector for arbitrary shapes are not wired into this command
-yet. The connected-component
-route covers visible regions on transparent canvases or images with a border-derived
-background; it does not complete occluded shapes, and it can merge touching objects or split
-one object with disconnected parts.
+white on transparency and may be downsampled to the provider's analysis size; exact mask
+dimensions are recorded in report.json. The planar-color route is experimental and only
+applies to overlapping objects represented by frequent flat-color states on an opaque
+background. It currently abstains on gradients and transparent backgrounds, and it has not
+been independently validated. Gradient paint fitting and a general-purpose detector for
+arbitrary shapes are not wired into this command yet. The connected-component route covers
+visible regions on transparent canvases or images with a border-derived background; it does
+not complete occluded shapes, and it can merge touching objects or split one object with
+disconnected parts.
 
-The report also includes a raster-only `routeRecommendation`. It prioritizes the circle fitter
-when all three relative radial residuals are at most 0.01, each exposed arc covers at least 150°,
-and at least 75% of the border plus all four corners support one flat background. The route
-abstains when the background or a circle is underconstrained. It prioritizes the planar route
-when its compositing RMSE is at most 10 RGB levels (or its accepted graph is a tree with no fit score).
-If neither specialist passes, it recommends MobileSAM when enabled, then visible connected
-components. If two specialists pass, it reports the conflict without selecting one. Every
-recommendation still requires human review. These are development gates adapted from prior
-experiments, not calibrated confidence scores for arbitrary imagery.
+The report also includes a raster-only route recommendation in its routeRecommendation field.
+It can recommend the circle fitter or planar-color route when their geometry and background
+assumptions are met. If neither specialist applies, it recommends MobileSAM when enabled,
+then visible connected components. If multiple specialists fit, it reports the conflict
+without selecting one. Recommendations are advisory, require human review, and are not
+validated accuracy or confidence scores for arbitrary imagery.
 
 MobileSAM runs only when both model paths are provided. It verifies the supported
 Acly/MobileSAM encoder and decoder by SHA-256, uses the local ONNX Runtime WebAssembly
