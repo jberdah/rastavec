@@ -89,13 +89,14 @@ function maskToBinary(tensor: ort.Tensor, width: number, height: number) {
 }
 
 async function generate(request: GenerateRequest) {
-  const started = performance.now()
   const encoderBytes = new Uint8Array(await request.encoderFile.arrayBuffer())
   const decoderBytes = new Uint8Array(await request.decoderFile.arrayBuffer())
   post({ type: 'progress', requestId: request.requestId, stage: 'models', complete: 0, total: 1 })
   await loadModels(encoderBytes, decoderBytes)
   post({ type: 'progress', requestId: request.requestId, stage: 'models', complete: 1, total: 1 })
 
+  // Match the CLI's per-image timing: exclude model file reads and session creation.
+  const started = performance.now()
   const bitmap = await createImageBitmap(request.sourceImage)
   try {
     const image = makeRgbTensor(bitmap)

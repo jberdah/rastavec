@@ -77,6 +77,7 @@ export async function createMobileSamCliProvider(encoderPath: string, decoderPat
     async propose(image, gridSize, components = null) {
       if (!Number.isSafeInteger(gridSize) || gridSize < 2 || gridSize > 6)
         throw new Error('MobileSAM grid must be an integer from 2 to 6.')
+      // Match the worker's per-image timing; provider/model initialization happened above.
       const started = performance.now()
       const input = await makeInput(image)
       const encoded = await encoder.run({ input_image: input.tensor })
