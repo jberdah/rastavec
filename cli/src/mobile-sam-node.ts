@@ -2,15 +2,24 @@ import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import sharp from 'sharp'
-import * as ort from 'onnxruntime-web/wasm'
 import type { RGBAImage } from '../../src/lib/engine/core'
 import { createMaskHypothesis, type ObjectHypothesis } from '../../src/lib/engine/object-hypotheses'
 import { MOBILE_SAM_ARTIFACTS, makePromptGrid, selectMobileSamPromptGrid, uniqueMaskCandidates, type MaskCandidate } from '../../src/lib/engine/mobile-sam-inference'
 import type { ConnectedComponentProposalResult } from '../../src/lib/engine/connected-component-hypotheses'
 
-const requireFromCli = createRequire(__filename)
-ort.env.wasm.wasmPaths = { wasm: requireFromCli.resolve('onnxruntime-web/ort-wasm-simd-threaded.wasm') }
-ort.env.wasm.numThreads = 1
+type OrtTensor = { dims: number[]; data: Float32Array | Int32Array | Uint8Array | Int8Array | Uint32Array | Int16Array | Uint16Array | Float64Array | BigInt64Array | BigUint64Array }
+type OrtInferenceSession = {
+  inputNames: string[]
+  outputNames: string[]
+  run(feeds: Record<string, OrtTensor>): Promise<Record<string, OrtTensor>>
+  release(): Promise<void>
+}
+type OrtModule = {
+  env: { wasm: { wasmPaths: { wasm: string }; numThreads: number } }
+  Tensor: new (type: 'float32', data: Float32Array, dims: number[]) => OrtTensor
+  InferenceSession: { create(model: Uint8Array, options: { executionProviders: string[] }): Promise<OrtInferenceSession> }
+}
+const ONNX_RUNTIME_MODULE: string = 'onnxruntime-web/wasm'
 
 export interface MobileSamCliProvider {
   propose(image: RGBAImage, gridSize: number, components?: ConnectedComponentProposalResult | null): Promise<{ hypotheses: ObjectHypothesis[]; diagnostics: Record<string, unknown> }>
@@ -21,7 +30,7 @@ function hash(bytes: Uint8Array) {
   return createHash('sha256').update(bytes).digest('hex')
 }
 
-function assertInterfaces(encoder: ort.InferenceSession, decoder: ort.InferenceSession) {
+function assertInterfaces(encoder: OrtInferenceSession, decoder: OrtInferenceSession) {
   if (!encoder.inputNames.includes('input_image') || !encoder.outputNames.includes('image_embeddings'))
     throw new Error('MobileSAM encoder interface is unsupported.')
   for (const name of ['image_embeddings', 'point_coords', 'point_labels', 'mask_input', 'has_mask_input', 'orig_im_size'])
@@ -30,7 +39,7 @@ function assertInterfaces(encoder: ort.InferenceSession, decoder: ort.InferenceS
     throw new Error('MobileSAM decoder outputs are unsupported.')
 }
 
-async function makeInput(image: RGBAImage) {
+async function makeInput(image: RGBAImage, ort: OrtModule) {
   const scale = 1024 / Math.max(image.width, image.height)
   const width = Math.max(1, Math.round(image.width * scale))
   const height = Math.max(1, Math.round(image.height * scale))
@@ -47,7 +56,7 @@ async function makeInput(image: RGBAImage) {
   return { width, height, tensor: new ort.Tensor('float32', values, [height, width, 3]) }
 }
 
-function binaryMask(tensor: ort.Tensor, width: number, height: number) {
+function binaryMask(tensor: OrtTensor, width: number, height: number) {
   if (tensor.dims.length !== 4 || tensor.dims[0] !== 1 || tensor.dims[1] !== 1 || tensor.dims[2] !== height || tensor.dims[3] !== width)
     throw new Error('MobileSAM mask dimensions do not match the encoded image.')
   const values = tensor.data as Float32Array
@@ -57,13 +66,30 @@ function binaryMask(tensor: ort.Tensor, width: number, height: number) {
 }
 
 export async function createMobileSamCliProvider(encoderPath: string, decoderPath: string): Promise<MobileSamCliProvider> {
-  const [encoderBytes, decoderBytes] = await Promise.all([readFile(encoderPath), readFile(decoderPath)])
+  let ort: OrtModule
+  try {
+    ort = await import(ONNX_RUNTIME_MODULE) as OrtModule
+  } catch (cause) {
+    const detail = cause instanceof Error ? cause.message : String(cause)
+    throw new Error(`MobileSAM ONNX runtime is unavailable; install the optional CLI dependency \"onnxruntime-web\" to enable this provider. ${detail}`, { cause })
+  }
+  const requireFromCli = createRequire(__filename)
+  ort.env.wasm.wasmPaths = { wasm: requireFromCli.resolve('onnxruntime-web/ort-wasm-simd-threaded.wasm') }
+  ort.env.wasm.numThreads = 1
+
+  let encoderBytes: Buffer, decoderBytes: Buffer
+  try {
+    [encoderBytes, decoderBytes] = await Promise.all([readFile(encoderPath), readFile(decoderPath)])
+  } catch (cause) {
+    const detail = cause instanceof Error ? cause.message : String(cause)
+    throw new Error(`MobileSAM model files could not be read: ${detail}`, { cause })
+  }
   const encoderHash = hash(encoderBytes), decoderHash = hash(decoderBytes)
   if (encoderHash !== MOBILE_SAM_ARTIFACTS.encoder.sha256 || decoderHash !== MOBILE_SAM_ARTIFACTS.decoder.sha256)
     throw new Error('MobileSAM model hashes do not match the supported encoder/decoder pair.')
 
   const encoder = await ort.InferenceSession.create(new Uint8Array(encoderBytes), { executionProviders: ['wasm'] })
-  let decoder: ort.InferenceSession | null = null
+  let decoder: OrtInferenceSession | null = null
   try {
     decoder = await ort.InferenceSession.create(new Uint8Array(decoderBytes), { executionProviders: ['wasm'] })
     assertInterfaces(encoder, decoder)
@@ -78,7 +104,7 @@ export async function createMobileSamCliProvider(encoderPath: string, decoderPat
       if (!Number.isSafeInteger(gridSize) || gridSize < 2 || gridSize > 6)
         throw new Error('MobileSAM grid must be an integer from 2 to 6.')
       const started = performance.now()
-      const input = await makeInput(image)
+      const input = await makeInput(image, ort)
       const encoded = await encoder.run({ input_image: input.tensor })
       const embeddings = encoded.image_embeddings
       if (!(embeddings instanceof ort.Tensor)) throw new Error('MobileSAM encoder returned no image embeddings.')

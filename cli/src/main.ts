@@ -9,7 +9,7 @@ import { proposeConnectedComponentHypotheses, type ConnectedComponentProposalRes
 import { compareProviderHypothesisSets, type ObjectHypothesis } from '../../src/lib/engine/object-hypotheses'
 import { recommendObjectRoute } from '../../src/lib/engine/object-route-planner'
 import { proposePlanarColorHypotheses } from '../../src/lib/engine/planar-color-hypotheses'
-import { createMobileSamCliProvider, type MobileSamCliProvider } from './mobile-sam-node'
+import type { MobileSamCliProvider } from './mobile-sam-node'
 import { diffImage, summarizeDiff, type RGBAImage } from '../../src/lib/engine/core'
 import { DEFAULT_PARAMS, PRESETS, presetById } from '../../src/lib/engine/presets'
 import { crop, keyBackground, sliceSheet } from '../../src/lib/engine/slice'
@@ -333,8 +333,6 @@ async function cmdObjects(positionals: string[], o: Record<string, string | bool
   const samRequested = Boolean(samEncoderPath || samDecoderPath)
   if (Boolean(samEncoderPath) !== Boolean(samDecoderPath)) fail('MobileSAM requires both --sam-encoder and --sam-decoder')
   if (o['sam-grid'] !== undefined && !samRequested) fail('--sam-grid requires both MobileSAM model paths')
-  if (samEncoderPath && !existsSync(samEncoderPath)) fail(`MobileSAM encoder not found: ${samEncoderPath}`)
-  if (samDecoderPath && !existsSync(samDecoderPath)) fail(`MobileSAM decoder not found: ${samDecoderPath}`)
   const samGridSize = num(o['sam-grid'] as string | undefined, 'sam-grid', 3, 2, 6)
   if (!Number.isSafeInteger(samGridSize)) fail('--sam-grid must be an integer from 2 to 6')
   const out = resolve((o.out as string) ?? 'rastavec-objects-out')
@@ -362,9 +360,28 @@ async function cmdObjects(positionals: string[], o: Record<string, string | bool
     if (clash) fail(`${clash} already exists (use --force to overwrite)`)
   }
   mkdirSync(out, { recursive: true })
-  const mobileSamProvider: MobileSamCliProvider | null = samEncoderPath && samDecoderPath
-    ? await createMobileSamCliProvider(samEncoderPath, samDecoderPath)
-    : null
+  let mobileSamProvider: MobileSamCliProvider | null = null
+  let mobileSamUnavailableReason: string | undefined
+  if (samEncoderPath && samDecoderPath) {
+    const missingModel = !existsSync(samEncoderPath)
+      ? { name: 'encoder', path: samEncoderPath }
+      : !existsSync(samDecoderPath)
+        ? { name: 'decoder', path: samDecoderPath }
+        : undefined
+    if (missingModel) {
+      mobileSamUnavailableReason = `MobileSAM ${missingModel.name} model not found: ${missingModel.path}`
+    } else {
+      try {
+        const { createMobileSamCliProvider } = await import('./mobile-sam-node')
+        mobileSamProvider = await createMobileSamCliProvider(samEncoderPath, samDecoderPath)
+      } catch (e) {
+        mobileSamUnavailableReason = e instanceof Error ? e.message : String(e)
+      }
+    }
+  }
+
+  if (mobileSamUnavailableReason && !o.json && !o.quiet)
+    process.stderr.write(`MobileSAM unavailable: ${mobileSamUnavailableReason}. Continuing with raster-only routes.\n`)
 
   const items: Record<string, unknown>[] = []
   let scenesWithProposals = 0, scenesWithProviderCountDisagreement = 0, proposedProviders = 0, abstainedProviders = 0, errors = 0
@@ -390,6 +407,11 @@ async function cmdObjects(positionals: string[], o: Record<string, string | bool
           ? { status: 'proposed', ...result }
           : { status: 'abstained', reason: 'No distinct non-empty masks survived MobileSAM proposal filtering.', diagnostics: result.diagnostics }
       } })
+      if (samRequested && !mobileSamProvider) {
+        sceneAbstentions++
+        abstainedProviders++
+        routes.push({ provider: 'mobile-sam', status: 'abstained', reason: mobileSamUnavailableReason ?? 'MobileSAM is unavailable; using raster-only fallback routes.' })
+      }
       for (const provider of providers) {
         try {
           const result = await provider.run(image)
@@ -463,7 +485,13 @@ async function cmdObjects(positionals: string[], o: Record<string, string | bool
       { id: 'mobile-sam', scope: 'Optional local visible-region proposals from a verified MobileSAM ONNX pair and deterministic positive-point grid; does not infer hidden geometry or semantic labels.' },
     ],
     inferenceUsesSourceSvg: false,
-    mobileSam: { enabled: samRequested, ...(samRequested ? { gridSize: samGridSize, modelFilesVerifiedBySha256: true } : {}) },
+    mobileSam: {
+      requested: samRequested,
+      enabled: Boolean(mobileSamProvider),
+      ...(samRequested ? { gridSize: samGridSize } : {}),
+      ...(mobileSamProvider ? { modelFilesVerifiedBySha256: true } : {}),
+      ...(mobileSamUnavailableReason ? { fallbackProvider: 'visible-connected-components', unavailableReason: mobileSamUnavailableReason } : {}),
+    },
     summary: { total: jobs.length, scenesWithProposals, scenesWithProviderCountDisagreement, proposedProviders, abstainedProviders, errors },
     items,
   }
