@@ -63,6 +63,18 @@ test('the router rejects circle hypotheses without reliable border and corner ba
   assert.equal(decision.assessments.find(({ provider }) => provider === 'circle-visible-arc-fit')?.eligible, false)
 })
 
+test('the router enforces its 150-degree circle floor when a candidate reports a lower minimum', () => {
+  const decision = recommendObjectRoute([
+    { provider: 'circle-visible-arc-fit', status: 'proposed', diagnostics: { relativeRadialRms: [0.001, 0.002, 0.003], boundaryArcCoverageDegrees: [205, 120, 210], minimumBoundaryArcCoverageDegrees: 120, backgroundBorderSupportFraction: 1, backgroundCornerSupportCount: 4 } },
+    { provider: 'visible-connected-components', status: 'proposed', hypotheses: [{}] },
+  ])
+  assert.equal(decision.status, 'fallback-for-review')
+  assert.equal(decision.selectedProvider, 'visible-connected-components')
+  const circle = decision.assessments.find(({ provider }) => provider === 'circle-visible-arc-fit')
+  assert.equal(circle?.eligible, false)
+  assert.match(circle?.basis ?? '', /below the 150\.0° gate/)
+})
+
 test('MobileSAM is a visible-mask fallback only when enabled', () => {
   const candidates = [
     { provider: 'mobile-sam', status: 'proposed', hypotheses: [{}] },

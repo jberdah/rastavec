@@ -21,6 +21,8 @@ export interface ObjectRouteRecommendation {
   note: string
 }
 
+const ROUTER_MINIMUM_CIRCLE_ARC_COVERAGE_DEGREES = 150
+
 function record(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === 'object' ? value as Record<string, unknown> : undefined
 }
@@ -47,7 +49,7 @@ export function recommendObjectRoute(
     const backgroundBorderSupportFraction = typeof backgroundBorderSupport === 'number' ? backgroundBorderSupport : NaN
     const backgroundCornerSupportCount = typeof backgroundCornerSupport === 'number' ? backgroundCornerSupport : -1
     const requiredArcCoverage = typeof minimumArcCoverage === 'number' && Number.isFinite(minimumArcCoverage)
-      ? minimumArcCoverage
+      ? Math.max(ROUTER_MINIMUM_CIRCLE_ARC_COVERAGE_DEGREES, minimumArcCoverage)
       : Infinity
     const usable = Array.isArray(residuals) && residuals.length === 3
       && residuals.every((value) => typeof value === 'number' && Number.isFinite(value))
