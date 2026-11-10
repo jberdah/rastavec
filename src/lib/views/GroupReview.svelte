@@ -6,7 +6,7 @@
   import { i18n } from '../i18n.svelte'
   import { decodeFile } from '../engine/browser-backend'
   import { binaryMaskFromRgba, selectGroupsByMask, svgViewBox, type BinarySegmentationMask } from '../engine/segmentation-mask'
-  import { MOBILE_SAM_ARTIFACTS, type MaskCandidate } from '../engine/mobile-sam-inference'
+  import { createMobileSamHypotheses, MOBILE_SAM_ARTIFACTS, type MaskCandidate, type MobileSamRunDiagnostics } from '../engine/mobile-sam-inference'
   import { compareProviderHypothesisSets, createMaskHypothesis, type ObjectHypothesis } from '../engine/object-hypotheses'
   import type { CircleOverlapDiagnostics, CircleOverlapProposalResult } from '../engine/circle-overlap-hypotheses'
   import type { ConnectedComponentDiagnostics, ConnectedComponentProposalResult } from '../engine/connected-component-hypotheses'
@@ -15,7 +15,7 @@
   type LocalMaskProposal = ObjectHypothesis & { previewUrl: string }
   type MobileSamWorkerMessage =
     | { type: 'progress'; requestId: number; stage: 'models' | 'encoder' | 'decoder'; complete: number; total: number }
-    | { type: 'done'; requestId: number; proposals: Array<{ prompt: MaskCandidate['prompt']; score: number; width: number; height: number; data: ArrayBuffer }>; elapsedMs: number; promptFilter: { requested: number; retained: number; skipped: number; applied: boolean; foregroundMasks: number; mode: 'foreground-gated' | 'full-grid'; reason: string } }
+    | { type: 'done'; requestId: number; proposals: Array<{ prompt: MaskCandidate['prompt']; score: number; width: number; height: number; data: ArrayBuffer }>; diagnostics: MobileSamRunDiagnostics }
     | { type: 'error'; requestId: number; code: string }
   type CircleWorkerMessage =
     | { type: 'done'; requestId: number; result: CircleOverlapProposalResult }
@@ -384,23 +384,22 @@
           }
           if (sourceImage?.url !== sourceUrl) { reject(new Error('source-changed')); return }
           try {
-            const proposals = message.proposals.map((proposal): LocalMaskProposal => {
+            const candidates = message.proposals.map((proposal): MaskCandidate => {
               const mask: BinarySegmentationMask = { width: proposal.width, height: proposal.height, data: new Uint8Array(proposal.data) }
               const ratio = mask.width / mask.height, expectedRatio = sourceImage!.width / sourceImage!.height
               if (Math.abs(ratio - expectedRatio) > expectedRatio * 0.005) throw new Error('aspect')
-              const hypothesis = createMaskHypothesis({
-                id: `mobile-sam:${proposal.prompt.row}:${proposal.prompt.column}`,
-                mask,
-                source: { provider: 'mobile-sam', model: 'MobileSAM', prompt: proposal.prompt,
-                  description: message.promptFilter.applied
-                    ? `Visible-region proposal from a positive prompt retained inside a supported foreground component (${message.promptFilter.reason}); hidden geometry is not completed.`
-                    : `Visible-region proposal from the full positive-point grid (${message.promptFilter.reason}); hidden geometry is not completed.` },
-                score: { value: proposal.score, kind: 'provider-native', label: 'decoder score' },
-              })
-              return { ...hypothesis, previewUrl: renderMaskPreview(mask) }
+              return { prompt: proposal.prompt, score: proposal.score, width: mask.width, height: mask.height, data: mask.data }
             })
+            const hypotheses = createMobileSamHypotheses(candidates, {
+              applied: message.diagnostics.promptFilterApplied,
+              reason: message.diagnostics.promptSelectionReason,
+            })
+            const proposals: LocalMaskProposal[] = hypotheses.map((hypothesis) => ({
+              ...hypothesis,
+              previewUrl: renderMaskPreview(hypothesis.mask),
+            }))
             samProposals = proposals
-            maskMessage = proposals.length ? words.samReady(proposals.length, message.elapsedMs) : words.samNoProposals
+            maskMessage = proposals.length ? words.samReady(proposals.length, message.diagnostics.elapsedMs) : words.samNoProposals
             resolve()
           } catch (cause) { reject(cause) }
         }

@@ -10,7 +10,7 @@ import { compareProviderHypothesisSets, type ObjectHypothesis } from '../../src/
 import { recommendObjectRoute } from '../../src/lib/engine/object-route-planner'
 import { proposePlanarColorHypotheses } from '../../src/lib/engine/planar-color-hypotheses'
 import { associateTracedPathsToHypotheses, rasterizeTracedPathSupports } from '../../src/lib/engine/path-hypothesis-associations'
-import { createMobileSamCliProvider, type MobileSamCliProvider } from './mobile-sam-node'
+import type { MobileSamCliProvider } from './mobile-sam-node'
 import { diffImage, summarizeDiff, type RGBAImage } from '../../src/lib/engine/core'
 import { DEFAULT_PARAMS, PRESETS, presetById } from '../../src/lib/engine/presets'
 import { crop, keyBackground, sliceSheet } from '../../src/lib/engine/slice'
@@ -333,10 +333,7 @@ async function cmdObjects(positionals: string[], o: Record<string, string | bool
   const samEncoderPath = typeof o['sam-encoder'] === 'string' ? resolve(o['sam-encoder']) : undefined
   const samDecoderPath = typeof o['sam-decoder'] === 'string' ? resolve(o['sam-decoder']) : undefined
   const samRequested = Boolean(samEncoderPath || samDecoderPath)
-  if (Boolean(samEncoderPath) !== Boolean(samDecoderPath)) fail('MobileSAM requires both --sam-encoder and --sam-decoder')
   if (o['sam-grid'] !== undefined && !samRequested) fail('--sam-grid requires both MobileSAM model paths')
-  if (samEncoderPath && !existsSync(samEncoderPath)) fail(`MobileSAM encoder not found: ${samEncoderPath}`)
-  if (samDecoderPath && !existsSync(samDecoderPath)) fail(`MobileSAM decoder not found: ${samDecoderPath}`)
   const samGridSize = num(o['sam-grid'] as string | undefined, 'sam-grid', 3, 2, 6)
   if (!Number.isSafeInteger(samGridSize)) fail('--sam-grid must be an integer from 2 to 6')
   const out = resolve((o.out as string) ?? 'rastavec-objects-out')
@@ -366,9 +363,20 @@ async function cmdObjects(positionals: string[], o: Record<string, string | bool
     if (clash) fail(`${clash} already exists (use --force to overwrite)`)
   }
   mkdirSync(out, { recursive: true })
-  const mobileSamProvider: MobileSamCliProvider | null = samEncoderPath && samDecoderPath
-    ? await createMobileSamCliProvider(samEncoderPath, samDecoderPath)
-    : null
+  let mobileSamProvider: MobileSamCliProvider | null = null
+  let mobileSamInitializationFailure: string | null = null
+  if (samRequested && (!samEncoderPath || !samDecoderPath)) {
+    mobileSamInitializationFailure = 'Both --sam-encoder and --sam-decoder are required to initialize MobileSAM.'
+  } else if (samEncoderPath && samDecoderPath) {
+    try {
+      // Keep the ONNX runtime out of the default CLI load path. It is only needed
+      // when a user explicitly opts into the optional MobileSAM provider.
+      const { createMobileSamCliProvider } = await import('./mobile-sam-node')
+      mobileSamProvider = await createMobileSamCliProvider(samEncoderPath, samDecoderPath)
+    } catch (error) {
+      mobileSamInitializationFailure = error instanceof Error ? error.message : String(error)
+    }
+  }
 
   const items: Record<string, unknown>[] = []
   let scenesWithProposals = 0, scenesWithProviderCountDisagreement = 0, proposedProviders = 0, abstainedProviders = 0, errors = 0
@@ -410,7 +418,12 @@ async function cmdObjects(positionals: string[], o: Record<string, string | bool
         foregroundComponents = result
         return result
       }, compareMasks: false })
-      if (mobileSamProvider) providers.push({ id: 'mobile-sam', run: async (source) => {
+      if (samRequested) providers.push({ id: 'mobile-sam', run: async (source) => {
+        if (!mobileSamProvider) return {
+          status: 'abstained',
+          reason: 'Optional MobileSAM could not be initialized; the available raster routes continue.',
+          diagnostics: { stage: 'initialization', failure: mobileSamInitializationFailure ?? 'Provider unavailable.' },
+        }
         const result = await mobileSamProvider.propose(source, samGridSize, foregroundComponents)
         return result.hypotheses.length
           ? { status: 'proposed', ...result }
@@ -456,14 +469,21 @@ async function cmdObjects(positionals: string[], o: Record<string, string | bool
             } : {}),
           })
         } catch (e) {
-          sceneErrors++
-          errors++
-          routes.push({ provider: provider.id, status: 'error', error: e instanceof Error ? e.message : String(e) })
+          const failure = e instanceof Error ? e.message : String(e)
+          if (provider.id === 'mobile-sam') {
+            sceneAbstentions++
+            abstainedProviders++
+            routes.push({ provider: provider.id, status: 'abstained', reason: 'Optional MobileSAM failed; other object proposals remain available.', diagnostics: { stage: 'inference', failure } })
+          } else {
+            sceneErrors++
+            errors++
+            routes.push({ provider: provider.id, status: 'error', error: failure })
+          }
         }
       }
       if (sceneProposals) scenesWithProposals++
       const providerComparison = compareProviderHypothesisSets(providerHypothesisSets)
-      const routeRecommendation = recommendObjectRoute(routes, Boolean(mobileSamProvider))
+      const routeRecommendation = recommendObjectRoute(routes, samRequested)
       if (providerComparison.status === 'counts-disagree') scenesWithProviderCountDisagreement++
       items.push({
         name: job.name, input: job.input, width: image.width, height: image.height,
@@ -513,7 +533,15 @@ async function cmdObjects(positionals: string[], o: Record<string, string | bool
       { id: 'mobile-sam', scope: 'Optional local visible-region proposals from a verified MobileSAM ONNX pair and deterministic positive-point grid; does not infer hidden geometry or semantic labels.' },
     ],
     inferenceUsesSourceSvg: false,
-    mobileSam: { enabled: samRequested, ...(samRequested ? { gridSize: samGridSize, modelFilesVerifiedBySha256: true } : {}) },
+    mobileSam: {
+      enabled: samRequested,
+      status: !samRequested ? 'not-requested' : mobileSamProvider ? 'ready' : 'unavailable',
+      ...(samRequested ? {
+        gridSize: samGridSize,
+        modelFilesVerifiedBySha256: Boolean(mobileSamProvider),
+        ...(mobileSamInitializationFailure ? { initializationFailure: mobileSamInitializationFailure } : {}),
+      } : {}),
+    },
     summary: { total: jobs.length, scenesWithProposals, scenesWithProviderCountDisagreement, proposedProviders, abstainedProviders, errors },
     items,
   }

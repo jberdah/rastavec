@@ -1,5 +1,6 @@
 import type { BinarySegmentationMask } from './segmentation-mask'
 import type { ConnectedComponentProposalResult } from './connected-component-hypotheses'
+import { createMaskHypothesis, type ObjectHypothesis } from './object-hypotheses'
 
 /**
  * Offline MobileSAM artifact checks and deterministic point prompts.
@@ -38,6 +39,67 @@ export interface PromptGridSelection extends PromptGridFilterResult {
   mode: 'foreground-gated' | 'full-grid'
   reason: string
   foregroundMaskCount: number
+}
+
+/** Shared MobileSAM diagnostics shape for browser, desktop, and CLI reports. */
+export interface MobileSamRunDiagnostics {
+  analysisSize: { width: number; height: number }
+  gridSize: number
+  promptsRequested: number
+  promptsRetained: number
+  promptsSkipped: number
+  promptFilterApplied: boolean
+  promptSelectionMode: PromptGridSelection['mode']
+  promptSelectionReason: string
+  foregroundComponentMasks: number
+  uniqueMasks: number
+  elapsedMs: number
+  modelsVerifiedBySha256: boolean
+}
+
+/** Normalize provider metadata so every target emits the same object hypothesis shape. */
+export function createMobileSamHypotheses(
+  candidates: readonly MaskCandidate[],
+  promptSelection: Pick<PromptGridSelection, 'applied' | 'reason'>,
+): ObjectHypothesis[] {
+  return candidates.map((candidate) => createMaskHypothesis({
+    id: `mobile-sam-${candidate.prompt.row}-${candidate.prompt.column}`,
+    mask: { width: candidate.width, height: candidate.height, data: candidate.data },
+    source: {
+      provider: 'mobile-sam',
+      model: 'MobileSAM ONNX',
+      prompt: candidate.prompt,
+      description: promptSelection.applied
+        ? `Visible-region proposal from a positive prompt retained inside a supported foreground component (${promptSelection.reason}); hidden geometry is not completed.`
+        : `Visible-region proposal from the full positive-point grid (${promptSelection.reason}); hidden geometry is not completed.`,
+    },
+    score: { value: candidate.score, kind: 'provider-native', label: 'decoder score' },
+  }))
+}
+
+export function createMobileSamRunDiagnostics(input: {
+  imageSize: { width: number; height: number }
+  gridSize: number
+  promptSelection: PromptGridSelection
+  uniqueMasks: number
+  elapsedMs: number
+  modelsVerifiedBySha256: boolean
+}): MobileSamRunDiagnostics {
+  const { imageSize, gridSize, promptSelection, uniqueMasks, elapsedMs, modelsVerifiedBySha256 } = input
+  return {
+    analysisSize: { ...imageSize },
+    gridSize,
+    promptsRequested: promptSelection.requestedCount,
+    promptsRetained: promptSelection.retainedCount,
+    promptsSkipped: promptSelection.skippedCount,
+    promptFilterApplied: promptSelection.applied,
+    promptSelectionMode: promptSelection.mode,
+    promptSelectionReason: promptSelection.reason,
+    foregroundComponentMasks: promptSelection.foregroundMaskCount,
+    uniqueMasks,
+    elapsedMs,
+    modelsVerifiedBySha256,
+  }
 }
 
 /** Keep automatic positive prompts on a foreground region when an independent raster mask is available. */

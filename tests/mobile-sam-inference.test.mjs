@@ -4,10 +4,48 @@ import { build } from 'esbuild'
 import { resolve } from 'node:path'
 
 const bundle = await build({
-  stdin: { contents: `export { filterPromptGridToMasks, makePromptGrid, selectMobileSamPromptGrid, uniqueMaskCandidates } from './src/lib/engine/mobile-sam-inference.ts'`, resolveDir: resolve('.'), sourcefile: 'mobile-sam-inference-entry.ts' },
+  stdin: { contents: `export { createMobileSamHypotheses, createMobileSamRunDiagnostics, filterPromptGridToMasks, makePromptGrid, selectMobileSamPromptGrid, uniqueMaskCandidates } from './src/lib/engine/mobile-sam-inference.ts'`, resolveDir: resolve('.'), sourcefile: 'mobile-sam-inference-entry.ts' },
   bundle: true, write: false, format: 'esm', platform: 'node',
 })
-const { filterPromptGridToMasks, makePromptGrid, selectMobileSamPromptGrid, uniqueMaskCandidates } = await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text).toString('base64')}`)
+const { createMobileSamHypotheses, createMobileSamRunDiagnostics, filterPromptGridToMasks, makePromptGrid, selectMobileSamPromptGrid, uniqueMaskCandidates } = await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text).toString('base64')}`)
+
+test('MobileSAM candidates normalize to one shared proposal metadata format', () => {
+  const prompt = { x: 12, y: 8, row: 1, column: 0 }
+  const candidate = { prompt, score: 0.83, width: 4, height: 3, data: new Uint8Array([1, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0]) }
+  const hypotheses = createMobileSamHypotheses([candidate], { applied: true, reason: 'transparent-border-alpha-components' })
+  assert.equal(hypotheses.length, 1)
+  assert.deepEqual(hypotheses[0], {
+    id: 'mobile-sam-1-0',
+    mask: { width: 4, height: 3, data: candidate.data },
+    maskMeaning: 'unknown',
+    source: {
+      provider: 'mobile-sam',
+      model: 'MobileSAM ONNX',
+      prompt,
+      description: 'Visible-region proposal from a positive prompt retained inside a supported foreground component (transparent-border-alpha-components); hidden geometry is not completed.',
+    },
+    score: { value: 0.83, kind: 'provider-native', label: 'decoder score' },
+  })
+})
+
+test('MobileSAM diagnostics use a target-independent report shape', () => {
+  const promptSelection = {
+    prompts: [{ x: 4, y: 4, row: 0, column: 0 }],
+    requestedCount: 4, retainedCount: 1, skippedCount: 3, applied: true,
+    mode: 'foreground-gated', reason: 'opaque-border-support-at-least-0.75', foregroundMaskCount: 2,
+  }
+  assert.deepEqual(createMobileSamRunDiagnostics({
+    imageSize: { width: 8, height: 8 }, gridSize: 2, promptSelection,
+    uniqueMasks: 1, elapsedMs: 25, modelsVerifiedBySha256: true,
+  }), {
+    analysisSize: { width: 8, height: 8 }, gridSize: 2,
+    promptsRequested: 4, promptsRetained: 1, promptsSkipped: 3,
+    promptFilterApplied: true, promptSelectionMode: 'foreground-gated',
+    promptSelectionReason: 'opaque-border-support-at-least-0.75',
+    foregroundComponentMasks: 2, uniqueMasks: 1, elapsedMs: 25,
+    modelsVerifiedBySha256: true,
+  })
+})
 
 test('prompt grid is deterministic, row-major and bounded to the resized image', () => {
   const points = makePromptGrid(100, 60, 2)

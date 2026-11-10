@@ -4,8 +4,8 @@ import { createRequire } from 'node:module'
 import sharp from 'sharp'
 import * as ort from 'onnxruntime-web/wasm'
 import type { RGBAImage } from '../../src/lib/engine/core'
-import { createMaskHypothesis, type ObjectHypothesis } from '../../src/lib/engine/object-hypotheses'
-import { MOBILE_SAM_ARTIFACTS, makePromptGrid, selectMobileSamPromptGrid, uniqueMaskCandidates, type MaskCandidate } from '../../src/lib/engine/mobile-sam-inference'
+import type { ObjectHypothesis } from '../../src/lib/engine/object-hypotheses'
+import { createMobileSamHypotheses, createMobileSamRunDiagnostics, MOBILE_SAM_ARTIFACTS, makePromptGrid, selectMobileSamPromptGrid, uniqueMaskCandidates, type MaskCandidate, type MobileSamRunDiagnostics } from '../../src/lib/engine/mobile-sam-inference'
 import type { ConnectedComponentProposalResult } from '../../src/lib/engine/connected-component-hypotheses'
 
 const requireFromCli = createRequire(__filename)
@@ -13,7 +13,7 @@ ort.env.wasm.wasmPaths = { wasm: requireFromCli.resolve('onnxruntime-web/ort-was
 ort.env.wasm.numThreads = 1
 
 export interface MobileSamCliProvider {
-  propose(image: RGBAImage, gridSize: number, components?: ConnectedComponentProposalResult | null): Promise<{ hypotheses: ObjectHypothesis[]; diagnostics: Record<string, unknown> }>
+  propose(image: RGBAImage, gridSize: number, components?: ConnectedComponentProposalResult | null): Promise<{ hypotheses: ObjectHypothesis[]; diagnostics: MobileSamRunDiagnostics }>
   dispose(): Promise<void>
 }
 
@@ -103,26 +103,18 @@ export async function createMobileSamCliProvider(encoderPath: string, decoderPat
           width: input.width, height: input.height, data: binaryMask(masks, input.width, input.height) })
       }
 
-      const hypotheses = uniqueMaskCandidates(candidates).map((candidate) => {
-        const hypothesis = createMaskHypothesis({
-          id: `mobile-sam-${candidate.prompt.row}-${candidate.prompt.column}`,
-          mask: { width: candidate.width, height: candidate.height, data: candidate.data },
-          source: { provider: 'mobile-sam', model: 'MobileSAM ONNX', prompt: candidate.prompt,
-            description: promptSelection.applied
-              ? `Visible-region proposal from a positive prompt retained inside a supported foreground component (${promptSelection.reason}); hidden geometry is not completed.`
-              : `Visible-region proposal from the full positive-point grid (${promptSelection.reason}); hidden geometry is not completed.` },
-          score: { value: candidate.score, kind: 'provider-native', label: 'decoder score' },
-        })
-        return hypothesis
-      })
+      const uniqueCandidates = uniqueMaskCandidates(candidates)
+      const hypotheses = createMobileSamHypotheses(uniqueCandidates, promptSelection)
       return {
         hypotheses,
-        diagnostics: { analysisSize: { width: input.width, height: input.height }, gridSize,
-          promptsRequested: promptSelection.requestedCount, promptsRetained: promptSelection.retainedCount,
-          promptsSkipped: promptSelection.skippedCount, promptFilterApplied: promptSelection.applied,
-          promptSelectionMode: promptSelection.mode, promptSelectionReason: promptSelection.reason,
-          foregroundComponentMasks: promptSelection.foregroundMaskCount, uniqueMasks: hypotheses.length,
-          elapsedMs: Math.round(performance.now() - started), modelsVerifiedBySha256: true },
+        diagnostics: createMobileSamRunDiagnostics({
+          imageSize: input,
+          gridSize,
+          promptSelection,
+          uniqueMasks: uniqueCandidates.length,
+          elapsedMs: Math.round(performance.now() - started),
+          modelsVerifiedBySha256: true,
+        }),
       }
     },
     async dispose() {

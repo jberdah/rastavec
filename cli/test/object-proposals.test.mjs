@@ -3,7 +3,7 @@
 // are intentionally absent from both the fixture and the inference invocation.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
@@ -97,4 +97,60 @@ test('objects can associate proposals with paint-aware paths from its own trace'
   }
   assert.equal(item.inferenceUsesSourceSvg, undefined)
   assert.equal(report.inferenceUsesSourceSvg, false)
+})
+
+test('requested optional MobileSAM initialization failure abstains without blocking available routes', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'rastavec-object-mobile-sam-fallback-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const input = join(dir, 'venn.png')
+  await sharp(Buffer.from(scenes.venn_alpha)).png().toFile(input)
+
+  const out = join(dir, 'proposals')
+  const missingEncoder = join(dir, 'missing-encoder.onnx')
+  const missingDecoder = join(dir, 'missing-decoder.onnx')
+  const result = spawnSync(process.execPath, [cli, 'objects', input,
+    '--sam-encoder', missingEncoder, '--sam-decoder', missingDecoder,
+    '--out', out, '--json'], { encoding: 'utf8' })
+  assert.equal(result.status, 1, result.stderr)
+  const report = JSON.parse(result.stdout)
+  assert.deepEqual({ enabled: report.mobileSam.enabled, status: report.mobileSam.status, verified: report.mobileSam.modelFilesVerifiedBySha256 },
+    { enabled: true, status: 'unavailable', verified: false })
+  assert.equal(report.summary.errors, 0)
+  const routes = report.items[0].routes
+  const mobileSam = routes.find((route) => route.provider === 'mobile-sam')
+  assert.equal(mobileSam.status, 'abstained')
+  assert.equal(mobileSam.diagnostics.stage, 'initialization')
+  assert.equal(routes.find((route) => route.provider === 'visible-connected-components').status, 'proposed')
+})
+
+test('missing optional ONNX runtime leaves the CLI object routes usable', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'rastavec-object-onnx-absent-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const input = join(dir, 'venn.png')
+  await sharp(Buffer.from(scenes.venn_alpha)).png().toFile(input)
+
+  const out = join(dir, 'proposals')
+  const preload = join(dir, 'hide-optional-onnx-runtime.cjs')
+  writeFileSync(preload, `
+    const Module = require('node:module')
+    const load = Module._load
+    Module._load = function(request, parent, isMain) {
+      if (request === 'onnxruntime-web/wasm') {
+        const error = new Error('Optional ONNX runtime is absent')
+        error.code = 'MODULE_NOT_FOUND'
+        throw error
+      }
+      return load.call(this, request, parent, isMain)
+    }
+  `)
+  const result = spawnSync(process.execPath, ['--require', preload, cli, 'objects', input,
+    '--sam-encoder', join(dir, 'encoder.onnx'), '--sam-decoder', join(dir, 'decoder.onnx'),
+    '--out', out, '--json'], { encoding: 'utf8' })
+  assert.equal(result.status, 1, result.stderr)
+  const report = JSON.parse(result.stdout)
+  assert.equal(report.mobileSam.status, 'unavailable')
+  assert.equal(report.summary.errors, 0)
+  const routes = report.items[0].routes
+  assert.equal(routes.find((route) => route.provider === 'mobile-sam').status, 'abstained')
+  assert.equal(routes.find((route) => route.provider === 'visible-connected-components').status, 'proposed')
 })

@@ -1,7 +1,7 @@
 /// <reference lib="webworker" />
 import * as ort from 'onnxruntime-web/wasm'
 import wasmUrl from 'onnxruntime-web/ort-wasm-simd-threaded.wasm?url'
-import { makePromptGrid, selectMobileSamPromptGrid, uniqueMaskCandidates, verifyMobileSamPair, type MaskCandidate } from './mobile-sam-inference'
+import { createMobileSamRunDiagnostics, makePromptGrid, selectMobileSamPromptGrid, uniqueMaskCandidates, verifyMobileSamPair, type MaskCandidate, type MobileSamRunDiagnostics } from './mobile-sam-inference'
 import { proposeConnectedComponentHypotheses } from './connected-component-hypotheses'
 import type { RGBAImage } from './core'
 
@@ -17,7 +17,7 @@ type WorkerRequest = GenerateRequest
 type ProposalMessage = { prompt: MaskCandidate['prompt']; score: number; width: number; height: number; data: ArrayBuffer }
 type WorkerResponse =
   | { type: 'progress'; requestId: number; stage: 'models' | 'encoder' | 'decoder'; complete: number; total: number }
-  | { type: 'done'; requestId: number; proposals: ProposalMessage[]; elapsedMs: number; promptFilter: { requested: number; retained: number; skipped: number; applied: boolean; foregroundMasks: number; mode: 'foreground-gated' | 'full-grid'; reason: string } }
+  | { type: 'done'; requestId: number; proposals: ProposalMessage[]; diagnostics: MobileSamRunDiagnostics }
   | { type: 'error'; requestId: number; code: string }
 
 const scope = self as unknown as DedicatedWorkerGlobalScope
@@ -127,15 +127,21 @@ async function generate(request: GenerateRequest) {
       const score = Number.isFinite(predictedIou) ? Math.max(0, Math.min(1, predictedIou)) : 0
       candidates.push({ prompt, score, width: image.width, height: image.height, data: maskToBinary(masks, image.width, image.height) })
     }
-    const proposals = uniqueMaskCandidates(candidates).map((candidate): ProposalMessage => ({
+    const uniqueCandidates = uniqueMaskCandidates(candidates)
+    const proposals = uniqueCandidates.map((candidate): ProposalMessage => ({
       prompt: candidate.prompt, score: candidate.score, width: candidate.width, height: candidate.height, data: candidate.data.buffer as ArrayBuffer,
     }))
     const transfer = proposals.map((proposal) => proposal.data)
     post({ type: 'progress', requestId: request.requestId, stage: 'decoder', complete: points.length, total: points.length })
-    post({ type: 'done', requestId: request.requestId, proposals, elapsedMs: Math.round(performance.now() - started),
-      promptFilter: { requested: promptFilter.requestedCount, retained: promptFilter.retainedCount,
-        skipped: promptFilter.skippedCount, applied: promptFilter.applied, foregroundMasks: promptFilter.foregroundMaskCount,
-        mode: promptFilter.mode, reason: promptFilter.reason } }, transfer)
+    post({ type: 'done', requestId: request.requestId, proposals,
+      diagnostics: createMobileSamRunDiagnostics({
+        imageSize: image,
+        gridSize: request.gridSize,
+        promptSelection: promptFilter,
+        uniqueMasks: uniqueCandidates.length,
+        elapsedMs: Math.round(performance.now() - started),
+        modelsVerifiedBySha256: true,
+      }) }, transfer)
   } finally {
     bitmap.close()
   }
