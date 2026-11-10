@@ -63,19 +63,24 @@ export function createMobileSamHypotheses(
   candidates: readonly MaskCandidate[],
   promptSelection: Pick<PromptGridSelection, 'applied' | 'reason'>,
 ): ObjectHypothesis[] {
-  return candidates.map((candidate) => createMaskHypothesis({
-    id: `mobile-sam-${candidate.prompt.row}-${candidate.prompt.column}`,
-    mask: { width: candidate.width, height: candidate.height, data: candidate.data },
-    source: {
-      provider: 'mobile-sam',
-      model: 'MobileSAM ONNX',
-      prompt: candidate.prompt,
-      description: promptSelection.applied
-        ? `Visible-region proposal from a positive prompt retained inside a supported foreground component (${promptSelection.reason}); hidden geometry is not completed.`
-        : `Visible-region proposal from the full positive-point grid (${promptSelection.reason}); hidden geometry is not completed.`,
-    },
-    score: { value: candidate.score, kind: 'provider-native', label: 'decoder score' },
-  }))
+  return candidates.map((candidate) => {
+    const hypothesis = createMaskHypothesis({
+      id: `mobile-sam-${candidate.prompt.row}-${candidate.prompt.column}`,
+      mask: { width: candidate.width, height: candidate.height, data: candidate.data },
+      source: {
+        provider: 'mobile-sam',
+        model: 'MobileSAM ONNX',
+        prompt: candidate.prompt,
+        description: promptSelection.applied
+          ? `Visible-region proposal from a positive prompt retained inside a supported foreground component (${promptSelection.reason}); hidden geometry is not completed.`
+          : `Visible-region proposal from the full positive-point grid (${promptSelection.reason}); hidden geometry is not completed.`,
+      },
+      score: { value: candidate.score, kind: 'provider-native', label: 'decoder score' },
+    })
+    // This mask describes visible support only; it does not complete occluded geometry.
+    hypothesis.maskMeaning = 'visible-object'
+    return hypothesis
+  })
 }
 
 export function createMobileSamRunDiagnostics(input: {
@@ -88,7 +93,7 @@ export function createMobileSamRunDiagnostics(input: {
 }): MobileSamRunDiagnostics {
   const { imageSize, gridSize, promptSelection, uniqueMasks, elapsedMs, modelsVerifiedBySha256 } = input
   return {
-    analysisSize: { ...imageSize },
+    analysisSize: { width: imageSize.width, height: imageSize.height },
     gridSize,
     promptsRequested: promptSelection.requestedCount,
     promptsRetained: promptSelection.retainedCount,

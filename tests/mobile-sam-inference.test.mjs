@@ -17,7 +17,7 @@ test('MobileSAM candidates normalize to one shared proposal metadata format', ()
   assert.deepEqual(hypotheses[0], {
     id: 'mobile-sam-1-0',
     mask: { width: 4, height: 3, data: candidate.data },
-    maskMeaning: 'unknown',
+    maskMeaning: 'visible-object',
     source: {
       provider: 'mobile-sam',
       model: 'MobileSAM ONNX',
@@ -35,7 +35,11 @@ test('MobileSAM diagnostics use a target-independent report shape', () => {
     mode: 'foreground-gated', reason: 'opaque-border-support-at-least-0.75', foregroundMaskCount: 2,
   }
   assert.deepEqual(createMobileSamRunDiagnostics({
-    imageSize: { width: 8, height: 8 }, gridSize: 2, promptSelection,
+    imageSize: {
+      width: 8, height: 8,
+      tensor: new Float32Array([1, 2, 3]),
+      source: { pixels: new Uint8Array([4, 5, 6]) },
+    }, gridSize: 2, promptSelection,
     uniqueMasks: 1, elapsedMs: 25, modelsVerifiedBySha256: true,
   }), {
     analysisSize: { width: 8, height: 8 }, gridSize: 2,
