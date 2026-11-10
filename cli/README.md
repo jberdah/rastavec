@@ -57,8 +57,10 @@ background; it does not complete occluded shapes, and it can merge touching obje
 one object with disconnected parts.
 
 The report also includes a raster-only `routeRecommendation`. It prioritizes the circle fitter
-when all three relative radial residuals are at most 0.01, and the planar route when its
-compositing RMSE is at most 10 RGB levels (or its accepted graph is a tree with no fit score).
+when all three relative radial residuals are at most 0.01, each exposed arc covers at least 150°,
+and at least 75% of the border plus all four corners support one flat background. The route
+abstains when the background or a circle is underconstrained. It prioritizes the planar route
+when its compositing RMSE is at most 10 RGB levels (or its accepted graph is a tree with no fit score).
 If neither specialist passes, it recommends MobileSAM when enabled, then visible connected
 components. If two specialists pass, it reports the conflict without selecting one. Every
 recommendation still requires human review. These are development gates adapted from prior

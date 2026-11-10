@@ -30,6 +30,26 @@ function makeScene(withOutOfModelPatch = false) {
   return { data, width, height }
 }
 
+function truthMask(isBlue) {
+  const data = new Uint8Array(width * height)
+  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+    const contains = isBlue
+      ? x >= 20 && x < 105 && y >= 25 && y < 126
+      : x >= 65 && x < 146 && y >= 50 && y < 141
+    if (contains) data[y * width + x] = 1
+  }
+  return { width, height, data }
+}
+
+function maskIou(a, b) {
+  let intersection = 0, union = 0
+  for (let index = 0; index < a.data.length; index++) {
+    if (a.data[index] && b.data[index]) intersection++
+    if (a.data[index] || b.data[index]) union++
+  }
+  return union ? intersection / union : 1
+}
+
 test('planar masks exclude out-of-model pixels from counts, fitting, adjacency, and output', () => {
   const baseline = proposePlanarColorHypotheses(makeScene())
   const withPatch = proposePlanarColorHypotheses(makeScene(true))
@@ -49,4 +69,15 @@ test('planar masks exclude out-of-model pixels from counts, fitting, adjacency, 
   }
   assert.deepEqual(withPatch.hypotheses.map(({ id }) => id), baseline.hypotheses.map(({ id }) => id))
   assert.deepEqual(withPatch.hypotheses.map(({ mask }) => [...mask.data]), baseline.hypotheses.map(({ mask }) => [...mask.data]))
+})
+
+test('planar membership masks recover the expected full regions on an exact two-object control', () => {
+  const result = proposePlanarColorHypotheses(makeScene())
+  assert.equal(result.status, 'proposed')
+  const truth = [truthMask(true), truthMask(false)]
+  const scores = truth.map((mask) => result.hypotheses.map((hypothesis) => maskIou(mask, hypothesis.mask)))
+  const direct = [scores[0][0], scores[1][1]]
+  const swapped = [scores[0][1], scores[1][0]]
+  const best = direct.reduce((sum, score) => sum + score, 0) >= swapped.reduce((sum, score) => sum + score, 0) ? direct : swapped
+  assert.ok(best.every((score) => score >= 0.95), `expected high-IoU full membership masks, received ${best.join(', ')}`)
 })
