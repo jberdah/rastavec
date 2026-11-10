@@ -77,7 +77,12 @@ export function selectMobileSamPromptGrid(
     prompts: [...prompts], requestedCount: prompts.length, retainedCount: prompts.length,
     skippedCount: 0, applied: false, mode: 'full-grid', reason, foregroundMaskCount,
   })
-  if (!components || components.status !== 'proposed') return fullGrid('component-analysis-abstained')
+  if (!components || components.status !== 'proposed') {
+    const reason = components?.diagnostics?.background?.kind === 'intermediate-alpha-border'
+      ? 'component-analysis-abstained-intermediate-alpha-border'
+      : 'component-analysis-abstained'
+    return fullGrid(reason)
+  }
   const foregroundMaskCount = components.hypotheses.length
   const diagnostics = components.diagnostics
   if (diagnostics.components.truncated > 0) return fullGrid('foreground-components-truncated', foregroundMaskCount)

@@ -6,14 +6,23 @@ type RGB = [number, number, number]
 export interface ConnectedComponentDiagnostics {
   analysisSize: { width: number; height: number }
   background: {
-    kind: 'transparent-border' | 'opaque-border-median'
+    kind: 'transparent-border' | 'opaque-border-median' | 'intermediate-alpha-border'
     rgba: [number, number, number, number]
     opaqueBorderFraction: number
+    nearTransparentBorderFraction: number
     flatColorSupport?: number
   }
   foregroundPixels: number
   components: { raw: number; belowMinimumArea: number; proposed: number; truncated: number }
-  thresholds: { colorDistanceRgbEuclidean: number; alpha: number; minAreaPixels: number; connectivity: 8 }
+  thresholds: {
+    colorDistanceRgbEuclidean: number
+    alpha: number
+    minAreaPixels: number
+    connectivity: 8
+    borderAlphaSupportFraction: number
+    transparentBorderMaxAlpha: number
+    opaqueBorderMinAlpha: number
+  }
   warnings: string[]
 }
 
@@ -32,6 +41,9 @@ interface Component { label: number; area: number; bounds: [number, number, numb
 
 const MAX_ANALYSIS_DIMENSION = 800
 const DEFAULT_MAX_HYPOTHESES = 32
+const MIN_BORDER_BACKGROUND_SUPPORT = 0.75
+const MAX_TRANSPARENT_BORDER_ALPHA = 8
+const MIN_OPAQUE_BORDER_ALPHA = 250
 
 function sampleRaster(image: RGBAImage) {
   const scale = Math.min(1, MAX_ANALYSIS_DIMENSION / Math.max(image.width, image.height))
@@ -64,12 +76,18 @@ function sampleBorder(data: Uint8Array, width: number, height: number, colorThre
   }
   for (let x = 0; x < width; x++) { add(x, 0); if (height > 1) add(x, height - 1) }
   for (let y = 1; y < height - 1; y++) { add(0, y); if (width > 1) add(width - 1, y) }
-  const opaque = samples.filter((pixel) => pixel[3] >= 250)
+  const opaque = samples.filter((pixel) => pixel[3] >= MIN_OPAQUE_BORDER_ALPHA)
   const opaqueBorderFraction = opaque.length / Math.max(1, samples.length)
-  if (opaqueBorderFraction < 0.5) return {
+  const nearTransparentBorderFraction = samples.filter((pixel) => pixel[3] <= MAX_TRANSPARENT_BORDER_ALPHA).length / Math.max(1, samples.length)
+  if (nearTransparentBorderFraction >= MIN_BORDER_BACKGROUND_SUPPORT) return {
     kind: 'transparent-border' as const,
     rgba: [0, 0, 0, 0] as [number, number, number, number],
     opaqueBorderFraction,
+    nearTransparentBorderFraction,
+  }
+  if (opaqueBorderFraction < MIN_BORDER_BACKGROUND_SUPPORT) {
+    const rgba = [0, 1, 2, 3].map((channel) => median(samples.map((pixel) => pixel[channel]))) as [number, number, number, number]
+    return { kind: 'intermediate-alpha-border' as const, rgba, opaqueBorderFraction, nearTransparentBorderFraction }
   }
   const rgba = [0, 1, 2].map((channel) => median(opaque.map((pixel) => pixel[channel]))) as RGB
   const support = opaque.filter((pixel) => {
@@ -80,6 +98,7 @@ function sampleBorder(data: Uint8Array, width: number, height: number, colorThre
     kind: 'opaque-border-median' as const,
     rgba: [rgba[0], rgba[1], rgba[2], 255] as [number, number, number, number],
     opaqueBorderFraction,
+    nearTransparentBorderFraction,
     flatColorSupport: support,
   }
 }
@@ -130,6 +149,23 @@ export function proposeConnectedComponentHypotheses(image: RGBAImage, options: C
 
   const raster = sampleRaster(image)
   const background = sampleBorder(raster.data, raster.width, raster.height, contrastThreshold)
+  const thresholds: ConnectedComponentDiagnostics['thresholds'] = {
+    colorDistanceRgbEuclidean: contrastThreshold, alpha: alphaThreshold, minAreaPixels, connectivity: 8,
+    borderAlphaSupportFraction: MIN_BORDER_BACKGROUND_SUPPORT,
+    transparentBorderMaxAlpha: MAX_TRANSPARENT_BORDER_ALPHA, opaqueBorderMinAlpha: MIN_OPAQUE_BORDER_ALPHA,
+  }
+  if (background.kind === 'intermediate-alpha-border') {
+    const reason = 'Border alpha is neither predominantly near-transparent nor opaque; connected-component segmentation is unreliable.'
+    return {
+      status: 'abstained', reason,
+      diagnostics: {
+        analysisSize: { width: raster.width, height: raster.height },
+        background,
+        thresholds,
+        warnings: [reason],
+      },
+    }
+  }
   const pixelCount = raster.width * raster.height
   const foreground = new Uint8Array(pixelCount)
   let foregroundPixels = 0
@@ -174,7 +210,7 @@ export function proposeConnectedComponentHypotheses(image: RGBAImage, options: C
     background,
     foregroundPixels,
     components: { raw: components.length, belowMinimumArea: components.length - accepted.length, proposed: selected.length, truncated },
-    thresholds: { colorDistanceRgbEuclidean: contrastThreshold, alpha: alphaThreshold, minAreaPixels, connectivity: 8 },
+    thresholds,
     warnings,
   }
   const hypotheses = selected.map((component, index) => {
