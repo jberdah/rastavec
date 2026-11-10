@@ -83,12 +83,16 @@ test('path supports preserve clips, isolate paint elements and account for paint
 test('path association abstains on paint effects it cannot preserve safely', async () => {
     const { inspectTracedSvgPaths, rasterizeTracedPathSupports } = await loadApi()
     const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1" viewBox="0 0 1 1"><g style="mix-blend-mode:multiply"><path d="M0 0h1v1z" fill="#f00"/></g></svg>'
+    const rootStyleSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1" viewBox="0 0 1 1" style="mix-blend-mode:multiply"><path d="M0 0h1v1z" fill="#f00"/></svg>'
     let rendererCalls = 0
     const inventory = inspectTracedSvgPaths(svg)
     const rasterized = await rasterizeTracedPathSupports(svg, async () => { rendererCalls++; throw new Error('must not render') }, 1, 1)
+    const rootStyleInventory = inspectTracedSvgPaths(rootStyleSvg)
 
     assert.equal(inventory.status, 'unsupported')
     assert.equal(rasterized.status, 'abstained')
     assert.match(rasterized.reason, /unsupported paint attribute "style"/)
+    assert.equal(rootStyleInventory.status, 'unsupported')
+    assert.match(rootStyleInventory.reason, /unsupported paint attribute "style"/)
     assert.equal(rendererCalls, 0)
 })

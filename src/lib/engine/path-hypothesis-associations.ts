@@ -189,6 +189,8 @@ function parseTrace(svg: string): ParsedTrace | { error: string; paths: TracedPa
   if (typeof tokens === 'string') return { error: tokens, paths: [] }
   const rootTag = tokens.find((token) => token.name === 'svg' && !token.closing)
   if (!rootTag || !/<svg\b/i.test(svg)) return { error: 'The traced SVG has no SVG root.', paths: [] }
+  const rootEffect = unsupportedAttributes(rootTag)
+  if (rootEffect) return { error: rootEffect, paths: [] }
   const rootOpacity = parseOpacity(rootTag.attributes.opacity)
   if (rootOpacity === null) return { error: 'The traced SVG root has an invalid opacity.', paths: [] }
   const root: PaintGroup = { kind: 'group', opacity: rootOpacity, token: rootTag, children: [], alpha: null }

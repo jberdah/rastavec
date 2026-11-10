@@ -378,7 +378,7 @@ async function cmdObjects(positionals: string[], o: Record<string, string | bool
       let pathSupportResult: Awaited<ReturnType<typeof rasterizeTracedPathSupports>> | null = null
       let traceSvgPath: string | null = null
       if (associatePaths) {
-        traceSvgPath = join(out, `${job.name}.trace.svg`)
+        const candidateTraceSvgPath = join(out, `${job.name}.trace.svg`)
         try {
           const traceSettings: VectorizeSettings = {
             presetId: 'auto', params: { ...DEFAULT_PARAMS },
@@ -386,7 +386,8 @@ async function cmdObjects(positionals: string[], o: Record<string, string | bool
           }
           const traceResult = await vectorize(image, traceSettings, nodeBackend)
           const trace = traceResult.trials[traceResult.chosen].svg
-          writeFileSync(traceSvgPath, trace)
+          writeFileSync(candidateTraceSvgPath, trace)
+          traceSvgPath = candidateTraceSvgPath
           pathSupportResult = await rasterizeTracedPathSupports(trace, nodeBackend.rasterize.bind(nodeBackend), image.width, image.height)
         } catch (error) {
           pathSupportResult = {
