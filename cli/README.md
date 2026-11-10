@@ -56,6 +56,23 @@ route covers visible regions on transparent canvases or images with a border-der
 background; it does not complete occluded shapes, and it can merge touching objects or split
 one object with disconnected parts.
 
+For path-association diagnostics, add `--associate-paths` to `objects`. RastaVec runs one
+default Auto trace on the same raster, writes `<name>.trace.svg`, and associates painted paths
+from that generated trace with each provider's masks. The path inventory retains paint order,
+inherited fill, transform chains and clip references. Separate geometric support from each
+path's visible contribution, then report many-to-many edges as `supporting`, `partial`,
+`ambiguous` or `unrelated`, with directional coverage values. These labels describe mask
+overlap evidence; they are not semantic object identity or calibrated confidence, and they
+never merge, split, move or reorder paths. Unknown mask meanings and conflicting evidence stay
+reviewable. The optional trace stage reads only the input raster; source SVGs and truth masks
+are not inference inputs. Rendering work is adaptively downsampled under fixed path and pixel
+budgets. If an SVG paint effect cannot be preserved safely, path association abstains while
+retaining the object proposals.
+
+```bash
+rastavec objects illustration.png -o hypotheses/ --associate-paths --json
+```
+
 The report also includes a raster-only `routeRecommendation`. It prioritizes the circle fitter
 when all three relative radial residuals are at most 0.01, each exposed arc covers at least 150°,
 and at least 75% of the border plus all four corners support one flat background. The route

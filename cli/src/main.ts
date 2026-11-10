@@ -9,6 +9,7 @@ import { proposeConnectedComponentHypotheses, type ConnectedComponentProposalRes
 import { compareProviderHypothesisSets, type ObjectHypothesis } from '../../src/lib/engine/object-hypotheses'
 import { recommendObjectRoute } from '../../src/lib/engine/object-route-planner'
 import { proposePlanarColorHypotheses } from '../../src/lib/engine/planar-color-hypotheses'
+import { associateTracedPathsToHypotheses, rasterizeTracedPathSupports } from '../../src/lib/engine/path-hypothesis-associations'
 import { createMobileSamCliProvider, type MobileSamCliProvider } from './mobile-sam-node'
 import { diffImage, summarizeDiff, type RGBAImage } from '../../src/lib/engine/core'
 import { DEFAULT_PARAMS, PRESETS, presetById } from '../../src/lib/engine/presets'
@@ -55,6 +56,7 @@ Objects options
   -o, --out <dir>          output folder (default: ./rastavec-objects-out)
   -r, --recursive          include sub-folders
   -f, --force              overwrite existing outputs
+      --associate-paths    also trace with Auto and associate output paths to each proposal
       --sam-encoder <file>  optional supported MobileSAM image encoder ONNX file
       --sam-decoder <file>  optional matching MobileSAM mask decoder ONNX file
       --sam-grid <2-6>      positive point grid size (default: 3; runs grid² prompts)
@@ -338,6 +340,7 @@ async function cmdObjects(positionals: string[], o: Record<string, string | bool
   const samGridSize = num(o['sam-grid'] as string | undefined, 'sam-grid', 3, 2, 6)
   if (!Number.isSafeInteger(samGridSize)) fail('--sam-grid must be an integer from 2 to 6')
   const out = resolve((o.out as string) ?? 'rastavec-objects-out')
+  const associatePaths = Boolean(o['associate-paths'])
   const used = new Set<string>()
   const jobs = files.map((input) => {
     const base = stem(input)
@@ -348,6 +351,7 @@ async function cmdObjects(positionals: string[], o: Record<string, string | bool
   })
   const reportPath = join(out, 'report.json')
   const possibleOutputs = [reportPath, ...jobs.flatMap(({ name }) => [
+    ...(associatePaths ? [join(out, `${name}.trace.svg`)] : []),
     ...[1, 2, 3].map((index) => join(out, `${name}.circle-${index}.mask.png`)),
     ...[1, 2, 3, 4].map((index) => join(out, `${name}.planar-object-${index}.mask.png`)),
     ...Array.from({ length: 32 }, (_, index) => join(out, `${name}.component-${String(index + 1).padStart(3, '0')}.mask.png`)),
@@ -371,6 +375,27 @@ async function cmdObjects(positionals: string[], o: Record<string, string | bool
   for (const [index, job] of jobs.entries()) {
     try {
       const image = await decode(job.input)
+      let pathSupportResult: Awaited<ReturnType<typeof rasterizeTracedPathSupports>> | null = null
+      let traceSvgPath: string | null = null
+      if (associatePaths) {
+        traceSvgPath = join(out, `${job.name}.trace.svg`)
+        try {
+          const traceSettings: VectorizeSettings = {
+            presetId: 'auto', params: { ...DEFAULT_PARAMS },
+            auto: { enabled: false, threshold: 3, maxKB: 400 },
+          }
+          const traceResult = await vectorize(image, traceSettings, nodeBackend)
+          const trace = traceResult.trials[traceResult.chosen].svg
+          writeFileSync(traceSvgPath, trace)
+          pathSupportResult = await rasterizeTracedPathSupports(trace, nodeBackend.rasterize.bind(nodeBackend), image.width, image.height)
+        } catch (error) {
+          pathSupportResult = {
+            status: 'error', reason: error instanceof Error ? error.message : String(error), paths: [], supports: [],
+          }
+        }
+      }
+      const pathSupportStatus = pathSupportResult?.status ?? 'error'
+      const pathSupportReason = pathSupportResult && pathSupportResult.status !== 'ready' ? pathSupportResult.reason : undefined
       const routes = []
       const providerHypothesisSets: Array<{ provider: string; hypotheses: ObjectHypothesis[] }> = []
       let sceneProposals = 0, sceneAbstentions = 0, sceneErrors = 0
@@ -402,8 +427,15 @@ async function cmdObjects(positionals: string[], o: Record<string, string | bool
           sceneProposals++
           proposedProviders++
           providerHypothesisSets.push({ provider: provider.id, hypotheses: result.hypotheses, ...('compareMasks' in provider && provider.compareMasks === false ? { compareMasks: false } : {}) })
+          let association: ReturnType<typeof associateTracedPathsToHypotheses> | null = null
+          let associationError: string | null = null
+          if (associatePaths && pathSupportResult?.status === 'ready') {
+            try { association = associateTracedPathsToHypotheses(pathSupportResult.supports, result.hypotheses) }
+            catch (error) { associationError = error instanceof Error ? error.message : String(error) }
+          }
+          const routeHypotheses = association?.hypotheses ?? result.hypotheses
           const hypotheses = []
-          for (const hypothesis of result.hypotheses) {
+          for (const hypothesis of routeHypotheses) {
             const maskFile = `${job.name}.${hypothesis.id}.mask.png`
             const rgba = new Uint8ClampedArray(hypothesis.mask.width * hypothesis.mask.height * 4)
             for (let pixel = 0; pixel < hypothesis.mask.data.length; pixel++) if (hypothesis.mask.data[pixel]) {
@@ -414,7 +446,14 @@ async function cmdObjects(positionals: string[], o: Record<string, string | bool
             const { mask, ...metadata } = hypothesis
             hypotheses.push({ ...metadata, mask: { width: mask.width, height: mask.height, file: maskFile } })
           }
-          routes.push({ provider: provider.id, status: 'proposed', decision: 'human-review-required', hypotheses, diagnostics: result.diagnostics })
+          routes.push({
+            provider: provider.id, status: 'proposed', decision: 'human-review-required', hypotheses, diagnostics: result.diagnostics,
+            ...(associatePaths ? {
+              pathAssociations: association
+                ? { status: 'ready', ...association.summary }
+                : { status: associationError ? 'error' : pathSupportStatus, reason: associationError ?? pathSupportReason ?? 'Trace path supports were unavailable.' },
+            } : {}),
+          })
         } catch (e) {
           sceneErrors++
           errors++
@@ -430,6 +469,16 @@ async function cmdObjects(positionals: string[], o: Record<string, string | bool
         status: sceneProposals ? 'proposed' : sceneErrors ? 'error' : 'abstained',
         ...(sceneProposals ? { decision: 'human-review-required' } : {}), routes, providerComparison,
         routeRecommendation,
+        ...(associatePaths ? {
+          tracePathAssociations: {
+            status: pathSupportStatus,
+            ...(traceSvgPath ? { traceSvg: traceSvgPath } : {}),
+            ...(pathSupportResult?.status === 'ready' ? {
+              diagnostics: pathSupportResult.diagnostics,
+              paths: pathSupportResult.paths.filter(({ definition }) => !definition),
+            } : { reason: pathSupportReason ?? 'Trace path supports were unavailable.' }),
+          },
+        } : {}),
       })
       const disagreement = providerComparison.status === 'counts-disagree'
         ? ` · provider proposal counts differ (${providerComparison.providers.map(({ provider, count }) => `${provider}=${count}`).join(', ')})`
@@ -529,6 +578,7 @@ async function main() {
         'sam-encoder': { type: 'string' },
         'sam-decoder': { type: 'string' },
         'sam-grid': { type: 'string' },
+        'associate-paths': { type: 'boolean' },
         json: { type: 'boolean' },
         quiet: { type: 'boolean', short: 'q' },
         help: { type: 'boolean', short: 'h' },

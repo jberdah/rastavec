@@ -2,6 +2,26 @@ import type { BinarySegmentationMask } from './segmentation-mask'
 
 export type ObjectMaskMeaning = 'unknown' | 'visible-object' | 'completed-object'
 
+export type ObjectPathAssociationStatus = 'supporting' | 'partial' | 'ambiguous' | 'unrelated'
+export type ObjectPathSupportBasis = 'visible-support' | 'completed-geometry' | 'unknown-mask-meaning'
+
+export interface ObjectPathAssociation {
+  pathIndex: number
+  pathId: string
+  /** Coverage of the traced path using the hypothesis' declared mask meaning. */
+  pathCoverage: number
+  /** Coverage of the hypothesis mask using the same support basis. */
+  hypothesisCoverage: number
+  status: ObjectPathAssociationStatus
+  supportBasis: ObjectPathSupportBasis
+  geometricPathCoverage: number
+  geometricHypothesisCoverage: number
+  visiblePathCoverage: number
+  visibleHypothesisCoverage: number
+  intersectionPixels: { geometric: number; visible: number }
+  reason: string
+}
+
 export interface ObjectHypothesisSource {
   provider: string
   model?: string
@@ -32,11 +52,7 @@ export interface ObjectHypothesis {
     completeness: 'unknown' | 'visible' | 'completed'
     parameters?: Record<string, number | string>
   }
-  pathAssociations?: Array<{
-    pathIndex: number
-    pathCoverage: number
-    hypothesisCoverage: number
-  }>
+  pathAssociations?: ObjectPathAssociation[]
   paint?: {
     /** Solid fill retained for existing providers. Gradient paint is represented separately. */
     fill?: string

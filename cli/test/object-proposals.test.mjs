@@ -73,3 +73,28 @@ test('objects emits source-free, review-required visible-mask proposals for gene
     }
   }
 })
+
+test('objects can associate proposals with paint-aware paths from its own trace', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'rastavec-object-path-associations-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const input = join(dir, 'venn.png')
+  await sharp(Buffer.from(scenes.venn_alpha)).png().toFile(input)
+
+  const out = join(dir, 'associated')
+  const result = spawnSync(process.execPath, [cli, 'objects', input, '--associate-paths', '--out', out, '--json'], { encoding: 'utf8' })
+  assert.equal(result.status, 1, result.stderr)
+  const report = JSON.parse(result.stdout)
+  const item = report.items[0]
+
+  assert.equal(item.tracePathAssociations.status, 'ready')
+  assert.ok(item.tracePathAssociations.paths.length > 0)
+  assert.ok(item.tracePathAssociations.diagnostics.rendererCalls > 0)
+  assert.ok(existsSync(item.tracePathAssociations.traceSvg))
+  for (const route of item.routes.filter(({ status }) => status === 'proposed')) {
+    assert.equal(route.pathAssociations.status, 'ready', route.provider)
+    assert.ok(Number.isSafeInteger(route.pathAssociations.paintedPaths), route.provider)
+    assert.equal(route.hypotheses.every((hypothesis) => Array.isArray(hypothesis.pathAssociations)), true, route.provider)
+  }
+  assert.equal(item.inferenceUsesSourceSvg, undefined)
+  assert.equal(report.inferenceUsesSourceSvg, false)
+})
