@@ -8,7 +8,7 @@ export interface CircleOverlapDiagnostics {
   boundaryPointCounts: number[]
   relativeRadialRms: number[]
   membershipPixelCounts: number[]
-  orderFit?: { bestRmse: number; runnerUpRmse: number; margin: number; bottomToTop: string[] }
+  orderFit?: { bestRmse: number; runnerUpRmse: number; margin: number; orderIdentifiable: boolean; bottomToTop?: string[] }
   warnings: string[]
 }
 
@@ -252,12 +252,15 @@ export function proposeThreeCircleOverlaps(image: RGBAImage): CircleOverlapPropo
     ? inferOrder(circles.map((_, index) => regionColors[1 << index] as [number, number, number]), regionColors as Array<[number, number, number]>, palette.background)
     : []
   const winner = orderFits[0], runnerUp = orderFits[1]
-  if (winner && runnerUp && runnerUp.rmse - winner.rmse < 2) warnings.push('The best and next painter-order fits are close; treat order as ambiguous.')
+  const orderMargin = winner && runnerUp ? runnerUp.rmse - winner.rmse : null
+  const orderIdentifiable = orderMargin !== null && orderMargin >= 2
+  if (winner && runnerUp && !orderIdentifiable) warnings.push('The best and next painter-order fits are close; treat order as ambiguous.')
   const orderFit = winner && runnerUp ? {
     bestRmse: winner.rmse,
     runnerUpRmse: runnerUp.rmse,
-    margin: runnerUp.rmse - winner.rmse,
-    bottomToTop: winner.order.map((index) => `circle-${index + 1}`),
+    margin: orderMargin!,
+    orderIdentifiable,
+    ...(orderIdentifiable ? { bottomToTop: winner.order.map((index) => `circle-${index + 1}`) } : {}),
   } : undefined
 
   const sx = image.width / raster.width, sy = image.height / raster.height
@@ -283,7 +286,7 @@ export function proposeThreeCircleOverlaps(image: RGBAImage): CircleOverlapPropo
       family: 'circle', completeness: 'completed',
       parameters: { cx: sourceCircle.cx, cy: sourceCircle.cy, radius: sourceCircle.radius, coordinateSpace: 'source image pixels' },
     }
-    if (winner) {
+    if (winner && runnerUp && orderIdentifiable) {
       const visibleColor = regionColors[1 << index] as [number, number, number]
       const opacity = winner.opacity[index]
       const fill = visibleColor.map((value, channel) => (value - (1 - opacity) * palette.background[channel]) / Math.max(opacity, 1e-6))

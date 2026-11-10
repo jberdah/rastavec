@@ -91,18 +91,22 @@
     description: 'Essai local pour trois cercles de couleur unie avec arcs visibles sur un fond opaque uni. Les masques complètent les cercles cachés; couleur, alpha et ordre source-over restent à vérifier. Utiliser un masque présélectionne seulement les groupes de chemins existants par leurs centres.',
     run: 'Analyser les arcs visibles', running: 'Ajustement des cercles…',
     noFit: 'Aucune proposition : les couleurs, le fond ou les arcs ne correspondent pas aux préconditions de cet essai.',
+    processingError: 'L’analyse des arcs a échoué sur cet appareil. Réessayez ou choisissez une autre méthode.',
     ready: (count: number) => `${count} hypothèses de cercle proposées`,
     candidate: (index: number, errorPercent: number) => `Cercle ${index} · erreur radiale relative ${errorPercent.toFixed(2)} %`,
     order: (order: string, margin: number) => `Ordre candidat dessous → dessus : ${order} · écart au second ajustement ${margin.toFixed(2)}`,
+    orderAmbiguous: (margin: number) => `Ordre non identifiable : l’écart au second ajustement est de ${margin.toFixed(2)}.`,
     warning: 'L’ajustement de peinture suppose un compositing source-over; il ne distingue pas Multiply ni l’opacité de groupe.',
   } : {
     title: 'Propose three overlapping circles (experimental)',
     description: 'Local probe for three flat-color circles with exposed arcs against a flat opaque backdrop. Masks complete the hidden circles; color, alpha and source-over order are hypotheses to review. Using a mask only preselects existing path groups by their centres.',
     run: 'Fit visible arcs', running: 'Fitting circles…',
     noFit: 'No proposal: this image does not meet this experiment’s color, backdrop or arc requirements.',
+    processingError: 'Circle analysis failed on this device. Try again or choose another method.',
     ready: (count: number) => `${count} circle hypotheses proposed`,
     candidate: (index: number, errorPercent: number) => `Circle ${index} · relative radial error ${errorPercent.toFixed(2)}%`,
     order: (order: string, margin: number) => `Candidate order bottom → top: ${order} · gap to second fit ${margin.toFixed(2)}`,
+    orderAmbiguous: (margin: number) => `Order is not identifiable: the gap to the second fit is ${margin.toFixed(2)}.`,
     warning: 'Paint fitting assumes source-over compositing; it does not distinguish Multiply or group opacity.',
   })
   const planarWords = $derived(i18n.locale === 'fr' ? {
@@ -110,6 +114,7 @@
     description: 'Route locale pour 2 à 4 formes superposées à aplats, sur fond opaque uni. Elle infère les appartenances depuis les adjacences de couleurs; elle ne garantit ni la famille de forme ni la géométrie entièrement cachée.',
     run: 'Analyser les adjacences',
     noFit: 'Aucune proposition : cette image ne fournit pas un graphe de couleurs compatible avec cet essai.',
+    processingError: 'L’analyse du graphe de couleurs a échoué sur cet appareil. Réessayez ou choisissez une autre méthode.',
     ready: (count: number) => `${count} masques d’objet proposés · à vérifier`,
     candidate: (index: number, model: string) => `Objet ${index} · peinture ${model}`,
   } : {
@@ -117,6 +122,7 @@
     description: 'Local route for 2–4 overlapping flat-color shapes on a flat opaque backdrop. It infers membership from color adjacency; it does not guarantee a shape family or fully hidden geometry.',
     run: 'Analyze color adjacency',
     noFit: 'No proposal: this image did not produce a compatible color-state graph for this experiment.',
+    processingError: 'Color-graph analysis failed on this device. Try again or choose another method.',
     ready: (count: number) => `${count} object masks proposed · review required`,
     candidate: (index: number, model: string) => `Object ${index} · ${model} paint`,
   })
@@ -125,6 +131,7 @@
     description: 'Sépare les régions visibles depuis l’alpha du fond ou le contraste avec la bordure. Un dégradé reste dans une même région connectée. Les formes superposées ou qui se touchent peuvent fusionner; aucun contour caché n’est complété.',
     run: 'Trouver les régions visibles', running: 'Recherche des régions…',
     noFit: 'Aucune région visible ne dépasse les seuils de contraste et de taille.',
+    processingError: 'L’analyse des régions visibles a échoué sur cet appareil. Réessayez ou choisissez une autre méthode.',
     ready: (count: number) => `${count} région${count > 1 ? 's' : ''} visible${count > 1 ? 's' : ''} proposée${count > 1 ? 's' : ''} · à vérifier`,
     candidate: (index: number, area: number) => `Région ${index} · ${area.toLocaleString()} px d’analyse`,
   } : {
@@ -132,6 +139,7 @@
     description: 'Separates visible regions using border alpha or contrast. A gradient stays within one connected region. Overlapping or touching shapes can merge; hidden contours are not completed.',
     run: 'Find visible regions', running: 'Finding regions…',
     noFit: 'No visible region passed the contrast and size thresholds.',
+    processingError: 'Visible-region analysis failed on this device. Try again or choose another method.',
     ready: (count: number) => `${count} visible region${count === 1 ? '' : 's'} proposed · review required`,
     candidate: (index: number, area: number) => `Region ${index} · ${area.toLocaleString()} analysis px`,
   })
@@ -201,8 +209,8 @@
       const unmatched = [...comparison.unmatchedLeft, ...comparison.unmatchedRight]
       const ids = comparison.matches.map(({ leftHypothesisId, rightHypothesisId, iou }) => `${leftHypothesisId} ↔ ${rightHypothesisId} (${iou.toFixed(2)})`).join(', ')
       return i18n.locale === 'fr'
-        ? `IoU moyen ${mean}; ${comparison.matchesAtThreshold}/${comparison.matches.length} paires ≥ ${comparison.matchingThreshold.toFixed(2)}${ids ? ` · ${ids}` : ''}${unmatched.length ? ` · sans paire : ${unmatched.join(', ')}` : ''}${comparison.maskMeaningsComparable ? '' : ' · sens des masques différent, IoU à interpréter avec prudence'}`
-        : `mean IoU ${mean}; ${comparison.matchesAtThreshold}/${comparison.matches.length} pairs ≥ ${comparison.matchingThreshold.toFixed(2)}${ids ? ` · ${ids}` : ''}${unmatched.length ? ` · unmatched: ${unmatched.join(', ')}` : ''}${comparison.maskMeaningsComparable ? '' : ' · mask meanings differ; interpret IoU with care'}`
+        ? `IoU moyen des paires retenues ${mean}; ${comparison.matchesAtThreshold}/${comparison.matches.length} paires assignées ≥ ${comparison.matchingThreshold.toFixed(2)}${ids ? ` · ${ids}` : ''}${unmatched.length ? ` · sans paire : ${unmatched.join(', ')}` : ''}${comparison.maskMeaningsComparable ? '' : ' · sens des masques différent ou inconnu; les catégories incompatibles sont exclues de l’IoU'}`
+        : `mean accepted-pair IoU ${mean}; ${comparison.matchesAtThreshold}/${comparison.matches.length} assigned pairs ≥ ${comparison.matchingThreshold.toFixed(2)}${ids ? ` · ${ids}` : ''}${unmatched.length ? ` · unmatched: ${unmatched.join(', ')}` : ''}${comparison.maskMeaningsComparable ? '' : ' · mask meanings differ or are unknown; incompatible categories are excluded from IoU'}`
     }).join(' | ')
     const conclusion = objectProviderComparison.status === 'counts-disagree'
       ? i18n.locale === 'fr' ? `Les essais proposent des nombres de formes différents (${counts}).` : `The routes propose different object counts (${counts}).`
@@ -467,7 +475,7 @@
         worker.postMessage({ type: 'propose', requestId, width: image.width, height: image.height, pixels }, [pixels])
       })
     } catch {
-      if (requestId === circleRequestId) maskMessage = circleWords.noFit
+      if (requestId === circleRequestId && sourceImage?.url === sourceUrl) maskMessage = circleWords.processingError
     } finally {
       if (requestId === circleRequestId) maskBusy = false
     }
@@ -534,7 +542,7 @@
         worker.postMessage({ type: 'propose', requestId, width: image.width, height: image.height, pixels }, [pixels])
       })
     } catch {
-      if (requestId === planarRequestId) maskMessage = planarWords.noFit
+      if (requestId === planarRequestId && sourceImage?.url === sourceUrl) maskMessage = planarWords.processingError
     } finally {
       if (requestId === planarRequestId) maskBusy = false
     }
@@ -601,7 +609,7 @@
         worker.postMessage({ type: 'propose', requestId, width: image.width, height: image.height, pixels }, [pixels])
       })
     } catch {
-      if (requestId === componentRequestId) maskMessage = componentWords.noFit
+      if (requestId === componentRequestId && sourceImage?.url === sourceUrl) maskMessage = componentWords.processingError
     } finally {
       if (requestId === componentRequestId) maskBusy = false
     }
@@ -1245,7 +1253,9 @@
               </div>
               <button type="button" class="btn" onclick={usePreviewedCircleHypothesis} disabled={circlePreviewIndex < 0 || maskBusy}>{words.samApplyProposal}</button>
               {#if circleDiagnostics?.orderFit}
-                <p class="muted tiny">{circleWords.order(circleDiagnostics.orderFit.bottomToTop.join(' → '), circleDiagnostics.orderFit.margin)}</p>
+                <p class="muted tiny">{circleDiagnostics.orderFit.orderIdentifiable && circleDiagnostics.orderFit.bottomToTop
+                  ? circleWords.order(circleDiagnostics.orderFit.bottomToTop.join(' → '), circleDiagnostics.orderFit.margin)
+                  : circleWords.orderAmbiguous(circleDiagnostics.orderFit.margin)}</p>
               {/if}
               {#if circleDiagnostics?.warnings.length}<p class="muted tiny">{circleWords.warning}</p>{/if}
             {/if}
