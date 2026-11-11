@@ -1,6 +1,6 @@
 {
   "description": "VTracer-next source snapshot at the engine-quality branch: experimental gradient fitting with a continuous smooth-field model and whole-pixel validation, drift-bounded clustering (preserve_gradients), circle detection with overlap completion (detect_shapes), and the structured shape report.",
-  "head": "99551db96aafaf7f50d104130543b4bd04649756",
+  "head": "bcf1b444e94c96b0e53c14e69e2850e73840196f",
   "files": {
     "README.md": "327e4a8aabf3f4ca341d06a9e09c167738f4afc913c87f9340217eb0e6c305c0",
     "crates/vtracer/Cargo.toml": "a1faa94a3234503beb283da70d135b420a6cbdb34e78c59bbf796636f14e42c0",
@@ -18,10 +18,11 @@
     "crates/vtracer/src/frontend/color_cluster.rs": "25288c650cbc7533256bf49a4c23f6cd837638d54386ebfc9ba7260fe49980cb",
     "crates/vtracer/src/frontend/keying.rs": "8ad3fb5863e170632603c3b2c67099177a7003b361378faf42782806c9d3b797",
     "crates/vtracer/src/frontend/watershed.rs": "286b53236af02da587c91d21fcd0758f9c1d93fff470d72765f734d2067fbd15",
-    "crates/vtracer/src/gradient.rs": "006f3fceead59b6225b55f17fa47553cc2353994332dbb5e9ab7643214453f42",
-    "crates/vtracer/src/gradient/mesh.rs": "ed93c468c7279d2b00c0673da7e31127cc587d88e7da9fdf304f7a9a548ae4c8",
+    "crates/vtracer/src/gradient.rs": "1ffdeee0cab5469a321276fcf05bdddee4ab044bf1705bada3114e91268a6ec8",
+    "crates/vtracer/src/gradient/mesh.rs": "9ce73c96d4c65fb191e4900ae9b7b51b8431732baeb0b93a15531abe57130415",
+    "crates/vtracer/src/gradient/radial_stops.rs": "14625a5e3c472b9036a0f21345b52a5f53dfee5ea78773f71fc6b25413f47e2a",
     "crates/vtracer/src/gradient/repeat.rs": "3891a17df0becd65033eb1042b134394e503abff8cbb374a3ff7efb12e3202c2",
-    "crates/vtracer/src/ir.rs": "b69323d6c2ec6e4af644f3e3c082037910bf95455a3ecbb5e74162ac550b0602",
+    "crates/vtracer/src/ir.rs": "3ad3879797b393d0a5261c3058d8931d7f5ca49b50d5c9f121777f3dc79310da",
     "crates/vtracer/src/ir/region.rs": "9399e9e25fa77b5fa7c1eb89d36ec40deb102a7ca7a3645bba3dc49e350be122",
     "crates/vtracer/src/ir/vector.rs": "e4cc493db976b436bc36b252f3c521754b956ba02cc93094380f1eaa9edd03dd",
     "crates/vtracer/src/lib.rs": "76a404071cb0c1b5d2d2f297d18c35e1f290bfb6bea85742786df466fad0d63e",
