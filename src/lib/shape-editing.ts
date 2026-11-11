@@ -22,6 +22,7 @@ export function applyShapeEdit(item: Item, index: number, patch: ShapePatch): bo
     traceMethod: 'shapes-edited',
     svg: edited.svg,
     shapes: edited.hints,
+    sourceTrial: current.sourceTrial ?? item.chosen,
     // Provisional until the edited SVG is measured against the source below.
     metrics: { ...current.metrics, bytes: new Blob([edited.svg]).size },
     ms: 0,

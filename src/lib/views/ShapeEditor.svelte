@@ -2,7 +2,7 @@
   // Lists the shapes the engine recognised in the chosen trace and edits the selected one by
   // its parameters: centre and radius of a circle, axes and rotation of an ellipse, flat fill
   // or gradient stop colours.
-  import { shapeCapabilities, type ShapePatch } from '../engine/shape-edits'
+  import { editableShapes, type ShapePatch } from '../engine/shape-edits'
   import type { EngineShapeHint } from '../engine/types'
   import { t } from '../i18n.svelte'
 
@@ -13,12 +13,12 @@
     onEdit: (index: number, patch: ShapePatch) => void
   } = $props()
 
-  const entries = $derived(shapes.map((hint) => ({ hint, capabilities: shapeCapabilities(svg, shapes, hint.index) })).filter((entry) => entry.capabilities))
+  const entries = $derived(editableShapes(svg, shapes))
   const current = $derived(entries.find((entry) => entry.hint.index === selected) ?? null)
   const label = (hint: EngineShapeHint) =>
     hint.overlayOf !== undefined ? t('shapeEdit.overlay') : hint.kind === 'circle' ? t('shapeEdit.circle') : hint.kind === 'ellipse' ? t('shapeEdit.ellipse') : t('shapeEdit.gradientRegion')
   const swatch = (entry: (typeof entries)[number]) => {
-    const { fill, stops } = entry.capabilities!
+    const { fill, stops } = entry.capabilities
     return fill ?? (stops && stops.length > 1 ? `linear-gradient(90deg, ${stops.join(', ')})` : stops?.[0] ?? 'transparent')
   }
   const fields = $derived.by(() => {

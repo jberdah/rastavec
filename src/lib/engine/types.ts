@@ -94,6 +94,8 @@ export interface Trial {
   svg: string
   /** Engine hints for `svg`; dropped whenever a later pass renumbers its paths. */
   shapes?: EngineShapeHint[]
+  /** For a 'shapes-edited' variant: index of the traced trial it was derived from. */
+  sourceTrial?: number
   metrics: Metrics
   score: number
   ms: number

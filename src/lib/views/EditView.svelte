@@ -9,7 +9,7 @@
   import GroupReview from './GroupReview.svelte'
   import ShapeEditor from './ShapeEditor.svelte'
   import { applyShapeEdit } from '../shape-editing'
-  import type { ShapePatch } from '../engine/shape-edits'
+  import { editableShapes, type ShapePatch } from '../engine/shape-edits'
   import { publicAsset } from '../assets'
 
   type Bg = 'checker' | 'light' | 'dark'
@@ -56,6 +56,36 @@
   const viewBox = $derived(trial ? /\bviewBox="([^"]+)"/.exec(trial.svg)?.[1] ?? `0 0 ${item?.width ?? 0} ${item?.height ?? 0}` : '')
   function editShape(index: number, patch: ShapePatch) {
     if (item) applyShapeEdit(item, index, patch)
+  }
+  // Shapes that can be picked on the preview: circles and ellipses, in paint order so the
+  // topmost one under the pointer wins.
+  const pickable = $derived(trial?.shapes ? editableShapes(trial.svg, trial.shapes).filter((entry) => entry.hint.kind !== 'path') : [])
+  // Dragging moves the outline live and commits one edit on release.
+  let drag = $state<{ index: number; startX: number; startY: number; dx: number; dy: number } | null>(null)
+  const dragOffset = (index: number) => (drag && drag.index === index ? drag : { dx: 0, dy: 0 })
+  function toUser(event: PointerEvent): [number, number] | null {
+    const matrix = (event.currentTarget as SVGGraphicsElement).ownerSVGElement?.getScreenCTM()
+    if (!matrix) return null
+    const point = new DOMPoint(event.clientX, event.clientY).matrixTransform(matrix.inverse())
+    return [point.x, point.y]
+  }
+  function pickDown(event: PointerEvent, index: number, movable: boolean) {
+    selectedShape = index
+    const at = movable ? toUser(event) : null
+    if (!at) return
+    ;(event.currentTarget as Element).setPointerCapture(event.pointerId)
+    drag = { index, startX: at[0], startY: at[1], dx: 0, dy: 0 }
+  }
+  function pickMove(event: PointerEvent) {
+    const at = drag ? toUser(event) : null
+    if (drag && at) drag = { ...drag, dx: at[0] - drag.startX, dy: at[1] - drag.startY }
+  }
+  function pickUp() {
+    const moved = drag
+    drag = null
+    if (!moved || Math.hypot(moved.dx, moved.dy) < 0.5) return
+    const hint = trial?.shapes?.find((shape) => shape.index === moved.index)
+    if (hint?.cx !== undefined && hint.cy !== undefined) editShape(moved.index, { cx: hint.cx + moved.dx, cy: hint.cy + moved.dy })
   }
   function saveGrouping(grouping: GroupingMetadata) {
     if (!item) return
@@ -128,18 +158,26 @@
           </div>
         </div>
         <div class="stage" style:background={bgStyle}>
-          <div class="half"><img class="fit" src={svgUrl(item)} alt={t('edit.before')} /><span class="lab mono l">{t('edit.before')}</span></div>
+          <div class="half"><img class="fit" src={svgUrl(item, trial.sourceTrial ?? item.chosen)} alt={t('edit.before')} /><span class="lab mono l">{t('edit.before')}</span></div>
           <div class="half">
             {#if outUrl}<img class="fit" src={outUrl} alt={t('edit.after')} />{/if}
-            {#if selectedHint}
-              <!-- Outline of the selected shape, laid out exactly like the preview image. -->
-              <svg class="fit pick" {viewBox} preserveAspectRatio="xMidYMid meet" aria-hidden="true">
-                {#if selectedHint.kind === 'circle'}
-                  <circle cx={selectedHint.cx} cy={selectedHint.cy} r={selectedHint.r} />
-                {:else if selectedHint.kind === 'ellipse'}
-                  <ellipse cx={selectedHint.cx} cy={selectedHint.cy} rx={selectedHint.rx} ry={selectedHint.ry} transform={`rotate(${selectedHint.rotation ?? 0} ${selectedHint.cx} ${selectedHint.cy})`} />
-                {:else}
-                  <rect x={selectedHint.bounds[0]} y={selectedHint.bounds[1]} width={selectedHint.bounds[2] - selectedHint.bounds[0]} height={selectedHint.bounds[3] - selectedHint.bounds[1]} />
+            {#if pickable.length || selectedHint}
+              <!-- Laid out exactly like the preview image: invisible hit targets for the shapes that
+                   can be picked, and the outline of the selected one. -->
+              <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+              <svg class="fit pick" {viewBox} preserveAspectRatio="xMidYMid meet" onclick={(event) => { if (event.target === event.currentTarget) selectedShape = null }}>
+                {#each pickable as entry (entry.hint.index)}
+                  {@const hint = entry.hint}
+                  {@const offset = dragOffset(hint.index)}
+                  <ellipse
+                    class="target" class:movable={entry.capabilities.geometry} class:on={selectedShape === hint.index}
+                    cx={(hint.cx ?? 0) + offset.dx} cy={(hint.cy ?? 0) + offset.dy} rx={hint.rx ?? hint.r} ry={hint.ry ?? hint.r}
+                    transform={`rotate(${hint.rotation ?? 0} ${(hint.cx ?? 0) + offset.dx} ${(hint.cy ?? 0) + offset.dy})`}
+                    onpointerdown={(event) => pickDown(event, hint.index, entry.capabilities.geometry)} onpointermove={pickMove} onpointerup={pickUp} onpointercancel={() => (drag = null)}
+                  />
+                {/each}
+                {#if selectedHint && selectedHint.kind === 'path'}
+                  <rect class="on" x={selectedHint.bounds[0]} y={selectedHint.bounds[1]} width={selectedHint.bounds[2] - selectedHint.bounds[0]} height={selectedHint.bounds[3] - selectedHint.bounds[1]} />
                 {/if}
               </svg>
             {/if}
@@ -257,8 +295,12 @@
   .half { position: relative; border-right: 1px solid var(--line-2); }
   .half:last-child { border-right: 0; }
   .fit { position: absolute; inset: 5%; width: 90%; height: 90%; object-fit: contain; }
-  .pick { pointer-events: none; overflow: visible; }
-  .pick :global(*) { fill: none; stroke: var(--accent); stroke-width: 2; stroke-dasharray: 6 4; vector-effect: non-scaling-stroke; }
+  .pick { overflow: visible; touch-action: none; }
+  .pick .target { fill: transparent; stroke: none; cursor: pointer; }
+  .pick .target.movable { cursor: move; }
+  .pick .on { fill: none; stroke: var(--accent); stroke-width: 2; stroke-dasharray: 6 4; vector-effect: non-scaling-stroke; }
+  .pick .target.on { fill: transparent; }
+  .pick rect.on { pointer-events: none; }
   .lab { position: absolute; top: 14px; font-size: 12px; border-radius: 6px; padding: 4px 8px; }
   .lab.l { left: 14px; background: rgba(10, 11, 15, 0.85); }
   .lab.r { right: 14px; color: #0a0b0f; background: var(--accent); }

@@ -62,10 +62,19 @@ function gradientBlock(svg: string, id: string) {
   return match ? { start: match.index, text: match[0] } : null
 }
 
+/** Capabilities of every hinted shape, in hint order; shapes that cannot be edited are left out. */
+export function editableShapes(svg: string, hints: EngineShapeHint[]): { hint: EngineShapeHint; capabilities: ShapeCapabilities }[] {
+  const tags = pathTags(svg)
+  return hints.flatMap((hint) => {
+    const capabilities = shapeCapabilities(svg, hints, hint.index, tags)
+    return capabilities ? [{ hint, capabilities }] : []
+  })
+}
+
 /** Describe what `editShape` can change on the shape at `index`. */
-export function shapeCapabilities(svg: string, hints: EngineShapeHint[], index: number): ShapeCapabilities | null {
+export function shapeCapabilities(svg: string, hints: EngineShapeHint[], index: number, tags = pathTags(svg)): ShapeCapabilities | null {
   const hint = hints.find((candidate) => candidate.index === index)
-  const tag = pathTags(svg)[index]?.[0]
+  const tag = tags[index]?.[0]
   if (!hint || !tag) return null
   const fill = /\bfill="([^"]*)"/.exec(tag)?.[1]
   const capabilities: ShapeCapabilities = {
