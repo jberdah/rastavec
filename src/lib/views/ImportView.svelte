@@ -303,10 +303,10 @@
         <input id="thr" type="range" min="0.5" max="10" step="0.5" bind:value={app.auto.threshold} />
       </div>
       <div class="field">
-        <label for="kb"><span>{t('auto.maxSize')}</span><span class="value accent">{num(app.auto.maxKB)} {kbUnit()}</span></label>
-        <input id="kb" type="range" min="50" max="3000" step="50" bind:value={app.auto.maxKB} />
+        <label for="kb"><span>{t('auto.maxSize')}</span><span class="value accent">{app.auto.maxKB > 0 ? `${num(app.auto.maxKB)} ${kbUnit()}` : t('auto.noBudget')}</span></label>
+        <input id="kb" type="range" min="0" max="3000" step="50" bind:value={app.auto.maxKB} />
       </div>
-      <span class="mono faint small">{t('auto.score', kbUnit())}</span>
+      <span class="mono faint small">{t('auto.score')}</span>
     </div>
 
     <div class="card stack">

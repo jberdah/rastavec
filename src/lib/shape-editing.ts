@@ -4,6 +4,7 @@
 // in the trial list.
 import { forgetTrialCaches } from './edit'
 import { score } from './engine/core'
+import { editableShare } from './engine/editable-share'
 import { editShape, type ShapePatch } from './engine/shape-edits'
 import type { Item, Trial } from './engine/types'
 import { measureSvg, refreshOutputMetrics } from './pipeline'
@@ -40,8 +41,8 @@ export function applyShapeEdit(item: Item, index: number, patch: ShapePatch): bo
   void measureSvg(item, edited.svg).then((metrics) => {
     const trial = item.trials[target]
     if (!metrics || trial?.svg !== edited.svg) return
-    trial.metrics = metrics
-    trial.score = score(metrics)
+    trial.metrics = { ...metrics, editableShare: editableShare(edited.svg, edited.hints) }
+    trial.score = score(trial.metrics)
   }).catch(() => { /* keep the provisional metrics; the output measurement reports errors */ })
   refreshOutputMetrics(item)
   return true

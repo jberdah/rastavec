@@ -6,7 +6,14 @@ test('quality score accounts for average color error as well as visible outliers
   const server = await createServer({ server: { middlewareMode: true }, appType: 'custom', logLevel: 'silent' })
   try {
     const { score } = await server.ssrLoadModule('/src/lib/engine/core.ts')
-    assert.equal(score({ pctDiff: 0.5, rgbWhite: 2, rgbDark: 4, bytes: 1024 }), 0.532)
+    // f = 0.5 + 0.01 * 3 visible and color difference, f²/3 for its growth, 1.5 per doubling of the size.
+    const base = { pctDiff: 0.5, rgbWhite: 2, rgbDark: 4, bytes: 4096 }
+    const fidelity = 0.53 + 0.53 * 0.53 / 3
+    assert.ok(Math.abs(score(base) - (fidelity + 1.5 * 13)) < 1e-9)
+    // Banding costs, recovered gradients and shapes pay, and a heavier file costs by its ratio.
+    assert.ok(Math.abs(score({ ...base, falseEdgePct: 2 }) - score(base) - 1) < 1e-9)
+    assert.ok(Math.abs(score({ ...base, editableShare: 0.5 }) - score(base) + 0.3) < 1e-9)
+    assert.ok(Math.abs(score({ ...base, bytes: 3 * 4096 }) - score(base) - 1.5) < 1e-9)
   } finally {
     await server.close()
   }

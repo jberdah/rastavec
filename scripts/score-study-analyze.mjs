@@ -2,22 +2,26 @@
 //
 //   node scripts/score-study-analyze.mjs [results.json] [--grid] [--w band,weight,paths,edit]
 //
-// The current score is `pctDiff + 0.01 * meanRgb + 0.002 * KiB` with a penalty above the size
-// budget. The candidate is
+//                                         [--curve knee] [--floor bytes]
 //
-//   pctDiff + 0.01 * meanRgb + band * falseEdgePct
-//     + weight * log2(bytes) + paths * log2(paths) - edit * editableShare
+// The reference is the score the study started from, `pctDiff + 0.01 * meanRgb + 0.002 * KiB`
+// with a penalty above a 400 KiB budget. The candidate is, with f = pctDiff + 0.01 * meanRgb,
+//
+//   f + f² / knee + band * falseEdgePct
+//     + weight * log2(bytes + floor) + paths * log2(paths) - edit * editableShare
+//
+// The product uses band 0.5, weight 1.5, paths 0, edit 0.6, knee 3, floor 4096 (engine/core.ts).
 import { readFileSync } from 'node:fs'
 
 const args = process.argv.slice(2)
 const grid = args.includes('--grid')
 const wIndex = args.indexOf('--w')
 const custom = wIndex >= 0 ? args[wIndex + 1].split(',').map(Number) : null
-const file = args.find((arg, i) => !arg.startsWith('--') && (wIndex < 0 || i !== wIndex + 1) && (args.indexOf('--curve') < 0 || i !== args.indexOf('--curve') + 1)) ?? 'C:/tmp/score-study/results.json'
+const file = args.find((arg, i) => !arg.startsWith('--') && (wIndex < 0 || i !== wIndex + 1) && (args.indexOf('--curve') < 0 || i !== args.indexOf('--curve') + 1) && (args.indexOf('--floor') < 0 || i !== args.indexOf('--floor') + 1)) ?? 'C:/tmp/score-study/results.json'
 const images = JSON.parse(readFileSync(file, 'utf8')).filter((image) => image.trials.length > 1)
 
 const BUDGET = 400 * 1024
-const current = (trial) => trial.score + 4 * Math.max(0, trial.bytes / BUDGET - 1)
+const current = (trial) => trial.pctDiff + 0.01 * trial.meanRgb + 0.002 * trial.bytes / 1024 + 4 * Math.max(0, trial.bytes / BUDGET - 1)
 const fidelity = (trial) => trial.pctDiff + 0.01 * trial.meanRgb
 // Only differences between trials of one image decide, so the logarithms need no reference:
 // doubling the weight (or the path count) costs the same wherever it happens.
@@ -26,10 +30,13 @@ const fidelity = (trial) => trial.pctDiff + 0.01 * trial.meanRgb
 // quadratic part equals the linear one; 0 turns it off.
 const curveIndex = args.indexOf('--curve')
 const curve = curveIndex >= 0 ? Number(args[curveIndex + 1]) : 3
+// Bytes added to every size before the logarithm: below it, weight differences stop mattering.
+const floorIndex = args.indexOf('--floor')
+const floor = floorIndex >= 0 ? Number(args[floorIndex + 1]) : 4096
 const convex = (trial) => { const f = fidelity(trial) + 0; return curve > 0 ? f + f * f / curve : f }
 const candidate = ([band, weight, paths, edit]) => (trial) =>
   convex(trial) + band * trial.falseEdgePct
-    + weight * Math.log2(Math.max(1, trial.bytes))
+    + weight * Math.log2(Math.max(1, trial.bytes) + floor)
     + paths * Math.log2(Math.max(1, trial.paths))
     - edit * trial.editableShare
 const pick = (trials, score) => trials.reduce((best, trial) => (score(trial, trials) < score(best, trials) ? trial : best), trials[0])
@@ -75,7 +82,7 @@ if (grid) {
   console.log('\nFor reference, the proposal as first written:')
   console.log(line(evaluate([0.5, 0.25, 0.25, 0.3])))
 } else {
-  const outcome = evaluate(custom ?? [0.5, 0.25, 0.25, 0.3])
+  const outcome = evaluate(custom ?? [0.5, 1.5, 0, 0.6])
   console.log(line(outcome))
   console.log('\nImages where the choice changes (current -> candidate):')
   const describe = (trial) => `${trial.label.slice(0, 34).padEnd(34)} ${trial.pctDiff.toFixed(2).padStart(6)}% ${(trial.bytes / 1024).toFixed(0).padStart(5)}K ${String(trial.paths).padStart(5)}p band ${trial.falseEdgePct.toFixed(2)} edit ${(100 * trial.editableShare).toFixed(0)}%`

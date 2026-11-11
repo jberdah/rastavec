@@ -45,15 +45,16 @@ npm install -g https://github.com/jberdah/rastavec/releases/download/v0.4.0-beta
 | `-p, --preset <id>` | `auto` | `auto`, `flat`, `shaded`, `line`, `pixel`, `custom` |
 | `--gradients` | off | force experimental gradient fitting in color traces; Auto may compare one optional gradient trial on suitable shaded images without this flag |
 | `-t, --threshold <pct>` | `3` | max share of visibly different pixels |
-| `-s, --max-size <KB>` | `400` | size budget per SVG (KiB) |
+| `-s, --max-size <KB>` | `0` | optional size budget per SVG (KiB); `0` sets none |
 | `--no-auto` | | single trial, no auto-tuning |
 | `--compare` | | also write `<name>.comparison.png` (source / SVG on white and dark) and `<name>.diff.png` (differences in magenta) |
 | `--diff-summary-json` | | write `<name>.diff.json` with an 8×8 visible-difference grid and up to eight hotspot regions; also embed the summary in each JSON report item |
 
-The size budget guides Auto selection and marks outputs for review. It does not
-prevent exporting a larger SVG; set it according to the desired fidelity and
-editability for the input. If every regular Auto candidate for a photograph is
-over budget, Auto measures two simpler variants and selects from the actual
+There is no size budget by default: the Auto score already weighs size against
+fidelity and editability. When a budget is set, it guides Auto selection and
+marks outputs for review; it does not prevent exporting a larger SVG. If every
+regular Auto candidate for a photograph is over budget (or above 400 KiB when no
+budget is set), Auto measures two simpler variants and selects from the actual
 rendered results. A photograph may remain above the visible-difference target.
 | `--slice` | | treat inputs as sheets and vectorise each element |
 | `-r, --recursive` | | include sub-folders |

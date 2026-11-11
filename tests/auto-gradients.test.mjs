@@ -64,13 +64,19 @@ test('Auto still compares solid-fill calibration when the gradient candidate win
     const src = { width, height, data: new Uint8ClampedArray(width * height * 4) }
     for (let i = 0; i < width * height; i++) src.data.set([120, 100, 80, 255], i * 4)
     const analysis = { width, height, kind: 'shaded', alpha: 'opaque', softPct: 0, transparentPct: 0, dominantColors: 40, gradient: 0.0022, grayscale: false }
-    const solid = '<svg><path fill="#756150" d="M0 0h20v20H0z"/></svg>'
-    const gradient = '<svg><defs><linearGradient id="paint"><stop stop-color="#786450"/></linearGradient></defs><path fill="url(#paint)" d="M0 0h20v20H0z"/></svg>'
+    const solid = '<svg viewBox="0 0 20 20"><path fill="#756150" d="M0 0h20v20H0z"/></svg>'
+    const gradient = '<svg viewBox="0 0 20 20"><defs><linearGradient id="paint"><stop stop-color="#786450"/></linearGradient></defs><path fill="url(#paint)" d="M0 0h20v20H0z"/></svg>'
     const backend = {
       name: 'gradient-and-solid-calibration-test',
       async trace() { return solid },
       async traceColorSource() { return solid },
       async traceColorSourceWithGradients() { return gradient },
+      // As the real engine does: the gradient-painted path is reported, so the score counts it as editable.
+      shapeHintsFor(svg) {
+        return svg.includes('url(#paint)')
+          ? [{ index: 0, kind: 'path', gradient: { id: 'paint', type: 'linear', stops: 1, opaque: true } }]
+          : []
+      },
       async rasterize(svg, w, h) {
         const color = svg.includes('url(#paint)') || svg.includes('#786450')
           ? [120, 100, 80, 255]
@@ -88,8 +94,11 @@ test('Auto still compares solid-fill calibration when the gradient candidate win
     assert.ok(gradientTrial.score < native[choose(native, settings.auto.maxKB * 1024, { preferSimplicity: settings.auto.enabled })].score,
       'gradient trial should win before paint calibration is considered')
     assert.ok(result.trials.some((trial) => trial.traceMethod === 'fill-calibrated'))
-    const chosen = result.trials[result.chosen]
-    assert.equal(chosen.traceMethod, 'fill-calibrated')
-    assert.equal(chosen.metrics.rgbWhite, 0)
-    assert.equal(chosen.metrics.rgbDark, 0)
+    assert.equal(gradientTrial.metrics.editableShare, 1)
+    const calibrated = result.trials.find((trial) => trial.traceMethod === 'fill-calibrated')
+    assert.equal(calibrated.metrics.rgbWhite, 0)
+    assert.equal(calibrated.metrics.rgbDark, 0)
+    // Both are now exact. The flat fill is a few bytes lighter, the gradient stays editable as a
+    // gradient: the score keeps the gradient.
+    assert.equal(result.trials[result.chosen], gradientTrial)
 })

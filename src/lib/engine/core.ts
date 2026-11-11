@@ -268,6 +268,49 @@ function sourceEdgeMask(a: RGBAImage) {
 }
 
 /** Same core metrics as the skill's compare.cjs, plus a source-contour diagnostic. */
+// Banding: a color step in the render where the source is smooth. Both thresholds are in
+// channel levels after compositing on white, between a pixel and its right / lower neighbour.
+const SMOOTH_SOURCE_STEP = 6
+const FALSE_EDGE_STEP = 12
+const whiteStep = (data: Uint8ClampedArray, i: number, j: number) => {
+  const ai = data[i + 3] / 255, aj = data[j + 3] / 255
+  let step = 0
+  for (let c = 0; c < 3; c++) {
+    const d = Math.abs(data[i + c] * ai + 255 * (1 - ai) - data[j + c] * aj - 255 * (1 - aj))
+    if (d > step) step = d
+  }
+  return step
+}
+const neighbourStep = (image: RGBAImage, x: number, y: number) => {
+  const i = (y * image.width + x) * 4
+  let step = 0
+  if (x + 1 < image.width) step = whiteStep(image.data, i, i + 4)
+  if (y + 1 < image.height) step = Math.max(step, whiteStep(image.data, i, i + image.width * 4))
+  return step
+}
+const smoothMaskCache = new WeakMap<Uint8ClampedArray, { width: number; height: number; mask: Uint8Array }>()
+function sourceSmoothMask(a: RGBAImage) {
+  const cached = smoothMaskCache.get(a.data)
+  if (cached && cached.width === a.width && cached.height === a.height) return cached.mask
+  const mask = new Uint8Array(Math.ceil(a.width * a.height / 8))
+  for (let y = 0; y < a.height; y++) for (let x = 0; x < a.width; x++) {
+    const p = y * a.width + x
+    if (neighbourStep(a, x, y) <= SMOOTH_SOURCE_STEP) mask[p >> 3] |= 1 << (p & 7)
+  }
+  smoothMaskCache.set(a.data, { width: a.width, height: a.height, mask })
+  return mask
+}
+/** % of pixels that are smooth in the source `a` and carry a visible step in the render `b`. */
+export function falseEdgePct(a: RGBAImage, b: RGBAImage): number {
+  const smooth = sourceSmoothMask(a)
+  let falseEdges = 0
+  for (let y = 0; y < a.height; y++) for (let x = 0; x < a.width; x++) {
+    const p = y * a.width + x
+    if ((smooth[p >> 3] & (1 << (p & 7))) && neighbourStep(b, x, y) >= FALSE_EDGE_STEP) falseEdges++
+  }
+  return (100 * falseEdges) / Math.max(1, a.width * a.height)
+}
+
 export function computeMetrics(a: RGBAImage, b: RGBAImage, svg: string): Metrics {
   const pixels = a.width * a.height
   const A = a.data, B = b.data
@@ -302,6 +345,7 @@ export function computeMetrics(a: RGBAImage, b: RGBAImage, svg: string): Metrics
     rgbDark: dark / (pixels * 3),
     pctDiff: (100 * big) / pixels,
     edgePctDiff: edge.count ? (100 * edgeVisible) / edge.count : undefined,
+    falseEdgePct: falseEdgePct(a, b),
     bytes: new TextEncoder().encode(svg).length,
     paths: (svg.match(/<path\b/g) || []).length,
     embeddedRaster: /<image\b/i.test(svg),
@@ -409,13 +453,36 @@ export function summarizeDiff(a: RGBAImage, b: RGBAImage, gridSize = 8, threshol
   return { version: 1, width: a.width, height: a.height, threshold, gridSize, gridPctDiff, hotspots }
 }
 
-/** Ranking: visible outliers, average color error, and a light size penalty (per KiB). */
-export const SIZE_WEIGHT = 0.002
+// Ranking (lower is better). Weights were set on a measured study of real Auto-Tune trials
+// (scripts/score-study.mjs, scripts/score-study-analyze.mjs):
+//
+//   f     = pctDiff + COLOR_WEIGHT * mean color difference
+//   score = f + f² / FIDELITY_KNEE              a visible difference costs more as it grows
+//         + FALSE_EDGE_WEIGHT * falseEdgePct     banding of smooth areas
+//         + SIZE_WEIGHT * log2(bytes + SIZE_FLOOR_BYTES)   each doubling of a sizeable file costs the same
+//         - EDITABLE_WEIGHT * editableShare      gradients and exact shapes are worth keeping
+//
+// Only differences between trials of one image matter, so the logarithm needs no reference.
 export const COLOR_WEIGHT = 0.01
-/** Temporary Auto budget penalty: 4 score points per 100% relative overshoot. */
+/** Visible difference (%) at which the quadratic part of the fidelity cost equals the linear one. */
+export const FIDELITY_KNEE = 3
+export const FALSE_EDGE_WEIGHT = 0.5
+/** Score points per doubling of the SVG size. */
+export const SIZE_WEIGHT = 1.5
+/** Added to the size before the logarithm: a few bytes on a tiny SVG must not outweigh fidelity. */
+export const SIZE_FLOOR_BYTES = 4096
+export const EDITABLE_WEIGHT = 0.6
+/** Only when the user sets a size budget: 4 score points per 100% relative overshoot. */
 export const BUDGET_OVERSHOOT_WEIGHT = 4
-export const score = (m: Metrics) =>
-  m.pctDiff + ((m.rgbWhite + m.rgbDark) / 2) * COLOR_WEIGHT + (m.bytes / 1024) * SIZE_WEIGHT
+/** Without a budget, the size above which Auto looks for lighter alternatives (it forbids nothing). */
+export const HEAVY_SVG_BYTES = 400 * 1024
+export const score = (m: Metrics) => {
+  const fidelity = m.pctDiff + ((m.rgbWhite + m.rgbDark) / 2) * COLOR_WEIGHT
+  return fidelity + (fidelity * fidelity) / FIDELITY_KNEE
+    + FALSE_EDGE_WEIGHT * (m.falseEdgePct ?? 0)
+    + SIZE_WEIGHT * Math.log2(Math.max(0, m.bytes) + SIZE_FLOOR_BYTES)
+    - EDITABLE_WEIGHT * (m.editableShare ?? 0)
+}
 
 /** Deterministic auto-tune grid derived from the base parameters. */
 export function candidates(base: TraceParams, opts: { transparent: boolean; includeHighSilhouetteCut?: boolean } = { transparent: false }): { label: string; params: TraceParams }[] {
@@ -459,6 +526,10 @@ const SIMPLICITY_TOLERANCE = {
   /** Mean absolute alpha-channel levels (0–255). */
   alphaDiff: 0.5,
   iou: 0.001,
+  /** Percentage points of false edges (banding). */
+  falseEdgePct: 0.05,
+  /** Share of the image (0-1) recovered as gradients and exact shapes. */
+  editableShare: 0.01,
 }
 
 function nearEqualFidelity(candidate: Metrics, reference: Metrics): boolean {
@@ -475,6 +546,9 @@ function nearEqualFidelity(candidate: Metrics, reference: Metrics): boolean {
     && (candidate.edgePctDiff === undefined || reference.edgePctDiff === undefined
       || candidate.edgePctDiff <= reference.edgePctDiff)
     && candidate.embeddedRaster === reference.embeddedRaster
+    // "Simpler" must not mean banded, nor flattened back to plain outlines.
+    && (candidate.falseEdgePct ?? 0) <= (reference.falseEdgePct ?? 0) + SIMPLICITY_TOLERANCE.falseEdgePct
+    && (candidate.editableShare ?? 0) >= (reference.editableShare ?? 0) - SIMPLICITY_TOLERANCE.editableShare
 }
 
 function meaningfullySimpler(candidate: Metrics, reference: Metrics): boolean {
@@ -486,13 +560,26 @@ function meaningfullySimpler(candidate: Metrics, reference: Metrics): boolean {
   return meaningfulPathReduction || meaningfulByteReduction
 }
 
-/** Pick the best trial by fidelity/size score plus a soft penalty for exceeding the target. */
+/** A render that reproduces the source pixel for pixel, as far as the metrics can tell. */
+const isExact = (m: Metrics) =>
+  m.pctDiff === 0 && m.alphaDiff < 0.5 && (m.rgbWhite + m.rgbDark) / 2 < 0.5
+
+/**
+ * Pick the best trial by score. `maxBytes` is an optional size budget (0: none) that adds a soft
+ * penalty above it. With `preferExactPixelGrid`, an exact pixel-grid trial rules out every trial
+ * that is not exact too: on pixel art, a slightly softened trace is not a fair trade for weight.
+ */
 export function choose(
-  trials: { metrics: Metrics; score: number }[],
+  trials: { metrics: Metrics; score: number; traceMethod?: string }[],
   maxBytes: number,
-  options: { preferSimplicity?: boolean } = {},
+  options: { preferSimplicity?: boolean; preferExactPixelGrid?: boolean } = {},
 ): number {
-  const idx = trials.map((_, i) => i)
+  let idx = trials.map((_, i) => i)
+  if (options.preferExactPixelGrid
+    && trials.some((trial) => trial.traceMethod === 'pixel-grid' && isExact(trial.metrics)
+      && (maxBytes <= 0 || trial.metrics.bytes <= maxBytes))) {
+    idx = idx.filter((i) => isExact(trials[i].metrics))
+  }
   const objective = (i: number) => trials[i].score + (maxBytes > 0
     ? BUDGET_OVERSHOOT_WEIGHT * Math.max(0, trials[i].metrics.bytes / maxBytes - 1)
     : 0)

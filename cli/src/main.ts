@@ -32,7 +32,7 @@ Trace options
   -p, --preset <id>        auto | ${PRESETS.filter((p) => p.id !== 'auto').map((p) => p.id).join(' | ')} (default: auto)
       --gradients          fit experimental gradients in color traces (off by default)
   -t, --threshold <pct>    max visible difference, % of pixels (default: 3)
-  -s, --max-size <KB>      size budget per SVG in KiB (default: 400)
+  -s, --max-size <KB>      size budget per SVG in KiB (default: 0, no budget)
       --no-auto            disable auto-tuning (single trial)
       --compare            also write <name>.comparison.png and <name>.diff.png
       --diff-summary-json  write <name>.diff.json with an 8x8 error grid and top hotspots
@@ -52,7 +52,7 @@ Common
   -v, --version            print the version
 
 Exit codes
-  0  every image is under the threshold and the size budget
+  0  every image is under the threshold and the size budget, if one is set
   1  at least one image needs review (above threshold or budget)
   2  error (bad arguments, unreadable input, existing outputs without --force)
 
@@ -170,7 +170,7 @@ async function cmdTrace(positionals: string[], o: Record<string, string | boolea
   const auto: AutoTune = {
     enabled: !o['no-auto'],
     threshold: num(o.threshold as string | undefined, 'threshold', 3, 0, 100),
-    maxKB: num(o['max-size'] as string | undefined, 'max-size', 400, 1, 1_000_000),
+    maxKB: num(o['max-size'] as string | undefined, 'max-size', 0, 0, 1_000_000),
   }
   const settings: VectorizeSettings = { presetId: custom ? 'custom' : presetId, params: { ...baseParams, ...overrides }, auto }
   const experimentalGradients = o.gradients === true && settings.params.colormode === 'color'

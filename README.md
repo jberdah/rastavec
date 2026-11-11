@@ -159,7 +159,7 @@ npm run dev        # http://localhost:5179
   same Rust engine compiled to WebAssembly.
 3. **Compare**: the SVG is rendered at the original size and measured against the source, on
    white and on a dark background.
-4. **Tune**: if an image is above the threshold or the size budget, a fixed set of alternative
+4. **Tune**: if an image is above the threshold or heavy, a fixed set of alternative
    settings is tried and the best score wins.
 5. **Export**: SVG files, a `metrics.csv` and a `config.json` recording the settings used. The app does not yet import this configuration to replay a batch.
 

@@ -3,6 +3,7 @@ import { svgFingerprint } from './engine/group-nearby'
 import { presetById } from './engine/presets'
 import type { AutoTune, Item, TraceParams } from './engine/types'
 import type { RGBAImage } from './engine/core'
+import { overBudget } from './engine/vectorize'
 import type { TraceEngine, TraceEngineProvenance } from './engine/web-trace-engine'
 
 export type Route = 'import' | 'lot' | 'detail' | 'edit' | 'animate'
@@ -14,7 +15,8 @@ export const app = $state({
   presetId: 'auto',
   traceEngine: 'next' as TraceEngine,
   params: { ...presetById('shaded').params } as TraceParams,
-  auto: { enabled: true, threshold: 3, maxKB: 400 } as AutoTune,
+  // No size budget by default: the score weighs fidelity, weight and editability together.
+  auto: { enabled: true, threshold: 3, maxKB: 0 } as AutoTune,
   batchSettings: null as { presetId: string; params: TraceParams; auto: AutoTune; traceEngine?: TraceEngineProvenance } | null,
   selectedId: null as string | null,
   running: false,
@@ -101,7 +103,7 @@ export const outputMetrics = (i: Item) => {
 }
 export const needsReview = (i: Item) =>
   i.status === 'error' ||
-  (i.status === 'done' && (!outputMetrics(i) || outputMetrics(i)!.pctDiff > (app.batchSettings?.auto ?? app.auto).threshold || outputMetrics(i)!.bytes > (app.batchSettings?.auto ?? app.auto).maxKB * 1024))
+  (i.status === 'done' && (!outputMetrics(i) || outputMetrics(i)!.pctDiff > (app.batchSettings?.auto ?? app.auto).threshold || overBudget(outputMetrics(i)!.bytes, app.batchSettings?.auto ?? app.auto)))
 
 export function go(route: Route, selectedId?: string) {
   if (selectedId) app.selectedId = selectedId

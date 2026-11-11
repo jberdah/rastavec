@@ -54,6 +54,10 @@ export interface Metrics {
   pctDiff: number
   /** Visible difference on a one-pixel band around source edges; diagnostic only. */
   edgePctDiff?: number
+  /** % of pixels where the render shows a color step in an area the source keeps smooth (banding). */
+  falseEdgePct?: number
+  /** Share (0-1) of the image painted by gradients or exact circles / ellipses the engine reported. */
+  editableShare?: number
   bytes: number
   paths: number
   embeddedRaster: boolean
@@ -182,6 +186,6 @@ export interface AutoTune {
   enabled: boolean
   /** Max acceptable pctDiff. */
   threshold: number
-  /** Max SVG size in KiB. */
+  /** Size budget per SVG in KiB; 0 means no budget (the score alone weighs size). */
   maxKB: number
 }

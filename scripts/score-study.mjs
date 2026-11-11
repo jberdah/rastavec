@@ -121,7 +121,7 @@ for (const [index, file] of files.entries()) {
     const { data, info } = await sharp(file).rotate().ensureAlpha().raw().toBuffer({ resolveWithObject: true })
     const src = { width: info.width, height: info.height, data: new Uint8ClampedArray(data) }
     const sourceFlat = overWhite(src)
-    const result = await vectorize(src, { presetId: 'auto', params: { ...DEFAULT_PARAMS }, auto: { enabled: true, threshold: 3, maxKB: 400 } }, backend)
+    const result = await vectorize(src, { presetId: 'auto', params: { ...DEFAULT_PARAMS }, auto: { enabled: true, threshold: 3, maxKB: 0 } }, backend)
     const trials = []
     for (const [k, trial] of result.trials.entries()) {
       const render = await rasterize(trial.svg, src.width, src.height)
@@ -131,6 +131,8 @@ for (const [index, file] of files.entries()) {
         pctDiff: trial.metrics.pctDiff, meanRgb: (trial.metrics.rgbWhite + trial.metrics.rgbDark) / 2, alphaDiff: trial.metrics.alphaDiff,
         bytes: trial.metrics.bytes, paths: trial.metrics.paths, score: trial.score,
         ...edges, editableShare: editableShare(trial),
+        // What the product measured for its own score, to check it against the study's measures.
+        productFalseEdgePct: trial.metrics.falseEdgePct, productEditableShare: trial.metrics.editableShare ?? 0,
         gradients: (trial.svg.match(/<(?:linear|radial)Gradient\b/g) ?? []).length,
         circles: (trial.shapes ?? []).filter((hint) => hint.kind === 'circle').length,
         ellipses: (trial.shapes ?? []).filter((hint) => hint.kind === 'ellipse').length,

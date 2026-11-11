@@ -121,7 +121,8 @@ const fr = {
   'auto.toggle': 'Activer le réglage automatique',
   'auto.threshold': "Seuil d'écart visible",
   'auto.maxSize': 'Budget de poids par SVG',
-  'auto.score': (unit: string) => `score de base = % écart + 0,01 × couleur moy. (/255) + 0,002 × ${unit} · le choix ajoute provisoirement 4 × le dépassement relatif du budget · à fidélité proche, chemins et poids départagent`,
+  'auto.noBudget': 'sans limite de poids',
+  'auto.score': 'score = écart visible (pénalisé plus fort quand il grandit) + 0,5 × faux contours dans les zones lisses + 1,5 par doublement du poids − 0,6 × part de dégradés et de formes exactes · un budget, s’il est fixé, ajoute 4 × son dépassement relatif',
 
   'params.title': 'Paramètres',
   'params.autoNote': 'Mode Auto : ces valeurs sont recalculées pour chaque image à partir de son analyse. Modifier un réglage passe en Personnalisé.',
@@ -148,7 +149,7 @@ const fr = {
   'cta.run': (n: number) => `Vectoriser ${n} ${s(n, 'image', 'images')}`,
   'cta.empty': 'Ajoutez des images',
 
-  'lot.summary': (preset: string, thr: string, max: string) => `préréglage ${preset} · seuil ${thr} · max ${max}`,
+  'lot.summary': (preset: string, thr: string, max: string) => `préréglage ${preset} · seuil ${thr} · ${max}`,
   'lot.running': (a: number, n: number) => `Vectorisation ${a}/${n}`,
   'lot.cancel': 'Annuler le traitement',
   'lot.cancelHint': 'Le résultat sera appliqué à la fin du lot.',
@@ -440,7 +441,8 @@ const en: Record<Key, Msg> = {
   'auto.toggle': 'Enable auto-tuning',
   'auto.threshold': 'Visible difference threshold',
   'auto.maxSize': 'SVG size budget',
-  'auto.score': (unit: string) => `base score = % diff + 0.01 × mean color diff (/255) + 0.002 × ${unit} · selection provisionally adds 4 × relative budget overshoot · near-equal fidelity: paths and bytes break ties`,
+  'auto.noBudget': 'no size limit',
+  'auto.score': 'score = visible difference (costs more as it grows) + 0.5 × false edges in smooth areas + 1.5 per doubling of the size − 0.6 × share of gradients and exact shapes · a budget, when set, adds 4 × its relative overshoot',
 
   'params.title': 'Parameters',
   'params.autoNote': 'Auto mode: these values are recomputed for each image from its analysis. Changing a setting switches to Custom.',
@@ -467,7 +469,7 @@ const en: Record<Key, Msg> = {
   'cta.run': (n: number) => `Vectorise ${n} ${s(n, 'image', 'images')}`,
   'cta.empty': 'Add images',
 
-  'lot.summary': (preset: string, thr: string, max: string) => `preset ${preset} · threshold ${thr} · max ${max}`,
+  'lot.summary': (preset: string, thr: string, max: string) => `preset ${preset} · threshold ${thr} · ${max}`,
   'lot.running': (a: number, n: number) => `Vectorising ${a}/${n}`,
   'lot.cancel': 'Cancel processing',
   'lot.cancelHint': 'Results are applied when the batch finishes.',

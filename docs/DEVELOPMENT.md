@@ -106,9 +106,14 @@ The generated synthetic regression corpus and its limits are described in [CORPU
 - **Animation**: the editor supports editable group pivots, rotation and vertical-motion
   keyframes, role-based walk cycles, and looping sequences of vectorized poses with matching
   dimensions.
-- **Auto-tune**: when an image exceeds the difference threshold or the size budget, a fixed
-  grid of parameter sets is tried; the best score (`% diff + 0.01 × mean RGB error (/255) +
-  0.002 × KiB`) within the budget wins. Auto also tests source-guided color refinements for flat
+- **Auto-tune**: when an image exceeds the difference threshold, or is heavy (above the size
+  budget if one is set, 400 KiB otherwise), a fixed grid of parameter sets is tried and the
+  lowest score wins. With `f = % diff + 0.01 × mean RGB error (/255)`, the score is
+  `f + f²/3 + 0.5 × false edges (%) + 1.5 × log2(bytes + 4096) − 0.6 × editable share`: false edges are
+  color steps rendered where the source is smooth (banding), the editable share is the part of
+  the image painted by gradients and exact circles / ellipses. There is no size budget by
+  default; when one is set, exceeding it adds a soft penalty and flags the result for review.
+  The weights come from a measured study (`scripts/score-study.mjs`). Auto also tests source-guided color refinements for flat
   artwork: small per-fill corrections and a dominant-source-palette snap. Palette snapping is
   retained only when visible difference and mean color error both improve without changing the
   silhouette or path count. Same input + same config → byte-identical SVG.

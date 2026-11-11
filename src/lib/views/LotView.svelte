@@ -81,7 +81,7 @@
   <div class="between" style="align-items: flex-end">
     <div class="stack" style="gap: 8px">
       <span class="mono muted small">
-        {#if traceEngine}{t(`traceEngine.${traceEngine}`)} · {/if}{t('lot.summary', presetName(batchSettings.presetId), pct(batchSettings.auto.threshold, 1), `${num(batchSettings.auto.maxKB)} ${kbUnit()}`)}
+        {#if traceEngine}{t(`traceEngine.${traceEngine}`)} · {/if}{t('lot.summary', presetName(batchSettings.presetId), pct(batchSettings.auto.threshold, 1), batchSettings.auto.maxKB > 0 ? `max ${num(batchSettings.auto.maxKB)} ${kbUnit()}` : t('auto.noBudget'))}
       </span>
       <h1 class="title">
         {#if app.running}

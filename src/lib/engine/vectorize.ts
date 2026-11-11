@@ -2,7 +2,8 @@
 // deterministic auto-tune -> choice. Pure (no DOM, no UI state): used by the web app and the CLI,
 // each with its own TraceBackend.
 import { analyze, recommend, type Analysis, type NoteCode } from './analyze'
-import { candidates, choose, computeMetrics, prepare, score, type RGBAImage, type TraceBackend } from './core'
+import { candidates, choose, computeMetrics, HEAVY_SVG_BYTES, prepare, score, type RGBAImage, type TraceBackend } from './core'
+import { editableShare } from './editable-share'
 import { calibrateSolidFills, snapSolidFillsToSourcePalette } from './fill-calibration'
 import { mergeAdjacentSameFillPaths } from './merge-adjacent-paths'
 import type { AutoTune, TraceParams, Trial } from './types'
@@ -56,7 +57,7 @@ export async function runTrial(src: RGBAImage, params: TraceParams, base: boolea
   // Keep the enlarged viewBox and paths, but display/export at the original dimensions.
   if (traceScale !== 1) svg = svg.replace(/^(<svg\b[^>]*?)\bwidth="\d+"\s+height="\d+"/, `$1width="${src.width}" height="${src.height}"`)
   const render = await backend.rasterize(svg, src.width, src.height)
-  const metrics = computeMetrics(src, render, svg)
+  const metrics = { ...computeMetrics(src, render, svg), ...(shapes ? { editableShare: editableShare(svg, shapes) } : {}) }
   return { base, params: { ...params }, traceScale, ...(experimentalGradients ? { traceMethod: 'experimental-gradients' as const } : {}), svg, ...(shapes ? { shapes } : {}), metrics, score: score(metrics), ms: now() - t0 }
 }
 
@@ -90,6 +91,10 @@ export async function vectorize(
     notes = rec.notes
   }
   const { auto } = settings
+  // The size budget is optional. Without one nothing is refused for its weight, but a heavy
+  // first result is still worth comparing with lighter alternatives; the score then decides.
+  const maxBytes = Math.max(0, auto.maxKB) * 1024
+  const heavyBytes = maxBytes > 0 ? maxBytes : HEAVY_SVG_BYTES
   const nativeColor = base.colormode === 'color' && !!backend.traceColorSource
   const transparent = !nativeColor && src.data.some((v, k) => (k & 3) === 3 && v < 255)
   const grid = candidates(base, { transparent, includeHighSilhouetteCut: settings.presetId === 'auto' })
@@ -100,7 +105,7 @@ export async function vectorize(
   checkCancelled()
   const failedTrials: VectorizeResult['failedTrials'] = []
   const first = trials[0].metrics
-  const needsTune = first.pctDiff > auto.threshold || first.bytes > auto.maxKB * 1024
+  const needsTune = first.pctDiff > auto.threshold || first.bytes > heavyBytes
   // Pixel-difference can undercount faint, sparse artwork: its lines may sit below the
   // 32/255 visibility threshold while the alpha>=128 silhouette shows that most shapes
   // disappeared. Try one low-complexity soft-layer fallback before accepting that result.
@@ -163,6 +168,9 @@ export async function vectorize(
     && settings.presetId === 'auto'
     && base.colormode === 'color'
     && analysis.kind !== 'pixel'
+  // On pixel art an exact grid is not traded for a lighter, slightly softened trace.
+  const pick = (list: Trial[], preferSimplicity = auto.enabled) =>
+    choose(list, maxBytes, { preferSimplicity, preferExactPixelGrid: comparePixelGrid })
   let total = 1 + tuningTrials + Number(includePolygonReview) + Number(includeHierarchyReview) + Number(includeHardEdgeReview) + Number(includeGradientReview) + (includePhotoBudgetReview ? 2 : 0) + Number(includeFillCalibration) + Number(includePaletteSnap) + Number(includePathMerge)
   let completed = 1
   const reportProgress = () => opts.onProgress?.(completed, total)
@@ -236,7 +244,7 @@ export async function vectorize(
     // One alternate of the best native trace, never a second full parameter grid.
     // Measure the actual SVG on both backgrounds using the usual score/size cap.
     const native = trials.filter((trial) => !trial.traceMethod && (trial.traceScale ?? 1) === 1)
-    const current = native[choose(native, auto.maxKB * 1024)]
+    const current = native[pick(native, false)]
     const hierarchical = current.params.hierarchical === 'cutout' ? 'stacked' : 'cutout'
     await yieldControl()
     try {
@@ -249,7 +257,7 @@ export async function vectorize(
     completeTrial()
   }
   if (includeHardEdgeReview) {
-    const current = trials[choose(trials, auto.maxKB * 1024)]
+    const current = trials[pick(trials, false)]
     // Existing exact-grid/upscaled candidates often already recover small sprites.
     if (current.metrics.pctDiff > Math.max(3, auto.threshold)) {
       await yieldControl()
@@ -269,7 +277,7 @@ export async function vectorize(
   }
   if (includeGradientReview) {
     const native = trials.filter((trial) => !trial.traceMethod && (trial.traceScale ?? 1) === 1)
-    const current = native[choose(native, auto.maxKB * 1024, { preferSimplicity: auto.enabled })]
+    const current = native[pick(native)]
     await yieldControl()
     try {
       // Isolate the gradient fitter: reuse the best native parameters so this
@@ -282,14 +290,14 @@ export async function vectorize(
     checkCancelled()
     completeTrial()
   }
-  let chosen = choose(trials, auto.maxKB * 1024, { preferSimplicity: auto.enabled })
+  let chosen = pick(trials)
   const bestColorTransformInput = () => {
     const eligible = trials.filter((trial) => trial.traceMethod !== 'pixel-grid'
       && trial.traceMethod !== 'experimental-gradients'
       && (trial.traceScale ?? 1) === 1
       && trial.params.colormode === 'color')
     return eligible.length
-      ? eligible[choose(eligible, auto.maxKB * 1024, { preferSimplicity: auto.enabled })]
+      ? eligible[pick(eligible)]
       : undefined
   }
   if (includeFillCalibration) {
@@ -304,7 +312,7 @@ export async function vectorize(
         if (calibrated.changedFills) {
           const calibratedRender = await backend.rasterize(calibrated.svg, src.width, src.height)
           checkCancelled()
-          const metrics = computeMetrics(src, calibratedRender, calibrated.svg)
+          const metrics = { ...computeMetrics(src, calibratedRender, calibrated.svg), editableShare: current.metrics.editableShare }
           const calibratedScore = score(metrics)
           const improvesColor = metrics.rgbWhite + metrics.rgbDark < current.metrics.rgbWhite + current.metrics.rgbDark - 1e-9
           const preservesShape = metrics.iou === current.metrics.iou
@@ -327,7 +335,7 @@ export async function vectorize(
               score: calibratedScore,
               ms: now() - calibrationStarted,
             })
-            chosen = choose(trials, auto.maxKB * 1024, { preferSimplicity: auto.enabled })
+            chosen = pick(trials)
           }
         }
       } catch {
@@ -347,7 +355,7 @@ export async function vectorize(
         if (snapped.changedFills) {
           const rendered = await backend.rasterize(snapped.svg, src.width, src.height)
           checkCancelled()
-          const metrics = computeMetrics(src, rendered, snapped.svg)
+          const metrics = { ...computeMetrics(src, rendered, snapped.svg), editableShare: current.metrics.editableShare }
           const scoreValue = score(metrics)
           const improvesColor = metrics.rgbWhite + metrics.rgbDark < current.metrics.rgbWhite + current.metrics.rgbDark - 1e-9
           const preservesShape = metrics.iou === current.metrics.iou
@@ -371,7 +379,7 @@ export async function vectorize(
               score: scoreValue,
               ms: now() - paletteStarted,
             })
-            chosen = choose(trials, auto.maxKB * 1024, { preferSimplicity: auto.enabled })
+            chosen = pick(trials)
           }
         }
       } catch {
@@ -417,7 +425,7 @@ export async function vectorize(
               score: scoreValue,
               ms: now() - mergeStarted,
             })
-            chosen = choose(trials, auto.maxKB * 1024, { preferSimplicity: auto.enabled })
+            chosen = pick(trials)
           }
         } catch {
           checkCancelled()
@@ -428,11 +436,10 @@ export async function vectorize(
     completeTrial()
   }
   if (includePhotoBudgetReview) {
-    const maxBytes = auto.maxKB * 1024
     let photoTrialsExecuted = 0
-    if (trials.every((trial) => trial.metrics.bytes > maxBytes)) {
+    if (trials.every((trial) => trial.metrics.bytes > heavyBytes)) {
       const native = trials.filter((trial) => !trial.traceMethod && (trial.traceScale ?? 1) === 1)
-      const best = native[choose(native, maxBytes)]
+      const best = native[pick(native, false)]
       if (best) {
         const p = best.params
         // Both levels start from the measured winner. The second increases color
@@ -459,7 +466,7 @@ export async function vectorize(
           completeTrial()
           photoTrialsExecuted++
         }
-        chosen = choose(trials, maxBytes, { preferSimplicity: auto.enabled })
+        chosen = pick(trials)
       }
     }
     const skippedPhotoTrials = 2 - photoTrialsExecuted
@@ -471,6 +478,9 @@ export async function vectorize(
   return { analysis, notes, trials, chosen, autoTuned: chosen !== 0, failedTrials }
 }
 
-/** True when the chosen result misses the threshold or the size budget. */
+/** True when a size budget is set and `bytes` exceeds it. */
+export const overBudget = (bytes: number, auto: AutoTune) => auto.maxKB > 0 && bytes > auto.maxKB * 1024
+
+/** True when the chosen result misses the threshold or the size budget, if there is one. */
 export const needsReviewResult = (r: VectorizeResult, auto: AutoTune) =>
-  r.trials[r.chosen].metrics.pctDiff > auto.threshold || r.trials[r.chosen].metrics.bytes > auto.maxKB * 1024
+  r.trials[r.chosen].metrics.pctDiff > auto.threshold || overBudget(r.trials[r.chosen].metrics.bytes, auto)

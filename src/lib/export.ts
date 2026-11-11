@@ -1,6 +1,6 @@
 import JSZip from 'jszip'
 import type { Item } from './engine/types'
-import { COLOR_WEIGHT, SIZE_WEIGHT } from './engine/core'
+import { COLOR_WEIGHT, EDITABLE_WEIGHT, FALSE_EDGE_WEIGHT, FIDELITY_KNEE, SIZE_FLOOR_BYTES, SIZE_WEIGHT } from './engine/core'
 import { app, chosenTrial, clone, outputMetrics } from './store.svelte'
 import { browserBackend } from './engine/browser-backend'
 import { activeEdit, outputSvg } from './edit'
@@ -39,8 +39,10 @@ export function config(items: Item[]) {
     params: clone(settings.params),
     autoTune: {
       ...clone(settings.auto),
-      scoreWeights: { visibleDifference: 1, meanRgbDifference: COLOR_WEIGHT, sizePerKiB: SIZE_WEIGHT },
-      sizeWeightPerKiB: SIZE_WEIGHT,
+      scoreWeights: {
+        visibleDifference: 1, meanRgbDifference: COLOR_WEIGHT, fidelityKnee: FIDELITY_KNEE,
+        falseEdges: FALSE_EDGE_WEIGHT, sizePerDoubling: SIZE_WEIGHT, sizeFloorBytes: SIZE_FLOOR_BYTES, editableShare: EDITABLE_WEIGHT,
+      },
     },
     items: items
       .filter((i) => i.status === 'done')
