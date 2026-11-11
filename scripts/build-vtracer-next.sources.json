@@ -1,6 +1,6 @@
 {
   "description": "VTracer-next source snapshot at the engine-quality branch: experimental gradient fitting with a continuous smooth-field model and whole-pixel validation, drift-bounded clustering (preserve_gradients), circle detection with overlap completion (detect_shapes), and the structured shape report.",
-  "head": "6f97665ea8f48b1e00c925f0c647e05cceb3cbab",
+  "head": "57a7ecea8b3b3318e0c6c9f0169892c0cd8917f2",
   "files": {
     "README.md": "327e4a8aabf3f4ca341d06a9e09c167738f4afc913c87f9340217eb0e6c305c0",
     "crates/vtracer/Cargo.toml": "a1faa94a3234503beb283da70d135b420a6cbdb34e78c59bbf796636f14e42c0",
@@ -21,7 +21,7 @@
     "crates/vtracer/src/gradient.rs": "c8a32e5d215f0b7247a3819c0465322a6aebec15561bd6246b389dedf8df354f",
     "crates/vtracer/src/gradient/mesh.rs": "3d9de68490dcae43a33b18c6e9a3e75bc6335b0cc925a0fba7c675e786de2c51",
     "crates/vtracer/src/ir.rs": "b69323d6c2ec6e4af644f3e3c082037910bf95455a3ecbb5e74162ac550b0602",
-    "crates/vtracer/src/ir/region.rs": "1eec83144eedf5ac843a4a6d1a234c19e0a0f10451d9db62a4a7ec2b8dea4d68",
+    "crates/vtracer/src/ir/region.rs": "9399e9e25fa77b5fa7c1eb89d36ec40deb102a7ca7a3645bba3dc49e350be122",
     "crates/vtracer/src/ir/vector.rs": "e4cc493db976b436bc36b252f3c521754b956ba02cc93094380f1eaa9edd03dd",
     "crates/vtracer/src/lib.rs": "76a404071cb0c1b5d2d2f297d18c35e1f290bfb6bea85742786df466fad0d63e",
     "crates/vtracer/src/mosaic.rs": "b4af3206e98c37a3d31721303ff2e1db6d08640b2a1d6012bd6bd1660a720be9",
@@ -32,9 +32,9 @@
     "crates/vtracer/src/optimize.rs": "354261083e46db19a1e2e25422650e2971270e82de786b3b9e928ee76cc9ecbd",
     "crates/vtracer/src/pipeline.rs": "c43d835511061583ecb08c561f7fb4f2f48507c9aa249fbadb528b3fb47fa57f",
     "crates/vtracer/src/progress.rs": "dd37ef4f51d7f50d52795eefe8dfea0c5d0f59695bb4a43318158e8689fc42a6",
-    "crates/vtracer/src/report.rs": "fa88f414a57b3d1eecd843a5e7271a497d7135623c7b4ab0bef68b595f16268c",
+    "crates/vtracer/src/report.rs": "f184e41e180e31bd34875a9e49ef06b30ace5984fcd35ddafbc986e0630e2e60",
     "crates/vtracer/src/session.rs": "56b292155cd45faccc55ef793f6d7b3240ce90977ade27ff3b7cc11ad709cf6c",
-    "crates/vtracer/src/shapes.rs": "5870bfd9ca2a98462215c47476f8b61ccf3541136ec4d485576bb409a83a1a4f",
+    "crates/vtracer/src/shapes.rs": "8da3ae9757392195bea811059deb762b1b3ee957857ecab97c2b35f0ba8080b2",
     "crates/vtracer/src/simplify.rs": "a43482c27552aa2dfd296617a6ad422d88b94588801cd81c48caf018cb2b95d6",
     "crates/vtracer/src/svg.rs": "00b89989a4d231a0b816071851b196e85e93b0a6aebe8ac3adf4d08950664d9b"
   }

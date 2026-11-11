@@ -24,9 +24,11 @@ export function parseShapeHints(report: string): EngineShapeHint[] {
     const shapes = (JSON.parse(report) as { shapes?: EngineShapeHint[] }).shapes
     if (!Array.isArray(shapes)) return []
     return shapes
-      .filter((shape) => shape.kind === 'circle' || shape.gradient !== undefined || shape.overlayOf !== undefined)
-      .map(({ index, kind, cx, cy, r, gradient, overlayOf, bounds }) => ({
-        index, kind, ...(kind === 'circle' ? { cx, cy, r } : {}), ...(gradient ? { gradient } : {}), ...(overlayOf !== undefined ? { overlayOf } : {}), bounds,
+      .filter((shape) => shape.kind !== 'path' || shape.gradient !== undefined || shape.overlayOf !== undefined)
+      .map(({ index, kind, cx, cy, r, rx, ry, rotation, gradient, overlayOf, bounds }) => ({
+        index, kind,
+        ...(kind === 'circle' ? { cx, cy, r } : kind === 'ellipse' ? { cx, cy, rx, ry, rotation } : {}),
+        ...(gradient ? { gradient } : {}), ...(overlayOf !== undefined ? { overlayOf } : {}), bounds,
       }))
   } catch {
     return []

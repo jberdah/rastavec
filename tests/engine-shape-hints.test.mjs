@@ -54,3 +54,21 @@ test('the gradient route keeps a gentle ramp and reports its gradient paint', as
   for (const shape of gradients) assert.ok(fitted.svg.includes(`id="${shape.gradient.id}"`))
   assert.ok(fitted.metrics.rgbWhite < flat.metrics.rgbWhite / 3, `fitted ${fitted.metrics.rgbWhite} vs flat ${flat.metrics.rgbWhite}`)
 })
+
+test('a tilted ellipse crossed by a bar is reported whole, with its axes and rotation', async () => {
+  const [cx, cy, rx, ry, tilt] = [110, 80, 70, 32, 0.4]
+  const scene = image(220, 160, (x, y) => {
+    if (x > 150 && x < 186 && y > 20 && y < 141) return [30, 40, 60, 255]
+    const dx = x - cx, dy = y - cy
+    const u = (dx * Math.cos(tilt) + dy * Math.sin(tilt)) / rx, v = (-dx * Math.sin(tilt) + dy * Math.cos(tilt)) / ry
+    return u * u + v * v <= 1 ? [240, 150, 40, 255] : [255, 255, 255, 255]
+  })
+  const trial = await runTrial(scene, { ...DEFAULT_PARAMS }, true, backend)
+  const ellipse = (trial.shapes ?? []).find((shape) => shape.kind === 'ellipse')
+  assert.ok(ellipse, JSON.stringify(trial.shapes))
+  assert.ok(Math.abs(ellipse.cx - cx) < 1 && Math.abs(ellipse.cy - cy) < 1, JSON.stringify(ellipse))
+  assert.ok(Math.abs(ellipse.rx - rx) < 1 && Math.abs(ellipse.ry - ry) < 1, JSON.stringify(ellipse))
+  const turn = ((ellipse.rotation - tilt * 180 / Math.PI) % 180 + 180) % 180
+  assert.ok(turn < 1 || turn > 179, JSON.stringify(ellipse))
+  assert.ok(trial.metrics.pctDiff < 1, `completion keeps the picture: ${trial.metrics.pctDiff}`)
+})

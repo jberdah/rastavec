@@ -58,6 +58,18 @@
   const index = $derived(item ? list.indexOf(item) : -1)
   const trial = $derived(item ? chosenTrial(item) : null)
   const m = $derived(trial?.metrics)
+  // What the engine recognised in the chosen trace, e.g. "2 circles · 1 ellipse · 3 gradients".
+  const recognised = $derived.by(() => {
+    const shapes = trial?.shapes ?? []
+    const circles = shapes.filter((shape) => shape.kind === 'circle').length
+    const ellipses = shapes.filter((shape) => shape.kind === 'ellipse').length
+    const gradients = shapes.filter((shape) => shape.gradient && shape.overlayOf === undefined).length
+    return [
+      circles ? t('detail.shapesCircles', circles) : '',
+      ellipses ? t('detail.shapesEllipses', ellipses) : '',
+      gradients ? t('detail.shapesGradients', gradients) : '',
+    ].filter(Boolean).join(' · ')
+  })
 
   // Diff map for the chosen trial, computed on demand.
   $effect(() => {
@@ -191,6 +203,9 @@
               <dt>{t('fidelity.alpha')}</dt><dd class="mono">{num(m.alphaDiff, 1)} / 255</dd>
             </dl>
           </div>
+          {#if recognised}
+            <span class="small muted">{t('detail.shapes')} : <span class="mono">{recognised}</span></span>
+          {/if}
           {#if item.semiPct > 1}
             <span class="small" style="color: var(--warn-text)">
               {t('semi.intro', pct(item.semiPct, 1))}

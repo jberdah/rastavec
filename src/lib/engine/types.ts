@@ -62,15 +62,20 @@ export interface Metrics {
 /**
  * A fact the tracing engine knows about one `<path>` of its SVG, so later stages need not
  * re-derive it from path data. `index` is the path's ordinal in the document.
- * Only paths with something to say are listed: exact circles, gradient paints, overlays.
+ * Only paths with something to say are listed: exact circles and ellipses, gradient paints, overlays.
  */
 export interface EngineShapeHint {
   index: number
-  kind: 'path' | 'circle'
-  /** Circle centre and radius, in viewBox units (present when `kind` is `'circle'`). */
+  kind: 'path' | 'circle' | 'ellipse'
+  /** Centre, in viewBox units (circles and ellipses). */
   cx?: number
   cy?: number
+  /** Circle radius. */
   r?: number
+  /** Ellipse semi-axes; `rotation` is the direction of `rx` in degrees, as in an SVG `rotate()`. */
+  rx?: number
+  ry?: number
+  rotation?: number
   /** Gradient paint: the `id` of its element in the SVG. */
   gradient?: { id: string; type: 'linear' | 'radial'; stops: number; opaque: boolean }
   /** For a translucent gradient overlay: index of the opaque path it belongs to. */
