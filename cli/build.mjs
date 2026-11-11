@@ -27,4 +27,6 @@ mkdirSync(nextDist, { recursive: true })
 copyFileSync(new URL('vtracer_next.js', vtracerNextDirectory), new URL('vtracer_next.mjs', nextDist))
 copyFileSync(new URL('vtracer_next_bg.wasm', vtracerNextDirectory), new URL('vtracer_next_bg.wasm', nextDist))
 copyFileSync(new URL('../public/licenses/vtracer-next.txt', import.meta.url), new URL('LICENSE', nextDist))
+// The module is a binary: the notices of the crates it is built from travel with it.
+copyFileSync(new URL('../public/licenses/vtracer-next-third-party.txt', import.meta.url), new URL('THIRD-PARTY-LICENSES.txt', nextDist))
 console.log(`built dist/rastavec.cjs (v${pkg.version})`)

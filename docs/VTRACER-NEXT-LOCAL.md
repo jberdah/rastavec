@@ -36,7 +36,13 @@ and `wasm-pack` 0.15.1 for this step:
 
 ```powershell
 npm run build:vtracer-next
+node scripts/build-vtracer-next-licenses.mjs
 ```
+
+The second command regenerates `public/licenses/vtracer-next-third-party.txt`, the license
+notices of the Rust crates the module is built from. The module ships as a binary, so those
+notices are published with the web app and packaged with the CLI; rerun it whenever the
+engine or `scripts/build-vtracer-next.Cargo.lock` changes.
 
 On an offline Windows host, `wasm-pack` may fail while downloading the exact
 `wasm-bindgen` CLI required by the lockfile, even after Rust compilation succeeds.
