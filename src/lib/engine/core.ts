@@ -1,6 +1,6 @@
 // Pure, environment-agnostic engine pieces: no DOM, no wasm. Reusable from a browser,
 // a desktop shell or a Node CLI / MCP server driving an agent.
-import type { Metrics, TraceParams } from './types'
+import type { Metrics, TraceParams, EngineShapeHint } from './types'
 
 /** Minimal RGBA image, compatible with the browser's ImageData. */
 export interface RGBAImage {
@@ -45,6 +45,8 @@ export interface TraceBackend {
   traceColorSource?(source: RGBAImage, params: TraceParams): Promise<string>
   /** Optional one-off Auto candidate using the same engine's experimental gradient path. */
   traceColorSourceWithGradients?(source: RGBAImage, params: TraceParams): Promise<string>
+  /** Engine hints for an SVG this backend just returned from a color trace, if it has any. */
+  shapeHintsFor?(svg: string): EngineShapeHint[] | undefined
   /** Render SVG markup at exactly width x height, unpremultiplied RGBA. */
   rasterize(svg: string, width: number, height: number): Promise<RGBAImage>
 }

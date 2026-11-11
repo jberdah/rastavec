@@ -31,6 +31,28 @@ export function vectorize_rgba(data, width, height, options) {
         wasm.__wbindgen_free(deferred5_0, deferred5_1, 1);
     }
 }
+
+/**
+ * Trace one RGBA image and also describe every shape of the result.
+ * Returns `[svg, reportJson]`; the report lists, per `<path>` in document
+ * order, exact circles, gradient paints and overlay-to-base links.
+ * @param {Uint8Array | number[]} data
+ * @param {number} width
+ * @param {number} height
+ * @param {any} options
+ * @returns {any}
+ */
+export function vectorize_rgba_structured(data, width, height, options) {
+    const val2 = +width;
+    const val3 = +height;
+    const ptr0 = passArray8ToWasm0(data, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.vectorize_rgba_structured(ptr0, len0, val2, val3, options);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
 function __wbg_get_imports() {
     const import0 = {
         __proto__: null,
@@ -149,8 +171,15 @@ function __wbg_get_imports() {
             const ret = new Uint8Array(arg0);
             return ret;
         },
+        __wbg_new_37eb45aaf5eeb820: function() {
+            const ret = new Array();
+            return ret;
+        },
         __wbg_prototypesetcall_13162965d1fe7aa3: function(arg0, arg1, arg2) {
             Uint8Array.prototype.set.call(getArrayU8FromWasm0(arg0, arg1), arg2);
+        },
+        __wbg_set_d2d33b52458e984a: function(arg0, arg1, arg2) {
+            arg0[arg1 >>> 0] = arg2;
         },
         __wbindgen_generic_0000000000000001: function(arg0, arg1) {
             // Cast intrinsic for `Ref(String) -> Externref`.

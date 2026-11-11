@@ -5,8 +5,8 @@ import { readFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import type { RGBAImage, TraceBackend } from '../../src/lib/engine/core'
-import { optionsFor, parsePaths } from '../../src/lib/engine/trace-options'
-import { withVTracerNext, type NextConvert } from '../../src/lib/engine/vtracer-next-trace'
+import { parsePaths } from '../../src/lib/engine/trace-options'
+import { nextOptions, withVTracerNext, type NextConvert } from '../../src/lib/engine/vtracer-next-trace'
 
 // A single 40 MP RGBA buffer is 160 MB; tracing can need several copies.
 // Reject oversized sources before allocating them and retain sharp's decode guard.
@@ -44,12 +44,15 @@ export async function loadNodeNextBackend(gradients: boolean): Promise<TraceBack
   await module.default({ module_or_path: wasm })
   const convert: NextConvert = async (image, params, binary, experimentalGradients) => {
     const rgba = new Uint8Array(image.data.buffer, image.data.byteOffset, image.data.byteLength)
-    return module.vectorize_rgba(rgba, image.width, image.height, {
-      ...optionsFor(params, binary), experimentalGradients,
-    })
+    const options = nextOptions(params, binary, experimentalGradients)
+    if (binary) return module.vectorize_rgba(rgba, image.width, image.height, options) as string
+    const [svg, report] = module.vectorize_rgba_structured(rgba, image.width, image.height, options) as [string, string]
+    return { svg, report }
   }
-  return withVTracerNext(nodeRasterBackend, gradients, convert, async (image, params, binary) =>
-    parsePaths(await convert(image, params, binary, false), params.compactPaths, params.pathPrecision))
+  return withVTracerNext(nodeRasterBackend, gradients, convert, async (image, params, binary) => {
+    const result = await convert(image, params, binary, false)
+    return parsePaths(typeof result === 'string' ? result : result.svg, params.compactPaths, params.pathPrecision)
+  })
 }
 
 /** Decode any supported raster file to RGBA, applying EXIF orientation. */

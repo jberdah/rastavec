@@ -52,11 +52,12 @@ export async function runTrial(src: RGBAImage, params: TraceParams, base: boolea
     : params.colormode === 'color' && backend.traceColorSource
       ? backend.traceColorSource(input, params)
     : backend.trace(prepare(input, params), params))
+  const shapes = backend.shapeHintsFor?.(svg)
   // Keep the enlarged viewBox and paths, but display/export at the original dimensions.
   if (traceScale !== 1) svg = svg.replace(/^(<svg\b[^>]*?)\bwidth="\d+"\s+height="\d+"/, `$1width="${src.width}" height="${src.height}"`)
   const render = await backend.rasterize(svg, src.width, src.height)
   const metrics = computeMetrics(src, render, svg)
-  return { base, params: { ...params }, traceScale, ...(experimentalGradients ? { traceMethod: 'experimental-gradients' as const } : {}), svg, metrics, score: score(metrics), ms: now() - t0 }
+  return { base, params: { ...params }, traceScale, ...(experimentalGradients ? { traceMethod: 'experimental-gradients' as const } : {}), svg, ...(shapes ? { shapes } : {}), metrics, score: score(metrics), ms: now() - t0 }
 }
 
 async function runPixelGridTrial(src: RGBAImage, svg: string, backend: TraceBackend): Promise<Trial | null> {
@@ -409,6 +410,8 @@ export async function vectorize(
               ...current,
               base: false,
               traceMethod: 'paths-merged',
+              // Merging renumbers the paths, so the engine hints no longer apply.
+              shapes: undefined,
               svg: merged.svg,
               metrics,
               score: scoreValue,

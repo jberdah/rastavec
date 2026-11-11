@@ -1,15 +1,12 @@
 import type { TraceBackend } from './core'
-import { optionsFor, parsePaths } from './trace-options'
-import { withVTracerNext, type NextConvert } from './vtracer-next-trace'
+import { parsePaths } from './trace-options'
+import { nextOptions, withVTracerNext, type NextConvert } from './vtracer-next-trace'
 
 interface NextModule {
   default: () => Promise<unknown>
-  vectorize_rgba: (
-    data: Uint8Array,
-    width: number,
-    height: number,
-    options: ReturnType<typeof optionsFor> & { experimentalGradients?: boolean },
-  ) => string
+  vectorize_rgba: (data: Uint8Array, width: number, height: number, options: ReturnType<typeof nextOptions>) => string
+  /** Returns `[svg, reportJson]`. */
+  vectorize_rgba_structured: (data: Uint8Array, width: number, height: number, options: ReturnType<typeof nextOptions>) => [string, string]
 }
 
 const modules = import.meta.glob<NextModule>('./vtracer-next-wasm/vtracer_next.js')
@@ -32,13 +29,14 @@ export function createVTracerNextBackend(base: Pick<TraceBackend, 'rasterize'>, 
   const convert: NextConvert = async (image, params, binary, experimentalGradients) => {
     const module = await loadNext()
     const data = new Uint8Array(image.data.buffer, image.data.byteOffset, image.data.byteLength)
-    return module.vectorize_rgba(data, image.width, image.height, {
-      ...optionsFor(params, binary), experimentalGradients,
-    })
+    const options = nextOptions(params, binary, experimentalGradients)
+    if (binary) return module.vectorize_rgba(data, image.width, image.height, options)
+    const [svg, report] = module.vectorize_rgba_structured(data, image.width, image.height, options)
+    return { svg, report }
   }
 
   return withVTracerNext(base, gradients, convert, async (image, params, binary) => {
-    const svg = await convert(image, params, binary, false)
-    return parsePaths(svg, params.compactPaths, params.pathPrecision)
+    const result = await convert(image, params, binary, false)
+    return parsePaths(typeof result === 'string' ? result : result.svg, params.compactPaths, params.pathPrecision)
   })
 }

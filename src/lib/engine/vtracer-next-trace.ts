@@ -1,8 +1,37 @@
 import { composeSvg, type RunConverter } from './compose'
 import type { RGBAImage, TraceBackend } from './core'
-import type { TraceParams } from './types'
+import { optionsFor } from './trace-options'
+import type { EngineShapeHint, TraceParams } from './types'
 
-export type NextConvert = (image: RGBAImage, params: TraceParams, binary: boolean, gradients: boolean) => Promise<string>
+/** A converter returns the SVG, optionally with the engine's JSON shape report. */
+export type NextConvert = (image: RGBAImage, params: TraceParams, binary: boolean, gradients: boolean) => Promise<string | { svg: string; report?: string }>
+
+/**
+ * Options for one VTracer-Next call. The gradient route also keeps gentle gradients as bands
+ * (otherwise the engine flattens them before it can fit anything). Shape detection only
+ * replaces outlines the engine has verified as circles, so every color trace asks for it.
+ */
+export const nextOptions = (params: TraceParams, binary: boolean, gradients: boolean) => ({
+  ...optionsFor(params, binary),
+  experimentalGradients: gradients,
+  preserveGradients: gradients,
+  detectShapes: !binary,
+})
+
+/** Keep only the paths the engine has something to say about. */
+export function parseShapeHints(report: string): EngineShapeHint[] {
+  try {
+    const shapes = (JSON.parse(report) as { shapes?: EngineShapeHint[] }).shapes
+    if (!Array.isArray(shapes)) return []
+    return shapes
+      .filter((shape) => shape.kind === 'circle' || shape.gradient !== undefined || shape.overlayOf !== undefined)
+      .map(({ index, kind, cx, cy, r, gradient, overlayOf, bounds }) => ({
+        index, kind, ...(kind === 'circle' ? { cx, cy, r } : {}), ...(gradient ? { gradient } : {}), ...(overlayOf !== undefined ? { overlayOf } : {}), bounds,
+      }))
+  } catch {
+    return []
+  }
+}
 
 function withViewport(svg: string, source: RGBAImage): string {
   const root = /<svg\b[^>]*>/.exec(svg)
@@ -19,6 +48,18 @@ export function withVTracerNext(
   convert: NextConvert,
   binaryConverter: RunConverter,
 ): TraceBackend {
+  // Hints are keyed by the exact SVG handed back, for the caller to pick up right after a trace.
+  const hints = new Map<string, EngineShapeHint[]>()
+  const colorTrace = async (source: RGBAImage, params: TraceParams, withGradients: boolean) => {
+    const result = await convert(source, params, false, withGradients)
+    const svg = withViewport(typeof result === 'string' ? result : result.svg, source)
+    const shapes = typeof result === 'string' || !result.report ? [] : parseShapeHints(result.report)
+    if (shapes.length) {
+      hints.set(svg, shapes)
+      if (hints.size > 16) hints.delete(hints.keys().next().value!)
+    }
+    return svg
+  }
   return {
     name: gradients ? 'VTracer-Next (experimental gradients)' : 'VTracer-Next',
     supportsHierarchyComparison: !gradients,
@@ -26,11 +67,8 @@ export function withVTracerNext(
     trace(prepared, params) {
       return composeSvg(prepared, params, binaryConverter)
     },
-    async traceColorSource(source, params) {
-      return withViewport(await convert(source, params, false, gradients), source)
-    },
-    ...(!gradients ? { async traceColorSourceWithGradients(source: RGBAImage, params: TraceParams) {
-      return withViewport(await convert(source, params, false, true), source)
-    } } : {}),
+    traceColorSource: (source, params) => colorTrace(source, params, gradients),
+    ...(!gradients ? { traceColorSourceWithGradients: (source: RGBAImage, params: TraceParams) => colorTrace(source, params, true) } : {}),
+    shapeHintsFor: (svg) => hints.get(svg),
   }
 }

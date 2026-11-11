@@ -59,6 +59,25 @@ export interface Metrics {
   embeddedRaster: boolean
 }
 
+/**
+ * A fact the tracing engine knows about one `<path>` of its SVG, so later stages need not
+ * re-derive it from path data. `index` is the path's ordinal in the document.
+ * Only paths with something to say are listed: exact circles, gradient paints, overlays.
+ */
+export interface EngineShapeHint {
+  index: number
+  kind: 'path' | 'circle'
+  /** Circle centre and radius, in viewBox units (present when `kind` is `'circle'`). */
+  cx?: number
+  cy?: number
+  r?: number
+  /** Gradient paint: the `id` of its element in the SVG. */
+  gradient?: { id: string; type: 'linear' | 'radial'; stops: number; opaque: boolean }
+  /** For a translucent gradient overlay: index of the opaque path it belongs to. */
+  overlayOf?: number
+  bounds: [number, number, number, number]
+}
+
 export interface Trial {
   /** True for the first trial (preset / Auto parameters), false for auto-tune candidates. */
   base: boolean
@@ -68,6 +87,8 @@ export interface Trial {
   traceMethod?: 'pixel-grid' | 'experimental-gradients' | 'fill-calibrated' | 'palette-calibrated' | 'paths-merged'
   params: TraceParams
   svg: string
+  /** Engine hints for `svg`; dropped whenever a later pass renumbers its paths. */
+  shapes?: EngineShapeHint[]
   metrics: Metrics
   score: number
   ms: number
