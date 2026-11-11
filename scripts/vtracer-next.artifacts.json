@@ -1,7 +1,7 @@
 {
   "inputs": {
     "scripts/build-vtracer-next.mjs": "5e5dd6a5fa82baaf477a050b84cd252d5884362b8b42dd7d3c7e7cafa7e18802",
-    "scripts/build-vtracer-next.sources.json": "a123c3865f535ee9362c4c94245a0b81bbda0a429042a96f7e14b8e6275b2f24",
+    "scripts/build-vtracer-next.sources.json": "489bf9598126825c3bd00a30082b335ff4fc02e316b656e4804b23f5eb888b61",
     "scripts/build-vtracer-next.Cargo.lock": "d3a84e8ff6838a7cc4572da2e3a0eb4cc44f7f7db8ac279cd58a9589ce5198fa",
     "scripts/verify-vtracer-next.mjs": "f5a935dd8768999f6d24266ff8a5e4429541e5e015b29ee566fdf8f3d19a0f31",
     "wasm/vtracer/src/lib.rs": "6fbab0ab8ae20bdf343c4781b6911ad6da3d49a0bfad14026118be2e4b5d8c25",
@@ -11,7 +11,7 @@
     "package.json": "363419e5580e2134cd379738acf0fd236e8cb68b448c96e27e43a39580cac053",
     "vtracer_next.js": "864c4c42c1f0c4d8318a6cb07e7081fb9f0bfaab2fc10b5210d0ed6a270d30c3",
     "vtracer_next.d.ts": "2021c5c25404702e391541421eee40f3f90805c998728b21d5211296a40a873b",
-    "vtracer_next_bg.wasm": "679148154cc2c2a87666b41fcecd7a185d22e8b09d636010dc1fdc94e1e05cd4",
+    "vtracer_next_bg.wasm": "5b6a196805fb2167451d91b37d2a9d1c6113ccd0170ee9cf2aee7852f7bc2791",
     "vtracer_next_bg.wasm.d.ts": "c049ded10df96333108857aeb8199ffc965cc2d774c9c1acd13bcb966126453a"
   }
 }
