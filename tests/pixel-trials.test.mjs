@@ -31,7 +31,19 @@ test('small automatic images try enlarged traces and keep original SVG dimension
       return prep.image.width === 8 ? svg.replace('</svg>', `${' '.repeat(2048)}</svg>`) : svg
     } }
     const budget = await vectorize(src, { presetId: 'auto', params: DEFAULT_PARAMS, auto: { ...auto, maxKB: 1 } }, largeBackend)
-    assert.notEqual(budget.trials[budget.chosen].traceScale, 4, 'a candidate over budget must not displace one within budget')
+    // The size budget is a target, not a hard limit: going over it costs score in proportion
+    // to the overshoot. A faithful trace twice the budget still beats traces that fit the
+    // budget but miss the picture entirely, and the result is flagged for review.
+    assert.equal(budget.trials[budget.chosen].traceScale, 4, 'a faithful candidate over budget beats unfaithful ones within it')
+    assert.ok(budget.trials[budget.chosen].metrics.bytes > 1024)
+    const { needsReviewResult } = await server.ssrLoadModule('/src/lib/engine/vectorize.ts')
+    assert.equal(needsReviewResult(budget, { ...auto, maxKB: 1 }), true, 'an over-budget choice is flagged for review')
+    // The penalty still decides close calls: a small fidelity gain does not pay for doubling the size.
+    const { choose } = await server.ssrLoadModule('/src/lib/engine/core.ts')
+    const metrics = (bytes) => ({ bytes, paths: 10, pctDiff: 0, rgbWhite: 0, rgbDark: 0, alphaDiff: 0, iou: 1 })
+    assert.equal(choose([{ metrics: metrics(1000), score: 1.0 }, { metrics: metrics(2000), score: 0.9 }], 1000), 0)
+    assert.equal(choose([{ metrics: metrics(1000), score: 10 }, { metrics: metrics(2000), score: 0.9 }], 1000), 1)
+    assert.equal(choose([{ metrics: metrics(1000), score: 1.0 }, { metrics: metrics(2000), score: 0.9 }], 0), 1, 'no budget, no penalty')
     const custom = await vectorize(src, { presetId: 'custom', params: DEFAULT_PARAMS, auto }, backend)
     assert.ok(custom.trials.every((trial) => trial.traceScale === 1))
     const single = await vectorize(src, { presetId: 'auto', params: DEFAULT_PARAMS, auto: { ...auto, enabled: false } }, backend)
