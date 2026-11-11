@@ -7,6 +7,9 @@
   import type { GroupingMetadata } from '../engine/types'
   import { num, pct, size, t } from '../i18n.svelte'
   import GroupReview from './GroupReview.svelte'
+  import ShapeEditor from './ShapeEditor.svelte'
+  import { applyShapeEdit } from '../shape-editing'
+  import type { ShapePatch } from '../engine/shape-edits'
   import { publicAsset } from '../assets'
 
   type Bg = 'checker' | 'light' | 'dark'
@@ -41,6 +44,19 @@
 
   const result = $derived(item ? filtered(item, clone(settings)) : null)
   const trial = $derived(item ? chosenTrial(item) : null)
+
+  // Per-shape editing of what the engine recognised in the chosen trace.
+  let selectedShape = $state<number | null>(null)
+  $effect(() => {
+    // A selection is an index into one item's trace; drop it when the item changes.
+    void item?.id
+    selectedShape = null
+  })
+  const selectedHint = $derived(trial?.shapes?.find((shape) => shape.index === selectedShape) ?? null)
+  const viewBox = $derived(trial ? /\bviewBox="([^"]+)"/.exec(trial.svg)?.[1] ?? `0 0 ${item?.width ?? 0} ${item?.height ?? 0}` : '')
+  function editShape(index: number, patch: ShapePatch) {
+    if (item) applyShapeEdit(item, index, patch)
+  }
   function saveGrouping(grouping: GroupingMetadata) {
     if (!item) return
     const previousKey = outputMeasurementKey(item)
@@ -113,7 +129,22 @@
         </div>
         <div class="stage" style:background={bgStyle}>
           <div class="half"><img class="fit" src={svgUrl(item)} alt={t('edit.before')} /><span class="lab mono l">{t('edit.before')}</span></div>
-          <div class="half">{#if outUrl}<img class="fit" src={outUrl} alt={t('edit.after')} />{/if}<span class="lab mono r">{t('edit.after')}</span></div>
+          <div class="half">
+            {#if outUrl}<img class="fit" src={outUrl} alt={t('edit.after')} />{/if}
+            {#if selectedHint}
+              <!-- Outline of the selected shape, laid out exactly like the preview image. -->
+              <svg class="fit pick" {viewBox} preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+                {#if selectedHint.kind === 'circle'}
+                  <circle cx={selectedHint.cx} cy={selectedHint.cy} r={selectedHint.r} />
+                {:else if selectedHint.kind === 'ellipse'}
+                  <ellipse cx={selectedHint.cx} cy={selectedHint.cy} rx={selectedHint.rx} ry={selectedHint.ry} transform={`rotate(${selectedHint.rotation ?? 0} ${selectedHint.cx} ${selectedHint.cy})`} />
+                {:else}
+                  <rect x={selectedHint.bounds[0]} y={selectedHint.bounds[1]} width={selectedHint.bounds[2] - selectedHint.bounds[0]} height={selectedHint.bounds[3] - selectedHint.bounds[1]} />
+                {/if}
+              </svg>
+            {/if}
+            <span class="lab mono r">{t('edit.after')}</span>
+          </div>
         </div>
         <div class="card stack">
           <div class="between"><h2 class="h3">{t('edit.presets')}</h2><span class="muted tiny">{t('edit.presetsHint')}</span></div>
@@ -126,6 +157,9 @@
       </section>
 
       <aside class="panel">
+        {#if trial.shapes?.length}
+          <ShapeEditor svg={trial.svg} shapes={trial.shapes} bind:selected={selectedShape} onEdit={editShape} />
+        {/if}
         <div class="card stack">
           <h2 class="h3">{t('edit.simplify')}</h2>
           <div class="field">
@@ -223,6 +257,8 @@
   .half { position: relative; border-right: 1px solid var(--line-2); }
   .half:last-child { border-right: 0; }
   .fit { position: absolute; inset: 5%; width: 90%; height: 90%; object-fit: contain; }
+  .pick { pointer-events: none; overflow: visible; }
+  .pick :global(*) { fill: none; stroke: var(--accent); stroke-width: 2; stroke-dasharray: 6 4; vector-effect: non-scaling-stroke; }
   .lab { position: absolute; top: 14px; font-size: 12px; border-radius: 6px; padding: 4px 8px; }
   .lab.l { left: 14px; background: rgba(10, 11, 15, 0.85); }
   .lab.r { right: 14px; color: #0a0b0f; background: var(--accent); }

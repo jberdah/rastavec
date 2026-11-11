@@ -50,6 +50,14 @@ export function forgetUrls(item: Item) {
 }
 
 export const doneItems = () => app.items.filter((i) => i.status === 'done')
+/** Forget the cached object URL of one trial, after its SVG was replaced. */
+export function dropSvgUrl(item: Item, index: number) {
+  const key = `${item.id}:${index}`
+  const url = svgUrls.get(key)
+  if (url) URL.revokeObjectURL(url)
+  svgUrls.delete(key)
+}
+
 export const chosenTrial = (i: Item) => i.trials[i.chosen]
 export const editKey = (i: Item): string | null => {
   const e = i.edit

@@ -53,6 +53,15 @@ export function outputUrl(item: Item): string {
   return url
 }
 
+/** Drop cached analyses and previews after a trial's SVG changed, keeping the item's settings. */
+export function forgetTrialCaches(item: Item) {
+  for (const k of analyses.keys()) if (k.startsWith(item.id + ':')) analyses.delete(k)
+  results.delete(item.id)
+  const preview = previewUrls.get(item.id)
+  if (preview) URL.revokeObjectURL(preview.url)
+  previewUrls.delete(item.id)
+}
+
 export function forgetEdits(item: Item) {
   outputQueue.cancel(item.id)
   for (const k of analyses.keys()) if (k.startsWith(item.id + ':')) analyses.delete(k)
