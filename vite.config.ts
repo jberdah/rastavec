@@ -10,5 +10,9 @@ export default defineConfig(({ command }) => {
     plugins: [svelte(), wasm()],
     build: { target: 'esnext' },
     worker: { format: 'es' as const },
+    // Local scratch output (.tmp holds wasm build trees and trial reports, often gigabytes) must
+    // not be crawled for dependency entries or watched, or every first request takes minutes.
+    optimizeDeps: { entries: ['index.html'] },
+    server: { watch: { ignored: ['**/.tmp/**', '**/src-tauri/target/**', '**/output/**'] } },
   }
 })
