@@ -138,8 +138,9 @@ All commands and options: [cli/README.md](cli/README.md).
 
 ### Web app, from source
 
-The local web build needs Rust and `wasm-pack` to compile the VTracer WebAssembly backend. See
-[development setup](docs/DEVELOPMENT.md) for the prerequisites.
+The generated VTracer-Next WebAssembly module is included for normal app builds. Rust and
+`wasm-pack` are needed only when rebuilding the engine from the private Next checkout; see the
+[development setup](docs/DEVELOPMENT.md).
 
 ```bash
 git clone https://github.com/jberdah/rastavec.git
@@ -152,10 +153,10 @@ npm run dev        # http://localhost:5179
 
 1. **Analyse**: colours, gradients and transparency tell RastaVec what kind of image it is
    (flat logo, shaded illustration, line art, pixel art, photo) and which settings suit it.
-2. **Trace**: [VTracer](https://github.com/visioncortex/vtracer) turns the pixels into colour
-  paths using the pinned VTracer 1.0.0-alpha.4 engine; transparent images get a separate
-  silhouette so edges stay crisp. The browser and desktop app use its WebAssembly build, while
-  the CLI uses the native Rust package.
+2. **Trace**: the local VTracer-Next fork turns the pixels into colour paths. RastaVec measures
+  every result against its source, including transparent images, so its existing detail and
+  auto-tune controls continue to guide the output. The browser, desktop app and CLI share the
+  same Rust engine compiled to WebAssembly.
 3. **Compare**: the SVG is rendered at the original size and measured against the source, on
    white and on a dark background.
 4. **Tune**: if an image is above the threshold or the size budget, a fixed set of alternative

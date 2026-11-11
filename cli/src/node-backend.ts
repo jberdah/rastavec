@@ -1,53 +1,17 @@
-// Node backend: VTracer 1.0 (official @visioncortex/vtracer wasm, no DOM) for tracing,
-// sharp (libvips + librsvg) for decoding, SVG rendering and PNG output.
+// Node backend: the shared VTracer-Next WASM for tracing and sharp for image I/O.
 import sharp from 'sharp'
-import * as vtracer from '@visioncortex/vtracer'
-import { normalizeHex, type Prepared, type RGBAImage, type TraceBackend } from '../../src/lib/engine/core'
-import { compactPath } from '../../src/lib/engine/compact'
-import { composeSvg, type RawPath } from '../../src/lib/engine/compose'
-import type { TraceParams } from '../../src/lib/engine/types'
+import { existsSync, realpathSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
+import { dirname, resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
+import type { RGBAImage, TraceBackend } from '../../src/lib/engine/core'
+import { optionsFor, parsePaths } from '../../src/lib/engine/trace-options'
+import { withVTracerNext, type NextConvert } from '../../src/lib/engine/vtracer-next-trace'
 
 // A single 40 MP RGBA buffer is 160 MB; tracing can need several copies.
 // Reject oversized sources before allocating them and retain sharp's decode guard.
 export const MAX_INPUT_PIXELS = 40_000_000
 export const MAX_INPUT_SIDE = 16_384
-
-function vtracerOptions(p: TraceParams, binary: boolean) {
-  return {
-    clustering: binary ? 'bw' : (p.clustering ?? 'color-cluster'),
-    watershedDetail: p.watershedDetail ?? 128,
-    ...(binary ? { binaryThreshold: 128 } : {}),
-    hierarchical: 'stacked',
-    mode: p.mode,
-    filterSpeckle: p.speckle,
-    colorPrecision: p.colorPrecision,
-    layerDifference: p.layerDifference,
-    cornerThreshold: p.cornerThreshold,
-    lengthThreshold: p.lengthThreshold,
-    spliceThreshold: p.spliceThreshold,
-    pathPrecision: p.pathPrecision,
-  } as const
-}
-
-function parsePaths(svg: string, compact: boolean, precision: number): RawPath[] {
-  const out: RawPath[] = []
-  for (const m of svg.matchAll(/<path\b([^>]*?)\/?>/g)) {
-    const attrs = m[1]
-    const d = attrs.match(/\sd="([^"]*)"/)?.[1]?.trim()
-    if (!d) continue
-    const fill = normalizeHex(attrs.match(/\sfill="([^"]*)"/)?.[1] ?? '#000000')
-    const transform = attrs.match(/\stransform="([^"]*)"/)?.[1] ?? null
-    const small = compact ? compactPath(d, transform, precision) : null
-    out.push(small !== null ? { d: small, fill, transform: null } : { d, fill, transform })
-  }
-  return out
-}
-
-async function runConverter(image: RGBAImage, p: TraceParams, binary: boolean): Promise<RawPath[]> {
-  const rgba = new Uint8Array(image.data.buffer, image.data.byteOffset, image.data.length)
-  const svg = vtracer.convertPixels(rgba, image.width, image.height, vtracerOptions(p, binary))
-  return parsePaths(svg, p.compactPaths, p.pathPrecision)
-}
 
 const toRGBA = (data: Buffer, width: number, height: number): RGBAImage => ({
   data: new Uint8ClampedArray(data.buffer, data.byteOffset, data.length),
@@ -55,11 +19,7 @@ const toRGBA = (data: Buffer, width: number, height: number): RGBAImage => ({
   height,
 })
 
-export const nodeBackend: TraceBackend = {
-  name: 'vtracer 1.0.0-alpha.4 (node) + sharp',
-  trace(prep: Prepared, p: TraceParams) {
-    return composeSvg(prep, p, runConverter)
-  },
+const nodeRasterBackend: Pick<TraceBackend, 'rasterize'> = {
   async rasterize(svg: string, width: number, height: number) {
     // The SVG declares width/height = source size, so 72 dpi renders it 1:1.
     const { data, info } = await sharp(Buffer.from(svg), { density: 72, limitInputPixels: MAX_INPUT_PIXELS })
@@ -70,6 +30,26 @@ export const nodeBackend: TraceBackend = {
       .toBuffer({ resolveWithObject: true })
     return toRGBA(data, info.width, info.height)
   },
+}
+
+export async function loadNodeNextBackend(gradients: boolean): Promise<TraceBackend> {
+  const entry = process.argv[1] ? realpathSync(process.argv[1]) : process.cwd()
+  const directory = process.env.RASTAVEC_NEXT_WASM_DIR ?? resolve(dirname(entry), 'vtracer-next-wasm')
+  if (!existsSync(resolve(directory, 'vtracer_next.mjs'))) {
+    throw new Error(`VTracer-Next WASM was not found in ${directory}. Rebuild the CLI package or set RASTAVEC_NEXT_WASM_DIR.`)
+  }
+  const url = pathToFileURL(resolve(directory, 'vtracer_next.mjs'))
+  const module = await import(url.href)
+  const wasm = await readFile(new URL('vtracer_next_bg.wasm', url))
+  await module.default({ module_or_path: wasm })
+  const convert: NextConvert = async (image, params, binary, experimentalGradients) => {
+    const rgba = new Uint8Array(image.data.buffer, image.data.byteOffset, image.data.byteLength)
+    return module.vectorize_rgba(rgba, image.width, image.height, {
+      ...optionsFor(params, binary), experimentalGradients,
+    })
+  }
+  return withVTracerNext(nodeRasterBackend, gradients, convert, async (image, params, binary) =>
+    parsePaths(await convert(image, params, binary, false), params.compactPaths, params.pathPrecision))
 }
 
 /** Decode any supported raster file to RGBA, applying EXIF orientation. */

@@ -4,7 +4,7 @@ import { DEFAULT_PARAMS } from '../src/lib/engine/presets'
 import { runEvolutionarySearch } from '../src/lib/engine/evolutionary-search'
 import { runTrial, vectorize } from '../src/lib/engine/vectorize'
 import type { TraceParams, Trial } from '../src/lib/engine/types'
-import { decode, nodeBackend } from '../cli/src/node-backend'
+import { decode, loadNodeNextBackend } from '../cli/src/node-backend'
 
 const resultMetrics = (trials: Trial[], chosen: number) => {
   const trial = trials[chosen]
@@ -21,6 +21,7 @@ const resultMetrics = (trials: Trial[], chosen: number) => {
 
 export async function runEvolutionaryBenchmark(filePath: string, repetitions: number, maxEvaluations: number, threshold: number) {
   const source = await decode(filePath)
+  const nodeBackend = await loadNodeNextBackend(false)
   const analysis = analyze(source)
   const settings = {
     presetId: 'auto',

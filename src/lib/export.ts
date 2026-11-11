@@ -2,7 +2,7 @@ import JSZip from 'jszip'
 import type { Item } from './engine/types'
 import { COLOR_WEIGHT, SIZE_WEIGHT } from './engine/core'
 import { app, chosenTrial, clone, outputMetrics } from './store.svelte'
-import { engineName } from './pipeline'
+import { browserBackend } from './engine/browser-backend'
 import { activeEdit, outputSvg } from './edit'
 
 const r4 = (x: number | null) => (x === null ? '' : Math.round(x * 10000) / 10000)
@@ -27,9 +27,14 @@ export function metricsCsv(items: Item[]): string {
 /** Record the chosen parameters and palette filters for the exported batch. */
 export function config(items: Item[]) {
   const settings = app.batchSettings ?? { presetId: app.presetId, params: app.params, auto: app.auto }
+  const traceEngine = app.batchSettings?.traceEngine
+  const engine = traceEngine === 'next-gradients' ? 'VTracer-Next (WASM, gradients)' :
+    traceEngine === 'next' ? 'VTracer-Next (WASM)' :
+      traceEngine === 'official' ? 'VTracer official (historical batch)' : browserBackend.name
   return {
     app: 'rastavec',
-    engine: engineName,
+    engine,
+    ...(traceEngine ? { traceEngine } : {}),
     preset: settings.presetId,
     params: clone(settings.params),
     autoTune: {

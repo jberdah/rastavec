@@ -4,6 +4,7 @@ import { decodeFile } from './engine/browser-backend'
 import { analyze } from './engine/analyze'
 import { refreshOutputMetrics } from './pipeline'
 import { DEFAULT_PARAMS } from './engine/presets'
+import { parseTraceEngine, parseTraceEngineProvenance, type TraceEngine } from './engine/web-trace-engine'
 
 // One record per origin. An IndexedDB transaction replaces it atomically: a quota failure
 // leaves the preceding saved session intact. Files and SVGs remain on this device.
@@ -17,6 +18,7 @@ export interface SessionRecord {
   savedAt: number
   elapsedMs: number
   presetId: string
+  traceEngine?: TraceEngine
   params: TraceParams
   auto: AutoTune
   batchSettings: typeof app.batchSettings
@@ -60,6 +62,7 @@ export function captureSession(): SessionRecord {
     version: 1, savedAt: Date.now(),
     elapsedMs: app.finishedAt && app.startedAt ? Math.max(0, app.finishedAt - app.startedAt) : 0,
     presetId: app.presetId, params: clone(app.params), auto: clone(app.auto),
+    traceEngine: app.traceEngine,
     batchSettings: app.batchSettings ? clone(app.batchSettings) : null,
     selectedId: app.selectedId, items,
   }
@@ -114,9 +117,16 @@ export async function restoreSession(record: SessionRecord): Promise<void> {
   app.params = { ...DEFAULT_PARAMS, ...record.params }
   app.auto = record.auto
   app.presetId = record.presetId
-  app.batchSettings = record.batchSettings
-    ? { ...record.batchSettings, params: { ...DEFAULT_PARAMS, ...record.batchSettings.params } }
-    : null
+  app.traceEngine = parseTraceEngine(record.traceEngine) ?? 'next'
+  if (record.batchSettings) {
+    const { traceEngine, ...settings } = record.batchSettings
+    const savedEngine = parseTraceEngineProvenance(traceEngine) ?? 'official'
+    app.batchSettings = {
+      ...settings,
+      params: { ...DEFAULT_PARAMS, ...settings.params },
+      traceEngine: savedEngine,
+    }
+  } else app.batchSettings = null
   app.selectedId = record.selectedId
   app.finishedAt = performance.now()
   // performance.now() starts afresh after a reload; the previous duration can exceed it.

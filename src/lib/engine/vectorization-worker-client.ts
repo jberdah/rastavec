@@ -2,11 +2,13 @@ import type { Analysis } from './analyze'
 import { browserBackend } from './browser-backend'
 import type { RGBAImage } from './core'
 import type { VectorizeResult, VectorizeSettings } from './vectorize'
+import type { TraceEngine } from './web-trace-engine'
 import type { RasterizeRequestMessage, RasterizedMessage, RasterizeErrorMessage } from './worker-raster-rpc'
 
 interface VectorizeInput {
   source: RGBAImage
   settings: VectorizeSettings
+  traceEngine: TraceEngine
   analysis?: Analysis
   onProgress?: (done: number, total: number) => void
 }
@@ -174,7 +176,7 @@ export class VectorizationWorkerPool {
         slot.worker.postMessage({
           type: 'vectorize', requestId: job.requestId, buffer,
           width: job.source.width, height: job.source.height,
-          settings: job.settings, analysis: job.analysis,
+          settings: job.settings, traceEngine: job.traceEngine, analysis: job.analysis,
         }, [buffer])
       } catch (error) {
         slot.active = null

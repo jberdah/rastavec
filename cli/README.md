@@ -22,7 +22,7 @@ rastavec slice board.png -o elements/   # one PNG per element of a sprite sheet
 
 ## Install
 
-Node.js 18 or later. The beta is attached to the
+This checkout requires Node.js 22 or later. The published beta is attached to the
 [GitHub releases](https://github.com/jberdah/rastavec/releases):
 
 ```bash
@@ -43,11 +43,18 @@ npm install -g https://github.com/jberdah/rastavec/releases/download/v0.4.0-beta
 |---|---|---|
 | `-o, --out <dir>` | `./rastavec-out` | output folder |
 | `-p, --preset <id>` | `auto` | `auto`, `flat`, `shaded`, `line`, `pixel`, `custom` |
+| `--gradients` | off | force experimental gradient fitting in color traces; Auto may compare one optional gradient trial on suitable shaded images without this flag |
 | `-t, --threshold <pct>` | `3` | max share of visibly different pixels |
 | `-s, --max-size <KB>` | `400` | size budget per SVG (KiB) |
 | `--no-auto` | | single trial, no auto-tuning |
 | `--compare` | | also write `<name>.comparison.png` (source / SVG on white and dark) and `<name>.diff.png` (differences in magenta) |
 | `--diff-summary-json` | | write `<name>.diff.json` with an 8×8 visible-difference grid and up to eight hotspot regions; also embed the summary in each JSON report item |
+
+The size budget guides Auto selection and marks outputs for review. It does not
+prevent exporting a larger SVG; set it according to the desired fidelity and
+editability for the input. If every regular Auto candidate for a photograph is
+over budget, Auto measures two simpler variants and selects from the actual
+rendered results. A photograph may remain above the visible-difference target.
 | `--slice` | | treat inputs as sheets and vectorise each element |
 | `-r, --recursive` | | include sub-folders |
 | `-f, --force` | | overwrite existing outputs (never overwritten otherwise) |
@@ -56,6 +63,16 @@ npm install -g https://github.com/jberdah/rastavec/releases/download/v0.4.0-beta
 | `--watershed-detail <0-255>` | `128` | Watershed cut detail; selecting it also enables Watershed |
 | `--json` | | JSON report on stdout |
 | `-q, --quiet` | | no progress output |
+
+From the repository root, build the CLI and run it with experimental gradients.
+
+```bash
+npm --prefix cli run build
+node cli/dist/rastavec.cjs trace illustration.png --preset shaded --gradients --json
+```
+
+The `line` preset and `--binary` keep gradient fitting off. With the `auto`
+preset, gradient fitting is available for images traced in color.
 
 Before tracing, all output paths, including `report.json` and optional comparison images,
 are checked for existing files. Output names are made unique within a batch, including when
@@ -77,7 +94,7 @@ output over one of its input images.
 ```json
 {
   "schemaVersion": 1, "tool": "rastavec", "version": "0.4.0-beta.1",
-  "engine": "vtracer 1.0.0-alpha.4 (node) + sharp",
+  "engine": "VTracer-Next", "traceEngine": "next", "experimentalGradients": false,
   "settings": { "preset": "auto", "params": null, "autoTune": { "enabled": true, "threshold": 2, "maxKB": 700 } },
   "summary": { "total": 4, "ok": 2, "review": 2, "errors": 0, "seconds": 51.2 },
   "items": [{
@@ -87,15 +104,19 @@ output over one of its input images.
     "analysis": { "kind": "shaded", "alpha": "edges", "dominantColors": 12, "gradient": 0.13, "transparentPct": 76, "softPct": 1.6, "grayscale": false },
     "notes": ["shaded", "edges"], "autoTuned": false, "trials": 1,
     "params": { "colorPrecision": 8, "layerDifference": 8, "speckle": 7, "…": "…" },
-    "metrics": { "pctDiff": 1.34, "iou": 0.982, "rgbWhite": 1.9, "rgbDark": 1.4, "alphaDiff": 1.2, "bytes": 96512, "paths": 177, "embeddedRaster": false }
+    "metrics": { "pctDiff": 1.34, "edgePctDiff": 12.4, "iou": 0.982, "rgbWhite": 1.9, "rgbDark": 1.4, "alphaDiff": 1.2, "bytes": 96512, "paths": 177, "embeddedRaster": false }
   }]
 }
 ```
 
 - `pctDiff`: % of pixels whose worst-channel difference (on white or on #202020) exceeds 32/255.
+- `edgePctDiff`: the same visible-difference test restricted to pixels beside source color or alpha edges;
+  `null` when the source has no detected edges. This diagnostic does not affect Auto selection yet.
+- `experimentalGradients`: whether the batch enables experimental fitting for color traces.
 - `iou`: overlap of opaque areas (alpha ≥ 128). `rgbWhite`, `rgbDark`, `alphaDiff`: mean differences, 0–255.
 - `traceMethod`: selected Auto variant. `paths-merged` means adjacent same-fill paths were combined only
   after a fresh render preserved the measured visible difference, silhouette, alpha and color fidelity.
+  `experimental-gradients` means Auto selected a measured VTracer-Next gradient candidate.
 - `diffSummary`: with `--diff-summary-json`, contains a top-to-bottom grid of visible-difference percentages
   and up to eight hotspot rectangles in source-image pixels. Its 32/255 threshold matches `pctDiff`.
 - `status`: `ok`, `review` (above threshold or budget) or `error` (with `error`).
@@ -103,11 +124,10 @@ output over one of its input images.
 
 ## Notes
 
-- Engine: the official [VTracer](https://github.com/visioncortex/vtracer) 1.0 WebAssembly build
-  (`@visioncortex/vtracer`, MIT/Apache-2.0) and [sharp](https://sharp.pixelplumbing.com).
-  The web app also uses VTracer 1.0.0-alpha.4, compiled to WebAssembly in the browser. The CLI
-  uses the Node package with `sharp` for image decoding and SVG rendering; metrics can differ
-  slightly because the browser and CLI use different rendering backends.
+- Engine: the local VTracer-Next WebAssembly build, shared with the web and desktop app.
+  The CLI package carries the matching WASM module; [sharp](https://sharp.pixelplumbing.com)
+  decodes and renders images for its metrics. Browser and CLI measurements can differ slightly
+  because they use different rendering backends.
 - Source images are limited to 40 million pixels and 16,384 pixels on either side. Oversized
   files are rejected before decoding with an error and exit code 2; resize them before retrying.
   Even images within the limits can require substantial memory during tracing.

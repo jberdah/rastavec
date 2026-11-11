@@ -3,6 +3,7 @@ import { svgFingerprint } from './engine/group-nearby'
 import { presetById } from './engine/presets'
 import type { AutoTune, Item, TraceParams } from './engine/types'
 import type { RGBAImage } from './engine/core'
+import type { TraceEngine, TraceEngineProvenance } from './engine/web-trace-engine'
 
 export type Route = 'import' | 'lot' | 'detail' | 'edit' | 'animate'
 
@@ -11,9 +12,10 @@ export const app = $state({
   landingHandoffFailed: false,
   items: [] as Item[],
   presetId: 'auto',
+  traceEngine: 'next' as TraceEngine,
   params: { ...presetById('shaded').params } as TraceParams,
   auto: { enabled: true, threshold: 3, maxKB: 400 } as AutoTune,
-  batchSettings: null as { presetId: string; params: TraceParams; auto: AutoTune } | null,
+  batchSettings: null as { presetId: string; params: TraceParams; auto: AutoTune; traceEngine?: TraceEngineProvenance } | null,
   selectedId: null as string | null,
   running: false,
   cancelRequested: false,

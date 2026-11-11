@@ -1,0 +1,15 @@
+{
+  "name": "rastavec-vtracer-next-wasm",
+  "type": "module",
+  "version": "0.1.0",
+  "files": [
+    "vtracer_next_bg.wasm",
+    "vtracer_next.js",
+    "vtracer_next.d.ts"
+  ],
+  "main": "vtracer_next.js",
+  "types": "vtracer_next.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}

@@ -276,6 +276,20 @@
   </section>
 
   <aside class="side">
+    <div class="card field">
+      <label class="row" for="experimental-gradients">
+        <span>{t('traceEngine.gradientsLabel')}</span>
+        <input
+          id="experimental-gradients"
+          type="checkbox"
+          checked={app.traceEngine === 'next-gradients'}
+          disabled={app.running || (app.presetId !== 'auto' && app.params.colormode === 'binary')}
+          aria-describedby="experimental-gradients-hint"
+          onchange={(event) => { app.traceEngine = event.currentTarget.checked ? 'next-gradients' : 'next' }}
+        />
+      </label>
+      <span id="experimental-gradients-hint" class="muted small">{t('traceEngine.gradientsHint')}</span>
+    </div>
     <div class="card stack">
       <div class="between" style="flex-wrap: nowrap">
         <div class="stack" style="gap: 4px">
@@ -298,7 +312,7 @@
     <div class="card stack">
       <div class="between">
         <h2 class="h3">{t('params.title')}</h2>
-        <span class="mono muted small">vtracer</span>
+        <span class="mono muted small">VTracer-Next</span>
       </div>
       {#if app.presetId === 'auto'}
         <span class="small" style="color: var(--accent-text)">{t('params.autoNote')}</span>
@@ -337,22 +351,12 @@
         <label for="sp"><span>{t('params.speckle')}</span><span class="value">{app.params.speckle} px</span></label>
         <input id="sp" type="range" min="0" max="32" bind:value={app.params.speckle} oninput={markCustom} />
       </div>
-      <div class="field">
-        <label for="af"><span>{t('params.alphaFloor')}</span><span class="value">α &lt; {app.params.alphaFloor}</span></label>
-        <input id="af" type="range" min="0" max="64" bind:value={app.params.alphaFloor} oninput={markCustom} />
-      </div>
-      <div class="field">
-        <label for="cut"><span>{t('params.silhouetteCut')}</span><span class="value">α ≥ {app.params.silhouetteCut}</span></label>
-        <input id="cut" type="range" min="16" max="240" step="8" bind:value={app.params.silhouetteCut} oninput={markCustom} disabled={app.params.colormode === 'binary'} />
-      </div>
-      <div class="field">
-        <label for="soft"><span>{t('params.softLayers')}</span><span class="value">{app.params.softLayers || t('params.none')}</span></label>
-        <input id="soft" type="range" min="0" max="4" bind:value={app.params.softLayers} oninput={markCustom} disabled={app.params.colormode === 'binary' || app.params.softColor} />
-      </div>
-      <label class="row small muted" style="justify-content: space-between; min-height: 40px">
-        {t('params.softColor')}
-        <input type="checkbox" bind:checked={app.params.softColor} onchange={markCustom} disabled={app.params.colormode === 'binary'} />
-      </label>
+      {#if app.params.colormode === 'binary'}
+        <div class="field">
+          <label for="af"><span>{t('params.alphaFloor')}</span><span class="value">α &lt; {app.params.alphaFloor}</span></label>
+          <input id="af" type="range" min="0" max="64" bind:value={app.params.alphaFloor} oninput={markCustom} />
+        </div>
+      {/if}
     </div>
 
     <button type="button" class="btn btn-light cta" disabled={!app.items.length || app.running || slicing} onclick={start}>

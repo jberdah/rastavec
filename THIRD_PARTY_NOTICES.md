@@ -5,7 +5,8 @@ It relies on the following open-source components, each under its own license.
 
 | Component | Use | License |
 |---|---|---|
-| [VTracer](https://github.com/visioncortex/vtracer) (`vtracer` 1.0.0-alpha.4, `visioncortex` 0.9.3) | raster to vector tracing engine (WebAssembly) | MIT OR Apache-2.0 |
+| VTracer-Next (`vtracer-next` 1.0.0-alpha.5, based on [VTracer](https://github.com/visioncortex/vtracer)) | raster to vector tracing engine (WebAssembly) | [MIT](public/licenses/vtracer-next.txt) |
+| [Visioncortex](https://crates.io/crates/visioncortex/0.9.3) | clustering and geometry used by VTracer-Next | MIT OR Apache-2.0 |
 | [Svelte](https://svelte.dev) | user interface | MIT |
 | [Vite](https://vite.dev) and `vite-plugin-wasm` | build tooling | MIT |
 | [JSZip](https://stuk.github.io/jszip/) | zip export | MIT (dual-licensed MIT / GPLv3, used under MIT) |

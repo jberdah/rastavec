@@ -1,17 +1,16 @@
 import { outputQueue } from './measurement-queue.js'
-import { alphaStats, computeMetrics, type TraceBackend } from './engine/core'
+import { alphaStats, computeMetrics, type RGBAImage } from './engine/core'
 import { forgetEdits, outputSvg } from './edit'
 import { browserBackend, decodeFile, toPngFile } from './engine/browser-backend'
 import { crop, keyBackground, sliceGrid, sliceSheet, type GridSliceOptions } from './engine/slice'
 import { analyze } from './engine/analyze'
 import { vectorize, VectorizationCancelled, type VectorizeResult, type VectorizeSettings } from './engine/vectorize'
 import { createVectorizationWorkerPool, type VectorizationWorkerPool } from './engine/vectorization-worker-client'
+import { selectTraceBackend, type TraceEngine } from './engine/web-trace-engine'
 import type { Item, TraceParams } from './engine/types'
 import { app, clone, forgetUrls, outputMeasurementKey, sources } from './store.svelte'
 import { uniqueImportName } from './import-names.js'
 
-const backend: TraceBackend = browserBackend
-export const engineName = backend.name
 let activeVectorizationWorkers: VectorizationWorkerPool | null = null
 
 /** Fidelity of any SVG against the item's source image (same metrics as the trials). */
@@ -19,7 +18,7 @@ export async function measureSvg(item: Item, svg: string) {
   await ensureAnalysis(item)
   const src = sources.get(item.id)
   if (!src) return null
-  return computeMetrics(src, await backend.rasterize(svg, src.width, src.height), svg)
+  return computeMetrics(src, await browserBackend.rasterize(svg, src.width, src.height), svg)
 }
 
 const IMAGE_EXT = /\.(png|jpe?g|webp|gif|bmp)$/i
@@ -158,7 +157,39 @@ export async function filesFromDrop(dt: DataTransfer): Promise<File[]> {
 
 type PendingResult = { result: VectorizeResult; semiPct: number } | { error: string }
 
-async function processItem(item: Item, settings: VectorizeSettings, workerPool: VectorizationWorkerPool | null): Promise<PendingResult> {
+/** Restore an image buffer transferred to a worker before cancellation escapes the item runner. */
+export async function recoverWorkerSource(
+  source: RGBAImage,
+  itemId: string,
+  sourceCache: Map<string, RGBAImage>,
+  restore: () => Promise<RGBAImage>,
+  shouldCancel: () => boolean,
+  workerError: unknown,
+  makeCancelledError: () => Error,
+): Promise<RGBAImage> {
+  const workerCancelled = !!(workerError && typeof workerError === 'object' && 'cancelled' in workerError && workerError.cancelled)
+  const cancellationRequested = () => shouldCancel() || workerCancelled
+  let recovered = source
+
+  if (source.data.byteLength !== source.width * source.height * 4) {
+    const detachedSource = source
+    const ownsCacheEntry = sourceCache.get(itemId) === detachedSource
+    try {
+      recovered = await restore()
+      if (ownsCacheEntry && sourceCache.get(itemId) === detachedSource) sourceCache.set(itemId, recovered)
+    } catch (restoreError) {
+      // Never leave a detached typed array in the cache, even if decoding cannot recover it.
+      if (sourceCache.get(itemId) === detachedSource) sourceCache.delete(itemId)
+      if (cancellationRequested()) throw makeCancelledError()
+      throw restoreError
+    }
+  }
+
+  if (cancellationRequested()) throw makeCancelledError()
+  return recovered
+}
+
+async function processItem(item: Item, settings: VectorizeSettings, traceEngine: TraceEngine, workerPool: VectorizationWorkerPool | null): Promise<PendingResult> {
   item.status = 'tracing'
   item.progress = ''
   item.error = undefined
@@ -169,33 +200,26 @@ async function processItem(item: Item, settings: VectorizeSettings, workerPool: 
     let src = sources.get(item.id)!
     const semiPct = alphaStats(src).semiPct
     const progress = (k: number, total: number) => (item.progress = `${k}/${total}`)
+    const traceOnMain = async () => vectorize(src, settings, await selectTraceBackend(browserBackend, traceEngine), {
+      analysis: item.analysis,
+      onProgress: progress,
+      shouldCancel: () => app.cancelRequested,
+    })
     let res: VectorizeResult
     if (workerPool) {
       try {
         // `item` is Svelte-reactive, so its analysis may be a Proxy that cannot cross
         // the structured-clone boundary. Analysis is a small plain-data record.
-        res = await workerPool.run({ source: src, settings, analysis: item.analysis ? clone(item.analysis) : undefined, onProgress: progress })
+        res = await workerPool.run({ source: src, settings, traceEngine, analysis: item.analysis ? clone(item.analysis) : undefined, onProgress: progress })
       } catch (error) {
-        if (app.cancelRequested || (error && typeof error === 'object' && 'cancelled' in error && error.cancelled)) throw new VectorizationCancelled()
-        // A worker crash can happen after its transferable buffer has left the UI thread.
-        // Restore the source before falling back so this item remains usable in older WebViews.
-        if (src.data.byteLength !== src.width * src.height * 4) {
-          src = await decodeFile(item.file)
-          sources.set(item.id, src)
-        }
-        console.warn('Vectorization worker failed; retrying this image on the browser backend.', error)
-        res = await vectorize(src, settings, backend, {
-          analysis: item.analysis,
-          onProgress: progress,
-          shouldCancel: () => app.cancelRequested,
-        })
+        // Restore/invalidate transferred pixels before cancellation or fallback can escape.
+        src = await recoverWorkerSource(src, item.id, sources, () => decodeFile(item.file),
+          () => app.cancelRequested, error, () => new VectorizationCancelled())
+        console.warn('Vectorization worker failed; retrying this image on the main thread.', error)
+        res = await traceOnMain()
       }
     } else {
-      res = await vectorize(src, settings, backend, {
-        analysis: item.analysis,
-        onProgress: progress,
-        shouldCancel: () => app.cancelRequested,
-      })
+      res = await traceOnMain()
     }
     return { result: res, semiPct }
   } catch (e) {
@@ -221,13 +245,14 @@ export async function processAll() {
   const previousTimes = { startedAt: app.startedAt, finishedAt: app.finishedAt }
   const previous = app.items.map((item) => ({ item, status: item.status, error: item.error, progress: item.progress }))
   const settings = { presetId: app.presetId, params: clone(app.params), auto: clone(app.auto) }
+  const traceEngine = settings.presetId !== 'auto' && settings.params.colormode === 'binary' ? 'next' : app.traceEngine
   const largestImagePixels = app.items.reduce((largest, item) => Math.max(largest, item.width > 0 && item.height > 0 ? item.width * item.height : 40_000_000), 0)
   const hardwareThreads = typeof navigator === 'undefined' ? 1 : Math.max(1, navigator.hardwareConcurrency || 2)
   // Two workers improve small batch throughput; large images stay serial to bound peak memory.
   const desiredWorkerCount = largestImagePixels <= 4_000_000 ? Math.min(2, Math.max(1, hardwareThreads - 1)) : 1
   const workerPool = createVectorizationWorkerPool(desiredWorkerCount)
   activeVectorizationWorkers = workerPool
-  app.batchSettings = settings
+  app.batchSettings = { ...settings, traceEngine }
   app.startedAt = performance.now()
   app.finishedAt = 0
   for (const item of app.items) {
@@ -243,7 +268,7 @@ export async function processAll() {
         const index = nextIndex++
         if (index >= app.items.length) return
         const item = app.items[index]
-        results[index] = await processItem(item, settings, workerPool)
+        results[index] = await processItem(item, settings, traceEngine, workerPool)
         app.batchProcessed++
         item.status = 'prepared'
         item.progress = ''

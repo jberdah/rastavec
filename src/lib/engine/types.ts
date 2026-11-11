@@ -2,18 +2,20 @@ import type { Analysis, NoteCode } from './analyze'
 import type { FilterSettings } from './palette'
 
 export type ColorMode = 'color' | 'binary'
-export type CurveMode = 'spline' | 'polygon'
+export type CurveMode = 'spline' | 'polygon' | 'none'
 export type ClusteringMode = 'color-cluster' | 'watershed'
 
 /** Tracing parameters, in the same units as the Python `trace.py` helper. */
 export interface TraceParams {
+  /** Region layering within VTracer-Next. Missing in older sessions means stacked. */
+  hierarchical?: 'stacked' | 'cutout'
   colormode: ColorMode
   /** Region clustering algorithm for color traces. Binary traces always use BW. */
   clustering: ClusteringMode
   /** VTracer Watershed cut detail, 0..255. */
   watershedDetail: number
   mode: CurveMode
-  /** Discard patches smaller than N px (side of a square). */
+  /** Cluster area threshold (N squared); nonzero also absorbs thin, thread-like patches. */
   speckle: number
   /** Significant bits per RGB channel, 1..8. */
   colorPrecision: number
@@ -50,6 +52,8 @@ export interface Metrics {
   rgbDark: number
   /** % of pixels whose worst-channel difference (either background) exceeds 32/255. */
   pctDiff: number
+  /** Visible difference on a one-pixel band around source edges; diagnostic only. */
+  edgePctDiff?: number
   bytes: number
   paths: number
   embeddedRaster: boolean
@@ -61,7 +65,7 @@ export interface Trial {
   /** Integer nearest-neighbour enlargement used before tracing (1 = original size). */
   traceScale?: number
   /** Identifies post-trace output variants such as pixel-grid or source-guided color correction. */
-  traceMethod?: 'pixel-grid' | 'fill-calibrated' | 'palette-calibrated' | 'paths-merged'
+  traceMethod?: 'pixel-grid' | 'experimental-gradients' | 'fill-calibrated' | 'palette-calibrated' | 'paths-merged'
   params: TraceParams
   svg: string
   metrics: Metrics

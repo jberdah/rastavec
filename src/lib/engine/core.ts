@@ -35,10 +35,16 @@ export interface SoftLayer {
   opacity: number
 }
 
-/** A tracing backend turns a prepared opaque RGBA image into SVG markup. */
+/** A tracing backend turns raster input into SVG markup. Native alpha tracing can use the source. */
 export interface TraceBackend {
   name: string
+  /** Native color backend can compare Stacked/Cutout without changing engines. */
+  supportsHierarchyComparison?: boolean
   trace(prepared: Prepared, params: TraceParams): Promise<string>
+  /** Optional color route for engines that handle source alpha directly. */
+  traceColorSource?(source: RGBAImage, params: TraceParams): Promise<string>
+  /** Optional one-off Auto candidate using the same engine's experimental gradient path. */
+  traceColorSourceWithGradients?(source: RGBAImage, params: TraceParams): Promise<string>
   /** Render SVG markup at exactly width x height, unpremultiplied RGBA. */
   rasterize(svg: string, width: number, height: number): Promise<RGBAImage>
 }
@@ -223,11 +229,48 @@ export function normalizeHex(c: string): string {
   return v ? toHex(...v) : c
 }
 
-/** Same metrics as the skill's compare.cjs, so numbers stay comparable. */
+// The same source is compared with many Auto trials. A weak key keeps this
+// compact contour mask alive only while its source pixels are reachable.
+const edgeMaskCache = new WeakMap<Uint8ClampedArray, { width: number; height: number; mask: Uint8Array; count: number }>()
+function sourceEdgeMask(a: RGBAImage) {
+  const cached = edgeMaskCache.get(a.data)
+  if (cached && cached.width === a.width && cached.height === a.height) return cached
+  const A = a.data
+  const edge = new Uint8Array(Math.ceil(a.width * a.height / 8))
+  const sourceDistance = (left: number, right: number) => {
+    const al = A[left + 3] / 255, ar = A[right + 3] / 255
+    let difference = Math.abs(A[left + 3] - A[right + 3])
+    for (let c = 0; c < 3; c++) {
+      difference = Math.max(difference,
+        Math.abs(A[left + c] * al + 255 * (1 - al) - A[right + c] * ar - 255 * (1 - ar)),
+        Math.abs(A[left + c] * al + DARK * (1 - al) - A[right + c] * ar - DARK * (1 - ar)))
+    }
+    return difference
+  }
+  for (let y = 0; y < a.height; y++) for (let x = 0; x < a.width; x++) {
+    const p = y * a.width + x, i = p * 4
+    if (x + 1 < a.width && sourceDistance(i, i + 4) > DIFF_THRESHOLD) {
+      edge[p >> 3] |= 1 << (p & 7)
+      edge[(p + 1) >> 3] |= 1 << ((p + 1) & 7)
+    }
+    if (y + 1 < a.height && sourceDistance(i, i + a.width * 4) > DIFF_THRESHOLD) {
+      edge[p >> 3] |= 1 << (p & 7)
+      edge[(p + a.width) >> 3] |= 1 << ((p + a.width) & 7)
+    }
+  }
+  let count = 0
+  for (let p = 0; p < a.width * a.height; p++) if (edge[p >> 3] & (1 << (p & 7))) count++
+  const result = { width: a.width, height: a.height, mask: edge, count }
+  edgeMaskCache.set(a.data, result)
+  return result
+}
+
+/** Same core metrics as the skill's compare.cjs, plus a source-contour diagnostic. */
 export function computeMetrics(a: RGBAImage, b: RGBAImage, svg: string): Metrics {
   const pixels = a.width * a.height
   const A = a.data, B = b.data
-  let inter = 0, union = 0, alphaDiff = 0, light = 0, dark = 0, big = 0
+  const edge = sourceEdgeMask(a)
+  let inter = 0, union = 0, alphaDiff = 0, light = 0, dark = 0, big = 0, edgeVisible = 0
   for (let i = 0; i < A.length; i += 4) {
     const aa = A[i + 3] / 255, ab = B[i + 3] / 255
     const oa = A[i + 3] >= 128, ob = B[i + 3] >= 128
@@ -242,7 +285,11 @@ export function computeMetrics(a: RGBAImage, b: RGBAImage, svg: string): Metrics
       if (dw > worst) worst = dw
       if (dd > worst) worst = dd
     }
-    if (worst > DIFF_THRESHOLD) big++
+    if (worst > DIFF_THRESHOLD) {
+      big++
+      const p = i / 4
+      if (edge.mask[p >> 3] & (1 << (p & 7))) edgeVisible++
+    }
   }
   return {
     width: a.width,
@@ -252,6 +299,7 @@ export function computeMetrics(a: RGBAImage, b: RGBAImage, svg: string): Metrics
     rgbWhite: light / (pixels * 3),
     rgbDark: dark / (pixels * 3),
     pctDiff: (100 * big) / pixels,
+    edgePctDiff: edge.count ? (100 * edgeVisible) / edge.count : undefined,
     bytes: new TextEncoder().encode(svg).length,
     paths: (svg.match(/<path\b/g) || []).length,
     embeddedRaster: /<image\b/i.test(svg),
@@ -362,6 +410,8 @@ export function summarizeDiff(a: RGBAImage, b: RGBAImage, gridSize = 8, threshol
 /** Ranking: visible outliers, average color error, and a light size penalty (per KiB). */
 export const SIZE_WEIGHT = 0.002
 export const COLOR_WEIGHT = 0.01
+/** Temporary Auto budget penalty: 4 score points per 100% relative overshoot. */
+export const BUDGET_OVERSHOOT_WEIGHT = 4
 export const score = (m: Metrics) =>
   m.pctDiff + ((m.rgbWhite + m.rgbDark) / 2) * COLOR_WEIGHT + (m.bytes / 1024) * SIZE_WEIGHT
 
@@ -399,10 +449,66 @@ export function candidates(base: TraceParams, opts: { transparent: boolean; incl
   return out
 }
 
-/** Pick the best trial: within the size budget if possible, then lowest score. */
-export function choose(trials: { metrics: Metrics; score: number }[], maxBytes: number): number {
+const SIMPLICITY_TOLERANCE = {
+  /** Percentage points, measured by the existing visible-difference metric. */
+  pctDiff: 0.05,
+  /** Mean absolute channel levels, averaged over the white and dark backdrops. */
+  meanRgb: 0.5,
+  /** Mean absolute alpha-channel levels (0–255). */
+  alphaDiff: 0.5,
+  iou: 0.001,
+}
+
+function nearEqualFidelity(candidate: Metrics, reference: Metrics): boolean {
+  const candidateMeanRgb = (candidate.rgbWhite + candidate.rgbDark) / 2
+  const referenceMeanRgb = (reference.rgbWhite + reference.rgbDark) / 2
+  const iouMatches = reference.iou === null
+    ? candidate.iou === null
+    : candidate.iou !== null && candidate.iou >= reference.iou - SIMPLICITY_TOLERANCE.iou
+
+  return candidate.pctDiff <= reference.pctDiff + SIMPLICITY_TOLERANCE.pctDiff
+    && candidateMeanRgb <= referenceMeanRgb + SIMPLICITY_TOLERANCE.meanRgb
+    && candidate.alphaDiff <= reference.alphaDiff + SIMPLICITY_TOLERANCE.alphaDiff
+    && iouMatches
+    && (candidate.edgePctDiff === undefined || reference.edgePctDiff === undefined
+      || candidate.edgePctDiff <= reference.edgePctDiff)
+    && candidate.embeddedRaster === reference.embeddedRaster
+}
+
+function meaningfullySimpler(candidate: Metrics, reference: Metrics): boolean {
+  if (candidate.paths > reference.paths || candidate.bytes > reference.bytes) return false
+  const pathReduction = reference.paths - candidate.paths
+  const byteReduction = reference.bytes - candidate.bytes
+  const meaningfulPathReduction = pathReduction >= Math.max(2, Math.ceil(reference.paths * 0.1))
+  const meaningfulByteReduction = byteReduction >= Math.max(256, Math.ceil(reference.bytes * 0.05))
+  return meaningfulPathReduction || meaningfulByteReduction
+}
+
+/** Pick the best trial by fidelity/size score plus a soft penalty for exceeding the target. */
+export function choose(
+  trials: { metrics: Metrics; score: number }[],
+  maxBytes: number,
+  options: { preferSimplicity?: boolean } = {},
+): number {
   const idx = trials.map((_, i) => i)
-  const within = idx.filter((i) => trials[i].metrics.bytes <= maxBytes)
-  const pool = within.length ? within : idx
-  return pool.reduce((best, i) => (trials[i].score < trials[best].score ? i : best), pool[0])
+  const objective = (i: number) => trials[i].score + (maxBytes > 0
+    ? BUDGET_OVERSHOOT_WEIGHT * Math.max(0, trials[i].metrics.bytes / maxBytes - 1)
+    : 0)
+  const best = idx.reduce((current, i) => (objective(i) < objective(current) ? i : current), idx[0])
+  if (!options.preferSimplicity) return best
+
+  // Keep the adjusted objective primary. Simplicity is a bounded tie-break:
+  // the rendered result must remain near the score winner, while both paths and
+  // bytes stay no worse and one improves by a meaningful amount.
+  const alternatives = idx.filter((i) => i !== best
+    && nearEqualFidelity(trials[i].metrics, trials[best].metrics)
+    && meaningfullySimpler(trials[i].metrics, trials[best].metrics))
+  return alternatives.reduce((current, i) => {
+    const a = trials[i].metrics, b = trials[current].metrics
+    return a.paths < b.paths
+      || (a.paths === b.paths && a.bytes < b.bytes)
+      || (a.paths === b.paths && a.bytes === b.bytes && trials[i].score < trials[current].score)
+      ? i
+      : current
+  }, best)
 }

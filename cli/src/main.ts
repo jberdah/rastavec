@@ -9,7 +9,7 @@ import { DEFAULT_PARAMS, PRESETS, presetById } from '../../src/lib/engine/preset
 import { crop, keyBackground, sliceSheet } from '../../src/lib/engine/slice'
 import type { AutoTune, TraceParams } from '../../src/lib/engine/types'
 import { needsReviewResult, vectorize, type VectorizeSettings } from '../../src/lib/engine/vectorize'
-import { decode, nodeBackend, writeComparison, writePng } from './node-backend'
+import { decode, loadNodeNextBackend, writeComparison, writePng } from './node-backend'
 
 declare const __VERSION__: string
 const VERSION = typeof __VERSION__ === 'string' ? __VERSION__ : '0.0.0-dev'
@@ -30,6 +30,7 @@ Usage
 Trace options
   -o, --out <dir>          output folder (default: ./rastavec-out)
   -p, --preset <id>        auto | ${PRESETS.filter((p) => p.id !== 'auto').map((p) => p.id).join(' | ')} (default: auto)
+      --gradients          fit experimental gradients in color traces (off by default)
   -t, --threshold <pct>    max visible difference, % of pixels (default: 3)
   -s, --max-size <KB>      size budget per SVG in KiB (default: 400)
       --no-auto            disable auto-tuning (single trial)
@@ -111,9 +112,10 @@ const kb = (b: number) => `${Math.round(b / 1024)} KB`
 
 function describe(p: TraceParams) {
   if (p.colormode === 'binary') return `binary · speckle ${p.speckle}`
-  const mode = p.mode === 'polygon' ? 'polygon · ' : ''
+  const mode = p.mode === 'none' ? 'no curve fitting · ' : p.mode === 'polygon' ? 'polygon · ' : ''
   const clustering = p.clustering === 'watershed' ? `watershed ${p.watershedDetail ?? 128} · ` : ''
-  return `${clustering}${mode}cp ${p.colorPrecision} · ld ${p.layerDifference} · speckle ${p.speckle}${p.silhouetteCut !== 128 ? ` · alpha>=${p.silhouetteCut}` : ''}${p.softColor ? ' · colour halo' : ''}`
+  const hierarchy = p.hierarchical === 'cutout' ? 'cutout' : 'stacked'
+  return `${clustering}${mode}cp ${p.colorPrecision} · ld ${p.layerDifference} · speckle ${p.speckle} · ${hierarchy}${p.silhouetteCut !== 128 ? ` · alpha>=${p.silhouetteCut}` : ''}${p.softColor ? ' · colour halo' : ''}`
 }
 
 const analysisJson = (a: Analysis) => ({
@@ -171,6 +173,8 @@ async function cmdTrace(positionals: string[], o: Record<string, string | boolea
     maxKB: num(o['max-size'] as string | undefined, 'max-size', 400, 1, 1_000_000),
   }
   const settings: VectorizeSettings = { presetId: custom ? 'custom' : presetId, params: { ...baseParams, ...overrides }, auto }
+  const experimentalGradients = o.gradients === true && settings.params.colormode === 'color'
+  const backend = await loadNodeNextBackend(experimentalGradients)
 
   // Collect jobs (sheets are expanded into their elements).
   const files = listImages(positionals, !!o.recursive)
@@ -217,7 +221,7 @@ async function cmdTrace(positionals: string[], o: Record<string, string | boolea
     const prefix = `[${k + 1}/${jobs.length}]`
     try {
       const src = await job.image()
-      const res = await vectorize(src, settings, nodeBackend)
+      const res = await vectorize(src, settings, backend)
       const t = res.trials[res.chosen]
       const svgPath = join(out, `${job.name}.svg`)
       writeFileSync(svgPath, t.svg)
@@ -225,7 +229,7 @@ async function cmdTrace(positionals: string[], o: Record<string, string | boolea
       let diffSummaryPath: string | undefined
       let diffSummary: ReturnType<typeof summarizeDiff> | undefined
       if (o.compare || o['diff-summary-json']) {
-        const render = await nodeBackend.rasterize(t.svg, src.width, src.height)
+        const render = await backend.rasterize(t.svg, src.width, src.height)
         if (o.compare) {
           comparison = join(out, `${job.name}.comparison.png`)
           diff = join(out, `${job.name}.diff.png`)
@@ -258,7 +262,7 @@ async function cmdTrace(positionals: string[], o: Record<string, string | boolea
         traceScale: t.traceScale ?? 1,
         traceMethod: t.traceMethod ?? 'vtracer',
         params: t.params,
-        metrics: { pctDiff: r4(m.pctDiff), iou: r4(m.iou), rgbWhite: r4(m.rgbWhite), rgbDark: r4(m.rgbDark), alphaDiff: r4(m.alphaDiff), bytes: m.bytes, paths: m.paths, embeddedRaster: m.embeddedRaster },
+        metrics: { pctDiff: r4(m.pctDiff), edgePctDiff: m.edgePctDiff === undefined ? null : r4(m.edgePctDiff), iou: r4(m.iou), rgbWhite: r4(m.rgbWhite), rgbDark: r4(m.rgbDark), alphaDiff: r4(m.alphaDiff), bytes: m.bytes, paths: m.paths, embeddedRaster: m.embeddedRaster },
       })
       log(`${prefix} ${status === 'ok' ? 'ok    ' : 'REVIEW'} ${job.name}  ${m.pctDiff.toFixed(2)}%  IoU ${(m.iou ?? 0).toFixed(3)}  ${kb(m.bytes)}  ${describe(t.params)}${(t.traceScale ?? 1) > 1 ? ` · trace ×${t.traceScale}` : ''}${res.autoTuned ? '  (auto-tuned)' : ''}`)
     } catch (e) {
@@ -273,7 +277,9 @@ async function cmdTrace(positionals: string[], o: Record<string, string | boolea
     schemaVersion: SCHEMA_VERSION,
     tool: 'rastavec',
     version: VERSION,
-    engine: nodeBackend.name,
+    engine: 'VTracer-Next',
+    traceEngine: 'next',
+    experimentalGradients,
     settings: { preset: settings.presetId, params: settings.presetId === 'auto' ? null : settings.params, autoTune: auto },
     summary: { total: jobs.length, ok: jobs.length - review - errors, review, errors, seconds: Math.round((Date.now() - t0) / 100) / 10 },
     items,
@@ -342,6 +348,7 @@ async function main() {
       options: {
         out: { type: 'string', short: 'o' },
         preset: { type: 'string', short: 'p' },
+        gradients: { type: 'boolean' },
         threshold: { type: 'string', short: 't' },
         'max-size': { type: 'string', short: 's' },
         'no-auto': { type: 'boolean' },
@@ -370,6 +377,7 @@ async function main() {
   if (o.version) return void process.stdout.write(VERSION + '\n')
   const [command, ...rest] = positionals
   if (o.help || !command) return void process.stdout.write(HELP)
+  if (o.gradients && command !== 'trace') return fail('--gradients is available for trace')
   const code =
     command === 'trace' ? await cmdTrace(rest, o)
     : command === 'analyze' ? await cmdAnalyze(rest, o)

@@ -31,11 +31,13 @@ test('review and exported settings remain tied to the completed batch', async ()
     const { app, needsReview } = await server.ssrLoadModule('/src/lib/store.svelte.ts')
     const metrics = { pctDiff: 4, bytes: 100 }
     const item = { id: 'batch', name: 'sample', status: 'done', chosen: 0, autoTuned: false, trials: [{ params: {}, metrics }] }
-    app.batchSettings = { presetId: 'flat', params: { speckle: 3 }, auto: { enabled: true, threshold: 3, maxKB: 400 } }
+    app.batchSettings = { presetId: 'flat', params: { speckle: 3 }, auto: { enabled: true, threshold: 3, maxKB: 400 }, traceEngine: 'next-gradients' }
     app.presetId = 'line'
+    app.traceEngine = 'next'
     app.auto.threshold = 10
     assert.equal(needsReview(item), true)
     assert.equal(config([item]).preset, 'flat')
     assert.equal(config([item]).autoTune.threshold, 3)
+    assert.equal(config([item]).traceEngine, 'next-gradients')
   } finally { await server.close() }
 })

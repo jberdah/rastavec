@@ -98,6 +98,11 @@ const fr = {
   'presets.title': 'Préréglage',
   'presets.hint': 'Point de départ du réglage automatique',
   'presets.validated': 'Validé',
+  'traceEngine.gradientsLabel': 'Dégradés expérimentaux',
+  'traceEngine.gradientsHint': 'Force les dégradés sur les tracés en couleur. Sans cette option, Auto peut comparer un essai avec dégradés et choisir le meilleur.',
+  'traceEngine.official': 'VTracer officiel (ancien lot)',
+  'traceEngine.next': 'VTracer-Next',
+  'traceEngine.next-gradients': 'VTracer-Next · dégradés expérimentaux',
   'preset.auto.name': 'Auto',
   'preset.auto.desc': 'Réglages choisis pour chaque image : couleurs, dégradés, transparence.',
   'preset.flat.name': 'Logo à aplats',
@@ -115,8 +120,8 @@ const fr = {
   'auto.desc': "Essaie d'autres réglages sur les images au-dessus du seuil ou trop lourdes",
   'auto.toggle': 'Activer le réglage automatique',
   'auto.threshold': "Seuil d'écart visible",
-  'auto.maxSize': 'Poids max par SVG',
-  'auto.score': (unit: string) => `score = % écart + 0,01 × couleur moy. (/255) + 0,002 × ${unit} · même entrée → même SVG`,
+  'auto.maxSize': 'Budget de poids par SVG',
+  'auto.score': (unit: string) => `score de base = % écart + 0,01 × couleur moy. (/255) + 0,002 × ${unit} · le choix ajoute provisoirement 4 × le dépassement relatif du budget · à fidélité proche, chemins et poids départagent`,
 
   'params.title': 'Paramètres',
   'params.autoNote': 'Mode Auto : ces valeurs sont recalculées pour chaque image à partir de son analyse. Modifier un réglage passe en Personnalisé.',
@@ -231,6 +236,7 @@ const fr = {
   'trials.base': 'Préréglage',
   'trials.scaled': (n: number) => `tracé agrandi ×${n}`,
   'trials.pixelGrid': 'Grille de pixels',
+  'trials.experimentalGradients': 'Dégradés expérimentaux',
   'trials.fillCalibrated': 'Couleurs corrigées',
   'trials.paletteCalibrated': 'Palette rapprochée',
   'trials.pathsMerged': 'Chemins adjacents fusionnés',
@@ -323,6 +329,9 @@ const fr = {
   'note.edges': 'bords simplement anticrénelés : silhouette à 50 %, sans couche semi-transparente',
   'desc.binary': (sp: number) => `binaire · speckle ${sp}`,
   'desc.polygon': 'polygone',
+  'desc.noCurve': 'sans ajustement de courbe',
+  'desc.hierarchical.stacked': 'empilé',
+  'desc.hierarchical.cutout': 'découpe',
   'desc.softColor': 'halo couleur',
   'desc.halo': (n: number) => `halo ${n}`,
 } satisfies Record<string, Msg>
@@ -385,6 +394,11 @@ const en: Record<Key, Msg> = {
   'presets.title': 'Preset',
   'presets.hint': 'Starting point for auto-tuning',
   'presets.validated': 'Validated',
+  'traceEngine.gradientsLabel': 'Experimental gradients',
+  'traceEngine.gradientsHint': 'Forces gradients on color traces. Without this option, Auto may compare one gradient trial and choose the best result.',
+  'traceEngine.official': 'Official VTracer (historical batch)',
+  'traceEngine.next': 'VTracer-Next',
+  'traceEngine.next-gradients': 'VTracer-Next · experimental gradients',
   'preset.auto.name': 'Auto',
   'preset.auto.desc': 'Settings picked for each image: colours, gradients, transparency.',
   'preset.flat.name': 'Flat logo',
@@ -402,8 +416,8 @@ const en: Record<Key, Msg> = {
   'auto.desc': 'Tries other settings on images above the threshold or too heavy',
   'auto.toggle': 'Enable auto-tuning',
   'auto.threshold': 'Visible difference threshold',
-  'auto.maxSize': 'Max size per SVG',
-  'auto.score': (unit: string) => `score = % diff + 0.01 × mean color diff (/255) + 0.002 × ${unit} · same input → same SVG`,
+  'auto.maxSize': 'SVG size budget',
+  'auto.score': (unit: string) => `base score = % diff + 0.01 × mean color diff (/255) + 0.002 × ${unit} · selection provisionally adds 4 × relative budget overshoot · near-equal fidelity: paths and bytes break ties`,
 
   'params.title': 'Parameters',
   'params.autoNote': 'Auto mode: these values are recomputed for each image from its analysis. Changing a setting switches to Custom.',
@@ -518,6 +532,7 @@ const en: Record<Key, Msg> = {
   'trials.base': 'Preset',
   'trials.scaled': (n: number) => `traced at ×${n}`,
   'trials.pixelGrid': 'Pixel grid',
+  'trials.experimentalGradients': 'Experimental gradients',
   'trials.fillCalibrated': 'Color calibrated',
   'trials.paletteCalibrated': 'Palette refined',
   'trials.pathsMerged': 'Adjacent paths merged',
@@ -610,6 +625,9 @@ const en: Record<Key, Msg> = {
   'note.edges': 'simply anti-aliased edges: 50% silhouette, no semi-transparent layer',
   'desc.binary': (sp: number) => `binary · speckle ${sp}`,
   'desc.polygon': 'polygon',
+  'desc.noCurve': 'no curve fitting',
+  'desc.hierarchical.stacked': 'stacked',
+  'desc.hierarchical.cutout': 'cutout',
   'desc.softColor': 'colour halo',
   'desc.halo': (n: number) => `halo ${n}`,
 }
@@ -632,10 +650,11 @@ export const presetDesc = (id: string) => t(`preset.${id}.desc` as Key)
 export function describeParams(p: TraceParams): string {
   if (p.colormode === 'binary') return t('desc.binary', p.speckle)
   const clustering = p.clustering === 'watershed' ? `Watershed ${p.watershedDetail ?? 128} · ` : ''
-  const mode = p.mode === 'polygon' ? `${t('desc.polygon')} · ` : ''
+  const mode = p.mode === 'none' ? `${t('desc.noCurve')} · ` : p.mode === 'polygon' ? `${t('desc.polygon')} · ` : ''
+  const hierarchy = ` · ${t(p.hierarchical === 'cutout' ? 'desc.hierarchical.cutout' : 'desc.hierarchical.stacked')}`
   const cut = p.silhouetteCut !== 128 ? ` · α≥${p.silhouetteCut}` : ''
   const halo = p.softColor ? ` · ${t('desc.softColor')}` : p.softLayers !== 2 ? ` · ${t('desc.halo', p.softLayers)}` : ''
-  return `${clustering}${mode}cp ${p.colorPrecision} · ld ${p.layerDifference} · speckle ${p.speckle}${cut}${halo}`
+  return `${clustering}${mode}cp ${p.colorPrecision} · ld ${p.layerDifference} · speckle ${p.speckle}${hierarchy}${cut}${halo}`
 }
 
 export function setLocale(l: Locale) {

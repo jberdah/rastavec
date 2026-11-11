@@ -8,6 +8,8 @@ import { mergeAdjacentSameFillPaths } from './merge-adjacent-paths'
 import type { AutoTune, TraceParams, Trial } from './types'
 import { presetById } from './presets'
 import { tracePixelGrid } from './pixel-grid'
+import { needsHierarchyReview } from './hierarchy-review'
+import { needsHardEdgeReview } from './hard-edge-review'
 
 export interface VectorizeSettings {
   /** 'auto' derives the parameters from the image analysis; anything else uses `params`. */
@@ -41,15 +43,20 @@ function enlarge(src: RGBAImage, scale: number): RGBAImage {
   return { width, height, data }
 }
 
-export async function runTrial(src: RGBAImage, params: TraceParams, base: boolean, backend: TraceBackend, traceScale = 1): Promise<Trial> {
+export async function runTrial(src: RGBAImage, params: TraceParams, base: boolean, backend: TraceBackend, traceScale = 1, experimentalGradients = false): Promise<Trial> {
+  params = { ...params, hierarchical: params.hierarchical ?? 'stacked' }
   const t0 = now()
   const input = traceScale === 1 ? src : enlarge(src, traceScale)
-  let svg = await backend.trace(prepare(input, params), params)
+  let svg = await (experimentalGradients && backend.traceColorSourceWithGradients
+    ? backend.traceColorSourceWithGradients(input, params)
+    : params.colormode === 'color' && backend.traceColorSource
+      ? backend.traceColorSource(input, params)
+    : backend.trace(prepare(input, params), params))
   // Keep the enlarged viewBox and paths, but display/export at the original dimensions.
   if (traceScale !== 1) svg = svg.replace(/^(<svg\b[^>]*?)\bwidth="\d+"\s+height="\d+"/, `$1width="${src.width}" height="${src.height}"`)
   const render = await backend.rasterize(svg, src.width, src.height)
   const metrics = computeMetrics(src, render, svg)
-  return { base, params: { ...params }, traceScale, svg, metrics, score: score(metrics), ms: now() - t0 }
+  return { base, params: { ...params }, traceScale, ...(experimentalGradients ? { traceMethod: 'experimental-gradients' as const } : {}), svg, metrics, score: score(metrics), ms: now() - t0 }
 }
 
 async function runPixelGridTrial(src: RGBAImage, svg: string, backend: TraceBackend): Promise<Trial | null> {
@@ -82,7 +89,8 @@ export async function vectorize(
     notes = rec.notes
   }
   const { auto } = settings
-  const transparent = src.data.some((v, k) => (k & 3) === 3 && v < 255)
+  const nativeColor = base.colormode === 'color' && !!backend.traceColorSource
+  const transparent = !nativeColor && src.data.some((v, k) => (k & 3) === 3 && v < 255)
   const grid = candidates(base, { transparent, includeHighSilhouetteCut: settings.presetId === 'auto' })
   const pixelScales = (settings.presetId === 'auto' || settings.presetId === 'pixel') && Math.max(src.width, src.height) <= 256 ? [2, 4] : []
   const exactGrid = auto.enabled && (settings.presetId === 'auto' || settings.presetId === 'pixel') ? tracePixelGrid(src) : null
@@ -95,14 +103,14 @@ export async function vectorize(
   // Pixel-difference can undercount faint, sparse artwork: its lines may sit below the
   // 32/255 visibility threshold while the alpha>=128 silhouette shows that most shapes
   // disappeared. Try one low-complexity soft-layer fallback before accepting that result.
-  const needsSoftOutlineRecovery = settings.presetId === 'auto'
+  const needsSoftOutlineRecovery = !nativeColor && settings.presetId === 'auto'
     && analysis.alpha === 'soft'
     && first.iou !== null
     && first.iou < 0.5
   // High-quality vector sources rasterized to PNG often have a narrow antialias fringe.
   // For flat artwork in that category, a single 224 cut trial improves the render score
   // on the round-trip corpus without expanding the full tuning grid for already-passing images.
-  const needsHighCutReview = settings.presetId === 'auto'
+  const needsHighCutReview = !nativeColor && settings.presetId === 'auto'
     && analysis.kind === 'flat'
     && analysis.alpha === 'edges'
     && analysis.softPct < 1
@@ -117,6 +125,27 @@ export async function vectorize(
     && settings.presetId === 'auto'
     && analysis.kind !== 'pixel'
     && base.mode !== 'polygon'
+  const includeHierarchyReview = auto.enabled && nativeColor
+    && backend.supportsHierarchyComparison === true && needsHierarchyReview(src)
+  const includeHardEdgeReview = auto.enabled && settings.presetId === 'auto' && nativeColor
+    && backend.supportsHierarchyComparison === true && first.pctDiff > Math.max(3, auto.threshold)
+    && needsHardEdgeReview(src)
+  // One bounded same-engine trial for opaque, meaningfully shaded illustrations. Photos,
+  // alpha art, flat artwork, and large rasters stay on the regular path.
+  const includeGradientReview = auto.enabled
+    && settings.presetId === 'auto'
+    && nativeColor
+    && backend.traceColorSourceWithGradients !== undefined
+    && analysis.kind === 'shaded'
+    && analysis.alpha === 'opaque'
+    && src.width * src.height <= 8_000_000
+  // Photos can produce editable but oversized region mosaics. Reserve two bounded
+  // simplification slots; the traces run only if existing Auto trials all exceed
+  // the user's size budget, covering moderate and stronger size reductions.
+  const includePhotoBudgetReview = auto.enabled
+    && settings.presetId === 'auto'
+    && nativeColor
+    && analysis.kind === 'photo'
   const needsFocusedTrial = auto.enabled && !needsTune
     && (needsSoftOutlineRecovery || needsHighCutReview || comparePixelGrid)
   const tuningTrials = !auto.enabled
@@ -133,7 +162,7 @@ export async function vectorize(
     && settings.presetId === 'auto'
     && base.colormode === 'color'
     && analysis.kind !== 'pixel'
-  const total = 1 + tuningTrials + Number(includePolygonReview) + Number(includeFillCalibration) + Number(includePaletteSnap) + Number(includePathMerge)
+  let total = 1 + tuningTrials + Number(includePolygonReview) + Number(includeHierarchyReview) + Number(includeHardEdgeReview) + Number(includeGradientReview) + (includePhotoBudgetReview ? 2 : 0) + Number(includeFillCalibration) + Number(includePaletteSnap) + Number(includePathMerge)
   let completed = 1
   const reportProgress = () => opts.onProgress?.(completed, total)
   const completeTrial = () => { completed++; reportProgress() }
@@ -202,12 +231,71 @@ export async function vectorize(
     }
     completeTrial()
   }
-  let chosen = choose(trials, auto.maxKB * 1024)
+  if (includeHierarchyReview) {
+    // One alternate of the best native trace, never a second full parameter grid.
+    // Measure the actual SVG on both backgrounds using the usual score/size cap.
+    const native = trials.filter((trial) => !trial.traceMethod && (trial.traceScale ?? 1) === 1)
+    const current = native[choose(native, auto.maxKB * 1024)]
+    const hierarchical = current.params.hierarchical === 'cutout' ? 'stacked' : 'cutout'
+    await yieldControl()
+    try {
+      trials.push(await runTrial(src, { ...current.params, hierarchical }, false, backend))
+    } catch (error) {
+      checkCancelled()
+      failedTrials.push({ traceScale: 1, message: error instanceof Error ? error.message : String(error) })
+    }
+    checkCancelled()
+    completeTrial()
+  }
+  if (includeHardEdgeReview) {
+    const current = trials[choose(trials, auto.maxKB * 1024)]
+    // Existing exact-grid/upscaled candidates often already recover small sprites.
+    if (current.metrics.pctDiff > Math.max(3, auto.threshold)) {
+      await yieldControl()
+      try {
+        // Nonzero speckle rejects thread-like color regions even at speckle=1;
+        // spline/polygon fitting then rounds away one-pixel detail. Preserve both
+        // segmentation and pixel boundaries in this one measured alternative.
+        trials.push(await runTrial(src, { ...base, mode: 'none', speckle: 0, colorPrecision: 8,
+          layerDifference: 0, hierarchical: 'cutout' }, false, backend))
+      } catch (error) {
+        checkCancelled()
+        failedTrials.push({ traceScale: 1, message: error instanceof Error ? error.message : String(error) })
+      }
+      checkCancelled()
+    }
+    completeTrial()
+  }
+  if (includeGradientReview) {
+    const native = trials.filter((trial) => !trial.traceMethod && (trial.traceScale ?? 1) === 1)
+    const current = native[choose(native, auto.maxKB * 1024, { preferSimplicity: auto.enabled })]
+    await yieldControl()
+    try {
+      // Isolate the gradient fitter: reuse the best native parameters so this
+      // comparison measures paint fitting instead of changing segmentation and geometry too.
+      trials.push(await runTrial(src, current.params, false, backend, 1, true))
+    } catch (error) {
+      checkCancelled()
+      failedTrials.push({ traceScale: 1, message: error instanceof Error ? error.message : String(error) })
+    }
+    checkCancelled()
+    completeTrial()
+  }
+  let chosen = choose(trials, auto.maxKB * 1024, { preferSimplicity: auto.enabled })
+  const bestColorTransformInput = () => {
+    const eligible = trials.filter((trial) => trial.traceMethod !== 'pixel-grid'
+      && trial.traceMethod !== 'experimental-gradients'
+      && (trial.traceScale ?? 1) === 1
+      && trial.params.colormode === 'color')
+    return eligible.length
+      ? eligible[choose(eligible, auto.maxKB * 1024, { preferSimplicity: auto.enabled })]
+      : undefined
+  }
   if (includeFillCalibration) {
     await yieldControl()
     const calibrationStarted = now()
-    const current = trials[chosen]
-    if (current.traceMethod !== 'pixel-grid' && (current.traceScale ?? 1) === 1 && current.params.colormode === 'color') {
+    const current = bestColorTransformInput()
+    if (current) {
       try {
         const rendered = await backend.rasterize(current.svg, src.width, src.height)
         checkCancelled()
@@ -238,7 +326,7 @@ export async function vectorize(
               score: calibratedScore,
               ms: now() - calibrationStarted,
             })
-            chosen = trials.length - 1
+            chosen = choose(trials, auto.maxKB * 1024, { preferSimplicity: auto.enabled })
           }
         }
       } catch {
@@ -251,8 +339,8 @@ export async function vectorize(
   if (includePaletteSnap) {
     await yieldControl()
     const paletteStarted = now()
-    const current = trials[chosen]
-    if (current.traceMethod !== 'pixel-grid' && (current.traceScale ?? 1) === 1 && current.params.colormode === 'color') {
+    const current = bestColorTransformInput()
+    if (current) {
       try {
         const snapped = snapSolidFillsToSourcePalette(current.svg, src)
         if (snapped.changedFills) {
@@ -282,7 +370,7 @@ export async function vectorize(
               score: scoreValue,
               ms: now() - paletteStarted,
             })
-            chosen = trials.length - 1
+            chosen = choose(trials, auto.maxKB * 1024, { preferSimplicity: auto.enabled })
           }
         }
       } catch {
@@ -295,8 +383,8 @@ export async function vectorize(
   if (includePathMerge) {
     await yieldControl()
     const mergeStarted = now()
-    const current = trials[chosen]
-    if (current.traceMethod !== 'pixel-grid' && (current.traceScale ?? 1) === 1 && current.params.colormode === 'color') {
+    const current = bestColorTransformInput()
+    if (current) {
       const merged = mergeAdjacentSameFillPaths(current.svg)
       if (merged.merged) {
         try {
@@ -326,7 +414,7 @@ export async function vectorize(
               score: scoreValue,
               ms: now() - mergeStarted,
             })
-            chosen = trials.length - 1
+            chosen = choose(trials, auto.maxKB * 1024, { preferSimplicity: auto.enabled })
           }
         } catch {
           checkCancelled()
@@ -335,6 +423,47 @@ export async function vectorize(
       }
     }
     completeTrial()
+  }
+  if (includePhotoBudgetReview) {
+    const maxBytes = auto.maxKB * 1024
+    let photoTrialsExecuted = 0
+    if (trials.every((trial) => trial.metrics.bytes > maxBytes)) {
+      const native = trials.filter((trial) => !trial.traceMethod && (trial.traceScale ?? 1) === 1)
+      const best = native[choose(native, maxBytes)]
+      if (best) {
+        const p = best.params
+        // Both levels start from the measured winner. The second increases color
+        // aggregation by a fraction of that winner's current layer spacing.
+        const levels = [0, Math.max(4, Math.ceil(p.layerDifference * 2 / 3))]
+        for (const extraLayerDifference of levels) {
+          const simplified = {
+            ...p,
+            mode: 'polygon' as const,
+            colorPrecision: Math.max(3, p.colorPrecision - 1),
+            layerDifference: Math.min(48, p.layerDifference + extraLayerDifference),
+            watershedDetail: Math.max(8, Math.round(p.watershedDetail * 0.75)),
+            speckle: Math.min(64, p.speckle + Math.max(2, Math.ceil(p.speckle / 2))),
+            pathPrecision: Math.max(0, p.pathPrecision - 1),
+          }
+          await yieldControl()
+          try {
+            trials.push(await runTrial(src, simplified, false, backend))
+          } catch (error) {
+            checkCancelled()
+            failedTrials.push({ traceScale: 1, message: error instanceof Error ? error.message : String(error) })
+          }
+          checkCancelled()
+          completeTrial()
+          photoTrialsExecuted++
+        }
+        chosen = choose(trials, maxBytes, { preferSimplicity: auto.enabled })
+      }
+    }
+    const skippedPhotoTrials = 2 - photoTrialsExecuted
+    if (skippedPhotoTrials > 0) {
+      total -= skippedPhotoTrials
+      reportProgress()
+    }
   }
   return { analysis, notes, trials, chosen, autoTuned: chosen !== 0, failedTrials }
 }

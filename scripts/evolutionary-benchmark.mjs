@@ -16,7 +16,7 @@ await build({
   target: 'node18',
   format: 'esm',
   outfile: entry,
-  external: ['sharp', '@visioncortex/vtracer'],
+  external: ['sharp'],
   legalComments: 'none',
 })
 
