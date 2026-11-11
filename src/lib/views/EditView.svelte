@@ -10,6 +10,7 @@
   import ShapeEditor from './ShapeEditor.svelte'
   import { applyShapeEdit } from '../shape-editing'
   import { editableShapes, type ShapePatch } from '../engine/shape-edits'
+  import { groupsFromShapes } from '../engine/shape-groups'
   import { publicAsset } from '../assets'
 
   type Bg = 'checker' | 'light' | 'dark'
@@ -56,6 +57,27 @@
   const viewBox = $derived(trial ? /\bviewBox="([^"]+)"/.exec(trial.svg)?.[1] ?? `0 0 ${item?.width ?? 0} ${item?.height ?? 0}` : '')
   function editShape(index: number, patch: ShapePatch) {
     if (item) applyShapeEdit(item, index, patch)
+  }
+  // Undo every shape edit: go back to the traced trial the edited variant came from.
+  const canResetShapes = $derived(trial?.traceMethod === 'shapes-edited' && trial.sourceTrial !== undefined)
+  function resetShapes() {
+    if (!item || !trial || trial.sourceTrial === undefined) return
+    if (item.edit && item.edit.trial === item.chosen) item.edit = { ...item.edit, trial: trial.sourceTrial }
+    item.chosen = trial.sourceTrial
+    selectedShape = null
+    void refreshOutputMetrics(item)
+  }
+  // Recognised shapes are known objects: offer them to the Animate screen as ready-made groups.
+  // The hints index the trace's paths, so this needs the filtered SVG to keep every path.
+  const pathCount = (markup: string) => markup.match(/<path\b/g)?.length ?? 0
+  const canAnimateShapes = $derived(!!result && !!trial?.shapes?.length && pathCount(result.svg) === pathCount(trial.svg))
+  function animateShapes() {
+    if (!item || !result || !trial?.shapes) return
+    const grouping = groupsFromShapes(result.svg, trial.shapes, (hint, ordinal) =>
+      `${hint.kind === 'circle' ? t('shapeEdit.circle') : hint.kind === 'ellipse' ? t('shapeEdit.ellipse') : t('shapeEdit.gradientRegion')} ${ordinal}`)
+    if (!grouping) return
+    saveGrouping(grouping)
+    go('animate', item.id)
   }
   // Shapes that can be picked on the preview: circles and ellipses, in paint order so the
   // topmost one under the pointer wins.
@@ -196,7 +218,7 @@
 
       <aside class="panel">
         {#if trial.shapes?.length}
-          <ShapeEditor svg={trial.svg} shapes={trial.shapes} bind:selected={selectedShape} onEdit={editShape} />
+          <ShapeEditor svg={trial.svg} shapes={trial.shapes} bind:selected={selectedShape} onEdit={editShape} onReset={canResetShapes ? resetShapes : undefined} onAnimate={canAnimateShapes ? animateShapes : undefined} />
         {/if}
         <div class="card stack">
           <h2 class="h3">{t('edit.simplify')}</h2>

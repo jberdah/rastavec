@@ -77,3 +77,24 @@ test('a gradient follows the shape it paints when the shape moves', async () => 
   const centre = await pixel(moved.svg, 130, 70)
   assert.ok(Math.abs(centre[0] - centre[2]) < 12, `the middle of the ramp is still at the centre: ${centre}`)
 })
+
+test('recognised shapes become animation groups, overlays staying with their base', async () => {
+  const groupsBundle = buildSync({ stdin: { contents: `export { groupsFromShapes } from './src/lib/engine/shape-groups'; export { svgFingerprint } from './src/lib/engine/group-nearby'`, resolveDir: process.cwd(), loader: 'ts' }, bundle: true, write: false, format: 'esm', platform: 'node' }).outputFiles[0].text
+  const { groupsFromShapes, svgFingerprint } = await import(`data:text/javascript;base64,${Buffer.from(groupsBundle).toString('base64')}`)
+  const grouping = groupsFromShapes(svg, hints, (hint, ordinal) => `${hint.kind} ${ordinal}`)
+  assert.ok(grouping)
+  assert.equal(grouping.sourceHash, svgFingerprint(svg))
+  assert.deepEqual(grouping.groups.map((group) => [group.id, group.name, group.pathIndices, group.pivot]), [
+    ['rastavec-shape-1', 'circle 1', [1], [50, 60]],
+    ['rastavec-shape-2', 'ellipse 2', [2, 3], [150, 60]],
+  ])
+  assert.equal(grouping.groups[1].fill, '#800080', 'a gradient group is shown in its mean stop colour')
+  assert.equal(grouping.considered, 3)
+  assert.equal(grouping.skipped, 1)
+  // Wrapping adds groups only: the picture and the paths are unchanged.
+  assert.equal(grouping.svg.replace(/<g id="rastavec-shape-\d+" data-rastavec-group="shape" data-rastavec-level="0">|<\/g>/g, ''), svg)
+  assert.match(grouping.svg, /<g id="rastavec-shape-2"[^>]*><path[^>]*url\(#vtracer-gradient-2\)"\/>\n<path[^>]*url\(#vtracer-gradient-3\)"\/><\/g>/)
+  for (const at of [[50, 60], [150, 60], [5, 5]]) assert.deepEqual(await pixel(grouping.svg, ...at), await pixel(svg, ...at))
+  assert.equal(groupsFromShapes(grouping.svg, hints, () => 'x'), null, 'an already grouped SVG is left alone')
+  assert.equal(groupsFromShapes(svg, [], () => 'x'), null)
+})

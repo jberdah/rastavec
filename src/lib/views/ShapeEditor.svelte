@@ -6,11 +6,15 @@
   import type { EngineShapeHint } from '../engine/types'
   import { t } from '../i18n.svelte'
 
-  let { svg, shapes, selected = $bindable(null), onEdit }: {
+  let { svg, shapes, selected = $bindable(null), onEdit, onReset, onAnimate }: {
     svg: string
     shapes: EngineShapeHint[]
     selected?: number | null
     onEdit: (index: number, patch: ShapePatch) => void
+    /** Present when shape edits can be undone. */
+    onReset?: () => void
+    /** Present when the recognised shapes can be sent to the Animate screen as groups. */
+    onAnimate?: () => void
   } = $props()
 
   const entries = $derived(editableShapes(svg, shapes))
@@ -56,7 +60,7 @@
       <div class="grid">
         {#each fields as field (field.key)}
           <label class="num"><span class="muted tiny">{t(`shapeEdit.${field.key}`)}</span>
-            <input type="number" step={field.key === 'rotation' ? 1 : 0.5} min={field.key === 'r' || field.key === 'rx' || field.key === 'ry' ? 0.5 : undefined} value={Math.round((field.value ?? 0) * 100) / 100} onchange={(e) => setNumber(field.key, e.currentTarget.value)} />
+            <input type="number" step="1" min={field.key === 'r' || field.key === 'rx' || field.key === 'ry' ? 1 : undefined} value={Math.round((field.value ?? 0) * 10) / 10} onchange={(e) => setNumber(field.key, e.currentTarget.value)} />
           </label>
         {/each}
       </div>
@@ -78,6 +82,12 @@
   {:else}
     <span class="muted tiny">{t('shapeEdit.pick')}</span>
   {/if}
+  {#if onReset || onAnimate}
+    <div class="row actions">
+      {#if onReset}<button type="button" class="btn" onclick={onReset}>{t('shapeEdit.reset')}</button>{/if}
+      {#if onAnimate}<button type="button" class="btn" onclick={onAnimate}>{t('shapeEdit.animate')}</button>{/if}
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -89,6 +99,7 @@
   .num { display: flex; flex-direction: column; gap: 4px; }
   .num input { width: 100%; min-height: 34px; padding: 0 8px; border-radius: 8px; border: 1px solid var(--line-2); background: transparent; color: inherit; font-family: 'Geist Mono', monospace; font-size: 13px; }
   .colours { flex-wrap: wrap; gap: 12px; }
+  .actions { flex-wrap: wrap; gap: 8px; }
   .colour { display: flex; flex-direction: column; gap: 4px; }
   .colour input { width: 44px; height: 32px; padding: 0; border: 1px solid var(--line-2); border-radius: 8px; background: transparent; cursor: pointer; }
 </style>
