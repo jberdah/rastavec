@@ -19,8 +19,17 @@ export interface Analysis {
   dominantColors: number
   /** Share (0-1) of neighbouring visible pixels with a smooth, non-zero transition. */
   gradient: number
+  /** Share (0-1) of opaque pixels starting an edge-free run of RAMP_RUN px that changes colour:
+   *  gentle gradients whose per-pixel steps are too small for `gradient` to see. */
+  smoothRamps: number
   grayscale: boolean
 }
+
+// A ramp is RAMP_RUN opaque pixels in a row or column, each step at most RAMP_STEP (no edge),
+// whose ends differ by at least RAMP_MIN. Flat fills give 0; gentle gradients nearly 1.
+const RAMP_RUN = 16, RAMP_STEP = 3, RAMP_MIN = 2
+// Ramps start from one sampled pixel in RAMP_GRID² (a share needs no more, and runs are long).
+const RAMP_GRID = 4
 
 /** Why Auto picked its parameters (language-neutral; rendered by the UI). */
 export type NoteCode = 'flat' | 'shaded' | 'line-binary' | 'line-color' | 'pixel' | 'photo' | 'soft' | 'edges'
@@ -30,9 +39,22 @@ export function analyze(img: RGBAImage): Analysis {
   const total = w * h
   // Sample at most ~1M pixels with a fixed stride (deterministic).
   const stride = Math.max(1, Math.floor(Math.sqrt(total / 1_000_000)))
-  let n = 0, transparent = 0, soft = 0, visible = 0, colored = 0, boundary = 0, pairs = 0, smooth = 0, gray = 0
+  let n = 0, transparent = 0, soft = 0, visible = 0, colored = 0, boundary = 0, pairs = 0, smooth = 0, gray = 0, runs = 0, ramps = 0
   const bins = new Map<number, number>()
   const vis = (x: number, y: number) => d[(y * w + x) * 4 + 3] >= 128
+  const step = (i: number, j: number) => Math.max(Math.abs(d[i] - d[j]), Math.abs(d[i + 1] - d[j + 1]), Math.abs(d[i + 2] - d[j + 2]))
+  // 0: no edge-free run from (x, y) in that direction, 1: a flat run, 2: a ramp.
+  const run = (x: number, y: number, dx: number, dy: number) => {
+    if (x + dx * RAMP_RUN >= w || y + dy * RAMP_RUN >= h) return 0
+    const i = (y * w + x) * 4
+    let prev = i
+    for (let k = 1; k <= RAMP_RUN; k++) {
+      const j = ((y + dy * k) * w + x + dx * k) * 4
+      if (d[j + 3] < 240 || step(prev, j) > RAMP_STEP) return 0
+      prev = j
+    }
+    return step(i, prev) >= RAMP_MIN ? 2 : 1
+  }
   for (let y = 0; y < h; y += stride) {
     for (let x = 0; x < w; x += stride) {
       const i = (y * w + x) * 4
@@ -48,8 +70,16 @@ export function analyze(img: RGBAImage): Analysis {
       bins.set(k, (bins.get(k) ?? 0) + 1)
       if (a < 128) continue
       visible++
-      // Boundary: visible pixel touching a non-visible neighbour.
-      if ((x > 0 && !vis(x - 1, y)) || (x < w - 1 && !vis(x + 1, y)) || (y > 0 && !vis(x, y - 1)) || (y < h - 1 && !vis(x, y + 1))) boundary++
+      // Boundary: visible pixel touching a non-visible neighbour. An antialiased pixel on the
+      // image border counts too: a shape cut by the canvas edge has its fringe there (a narrow
+      // strip would otherwise read as a wide translucent glow).
+      if ((x > 0 && !vis(x - 1, y)) || (x < w - 1 && !vis(x + 1, y)) || (y > 0 && !vis(x, y - 1)) || (y < h - 1 && !vis(x, y + 1))
+        || (a < 240 && (x === 0 || y === 0 || x === w - 1 || y === h - 1))) boundary++
+      if (a >= 240 && (x / stride) % RAMP_GRID === 0 && (y / stride) % RAMP_GRID === 0) {
+        const best = Math.max(run(x, y, 1, 0), run(x, y, 0, 1))
+        if (best) runs++
+        if (best === 2) ramps++
+      }
       for (const [dx, dy] of [[1, 0], [0, 1]]) {
         const X = x + dx, Y = y + dy
         if (X >= w || Y >= h || !vis(X, Y)) continue
@@ -68,6 +98,7 @@ export function analyze(img: RGBAImage): Analysis {
     if (acc >= colored * 0.95) break
   }
   const gradient = pairs ? smooth / pairs : 0
+  const smoothRamps = runs ? ramps / runs : 0
   const transparentPct = (100 * transparent) / n
   const softPct = (100 * soft) / n
   const grayscale = colored > 0 && gray / colored > 0.97
@@ -93,7 +124,7 @@ export function analyze(img: RGBAImage): Analysis {
   else if (dominant <= 3 && gradient < 0.3) kind = 'flat'
   else kind = 'shaded'
 
-  return { width: w, height: h, kind, alpha, transparentPct, softPct, dominantColors: dominant, gradient, grayscale }
+  return { width: w, height: h, kind, alpha, transparentPct, softPct, dominantColors: dominant, gradient, smoothRamps, grayscale }
 }
 
 /** Recommended parameters for an analysed image, with a short justification. */

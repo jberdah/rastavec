@@ -28,6 +28,9 @@ export interface VectorizeResult {
   failedTrials: { traceScale: number; message: string }[]
 }
 
+/** Share of smooth ramps (Analysis.smoothRamps) from which flat-looking art gets gradient trials. */
+export const GENTLE_GRADIENT_RAMPS = 0.1
+
 const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now())
 
 export class VectorizationCancelled extends Error {
@@ -161,13 +164,16 @@ export async function vectorize(
   // Bounded same-engine trials for meaningfully shaded illustrations, on an opaque canvas or
   // cut out on a transparent one (hard or antialiased edges): gradients fitted closely, and
   // gradients simplified (fewer shapes, less fidelity). The score arbitrates. Photos, soft
-  // alpha, flat artwork, and large rasters stay on the regular path. When the user forced
+  // alpha, flat artwork without smooth ramps, and large rasters stay on the regular path. When the user forced
   // gradients the base trace already fits them closely; only the simplified one is added.
   const includeGradientReview = auto.enabled
     && settings.presetId === 'auto'
     && nativeColor
     && backend.traceColorSourceWithGradients !== undefined
-    && analysis.kind === 'shaded'
+    // A few colours and no per-pixel steps read as flat, yet a gentle linear or radial
+    // gradient looks exactly like that: smooth ramps over a tenth of the opaque area tell it
+    // apart from flat fills (near 0). The score still decides whether gradients win.
+    && (analysis.kind === 'shaded' || (analysis.kind === 'flat' && (analysis.smoothRamps ?? 0) >= GENTLE_GRADIENT_RAMPS))
     && analysis.alpha !== 'soft'
     && src.width * src.height <= 8_000_000
   const gradientModes: (true | 'simple')[] = !includeGradientReview ? [] : backend.gradientsByDefault ? ['simple'] : [true, 'simple']
@@ -317,7 +323,9 @@ export async function vectorize(
       try {
         // Isolate the gradient fitter: reuse the best native parameters so this
         // comparison measures paint fitting instead of changing segmentation and geometry too.
-        trials.push(await runTrial(src, current.params, false, backend, 1, mode))
+        // The engine fits gradients over stacked layers only: when the hierarchy review
+        // picked a cutout mosaic, it rejected every gradient trial as unsupported.
+        trials.push(await runTrial(src, { ...current.params, hierarchical: 'stacked' }, false, backend, 1, mode))
       } catch (error) {
         checkCancelled()
         failedTrials.push({ traceScale: 1, message: error instanceof Error ? error.message : String(error) })
