@@ -261,8 +261,10 @@ export async function vectorize(
         // Curves stay smoother when scaled and edited, and polygons are usually lighter, so
         // the size term alone would pick polygons for curved logos (a crescent moon came out
         // as 147 straight segments). Polygons keep their point, sharp corners, only when they
-        // are clearly more faithful; otherwise they are listed for comparison only.
-        if (!(polygon.metrics.pctDiff < polygonBase.metrics.pctDiff * 0.9)) polygon.comparisonOnly = true
+        // are clearly more faithful; otherwise they are listed for comparison only. Only for flat
+        // artwork: on shaded images the polygon trace is often both lighter and, once gradients
+        // are fitted over it, more faithful.
+        if (analysis.kind === 'flat' && !(polygon.metrics.pctDiff < polygonBase.metrics.pctDiff * 0.9)) polygon.comparisonOnly = true
         trials.push(polygon)
       } catch (error) {
         checkCancelled()
