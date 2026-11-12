@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.5.0-beta.1 — 2026-11-12
+## 0.5.0-beta.2 — 2026-11-12
 
 ### Changed
 
@@ -35,6 +35,8 @@
 
 - Watershed clustering keeps the opacity of translucent regions without darkening antialiased opaque
   shapes, and drops fully transparent pixels consistently.
+- macOS desktop app: vectorisation no longer stays stuck at "decoding" (the engine is loaded
+  statically in the worker). 0.5.0-beta.1 was tagged but never published for this reason.
 
 ## 0.4.0-beta.1 — 2026-11-08
 

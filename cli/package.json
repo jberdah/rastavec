@@ -1,6 +1,6 @@
 {
   "name": "rastavec",
-  "version": "0.5.0-beta.1",
+  "version": "0.5.0-beta.2",
   "description": "RastaVec CLI — Smooth vectors. Good vibes. Raster to SVG with analysis, fidelity metrics and deterministic auto-tuning. JSON output for scripts and AI agents.",
   "license": "Apache-2.0",
   "author": "jberdah",
