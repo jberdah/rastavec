@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.5.0-beta.1 — 2026-11-12
+
+### Changed
+
+- The web app, desktop app and CLI now trace with the VTracer-Next engine instead of VTracer 1.
+- The VTracer-Next engine module is distributed under the VTracer-Next License 1.0
+  (`public/licenses/vtracer-next.txt`) instead of MIT. SVGs it produces remain free for any use,
+  commercial included; integrating the module in a commercial product needs written permission.
+  The rest of RastaVec stays under Apache-2.0.
+- Auto-Tune weighs fidelity, banding, file weight and editability together and has no size budget
+  by default ("no size limit" in the app, `--max-size 0` in the CLI); a budget you set still flags
+  oversized results for review.
+
+### Added
+
+- TIFF import (first full-size page, orientation and premultiplied alpha handled); BMP is now listed
+  among the supported formats.
+- Shapes panel in the Edit screen: select, move and resize the circles and ellipses the engine
+  recognised (including partly hidden ones), recolour them and their gradient stops, undo the edits,
+  or send them to Animate as one group per shape.
+- Gradient-painted paths can be grouped and animated, and palette filters recolour gradient stops.
+- Auto-Tune tries a simplified gradient trace (far fewer shapes for a little fidelity) and tries
+  gradients on cut-out art with a transparent canvas.
+
+### Improved
+
+- Gentle gradients are kept instead of flattened, and banded skies become one smooth gradient.
+- Two- and three-colour logos are treated as flat art and faint antialiasing pixels no longer become
+  paths: a one-colour logo goes from 712 paths and 67 KiB to 27 paths and 6.7 KiB.
+- Translucent flat shapes that cross each other come out as one shape each with its own opacity.
+
+### Fixed
+
+- Watershed clustering keeps the opacity of translucent regions without darkening antialiased opaque
+  shapes, and drops fully transparent pixels consistently.
+
 ## 0.4.0-beta.1 — 2026-11-08
 
 ### Added
