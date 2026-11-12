@@ -5,6 +5,7 @@ import { analyzeShapes, applyFilters, isDefault, type FilterResult, type FilterS
 import type { Item } from './engine/types'
 import { chosenTrial, editKey, svgUrl } from './store.svelte'
 import { svgFingerprint } from './engine/group-nearby'
+import { carryGrouping } from './engine/carry-grouping'
 
 const analyses = new Map<string, ShapeAnalysis>()
 const previewUrls = new Map<string, { key: string; url: string }>()
@@ -33,12 +34,42 @@ export function activeEdit(item: Item): FilterSettings | null {
   return e && e.trial === item.chosen && !isDefault(e.settings) ? e.settings : null
 }
 
-/** The SVG to export: the chosen trial, with its palette filters if any. */
-export function outputSvg(item: Item): string {
+/** The chosen trial with its palette filters, before groups are added. */
+export function sourceSvg(item: Item): string {
   const s = activeEdit(item)
-  const source = s ? filtered(item, s).svg : chosenTrial(item).svg
+  return s ? filtered(item, s).svg : chosenTrial(item).svg
+}
+
+/** The item's groups when they were made for (or carried onto) its current SVG. */
+export function appliedGrouping(item: Item) {
+  const grouping = item.grouping
+  return grouping && grouping.sourceHash === svgFingerprint(sourceSvg(item)) ? grouping : undefined
+}
+
+/** The SVG to export: the chosen trial, with its palette filters and groups if any. */
+export function outputSvg(item: Item): string {
+  const source = sourceSvg(item)
   const grouping = item.grouping
   return grouping?.sourceHash === svgFingerprint(source) ? grouping.svg : source
+}
+
+/**
+ * Run an edit that changes the item's SVG (shape edit, palette filters) and keep its groups:
+ * groups that applied before the edit are re-applied to the edited SVG. Returns false when the
+ * edit changed the paths themselves, so the groups could not follow; they are then kept for the
+ * SVG they were made for (undo, or going back to those settings, brings them back).
+ * Call `record` first: the history snapshot then holds the groups as they were.
+ */
+export function keepingGroups<T>(item: Item, edit: () => T): { result: T; groupsKept: boolean } {
+  const grouping = appliedGrouping(item)
+  const before = grouping ? sourceSvg(item) : ''
+  const result = edit()
+  if (!grouping || item.grouping !== grouping) return { result, groupsKept: true }
+  const after = sourceSvg(item)
+  if (after === before) return { result, groupsKept: true }
+  const carried = carryGrouping(grouping, before, after)
+  if (carried) item.grouping = carried
+  return { result, groupsKept: !!carried }
 }
 
 /** Preview the same filtered SVG that will be exported. */

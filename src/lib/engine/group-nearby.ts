@@ -26,7 +26,7 @@ const MAX_PATH_DATA = 100000
 const MAX_TOTAL_PATH_DATA = 1000000
 const MAX_GEOMETRY_TESTS = 2_000_000
 
-type Matrix = [number, number, number, number, number, number]
+export type Matrix = [number, number, number, number, number, number]
 function isAxisAlignedTransform(matrix: Matrix | null): matrix is Matrix {
   return !!matrix && Math.abs(matrix[1]) < 1e-9 && Math.abs(matrix[2]) < 1e-9
 }
@@ -81,32 +81,17 @@ function applyTransform(polygons: number[][], matrix: Matrix): number[][] {
   })
 }
 
-/** Group nearby consecutive paths without reordering, altering or moving any path.
- * Bounds approximate curves, not semantic objects; artwork in defs/masks is never touched.
- * Non-RastaVec path syntax, rotated/skewed transforms and large background-like paths are skipped.
- */
-export function groupNearbyPaths(svg: string, options: { distance?: number; colorMode?: NearbyColorMode; includeSingletons?: boolean; strategy?: NearbyStrategy; regionCount?: number } = {}): NearbyResult {
-  const fallback = (): NearbyResult => ({ svg, groups: [], considered: 0, skipped: 0 })
-  // A stylesheet can target the added <g> or depend on parent/child selectors.
-  // This feature is for RastaVec's generated SVG, not arbitrary external SVGs.
-  if (/<(?:style|script|foreignObject|use|image)\b|<\?xml-stylesheet|<!ENTITY/i.test(svg)) return fallback()
-  const root = svg.match(/<svg\b[^>]*\bviewBox="\s*([-+\d.eE]+)[\s,]+([-+\d.eE]+)[\s,]+([-+\d.eE]+)[\s,]+([-+\d.eE]+)\s*"/)
-  if (!root) return fallback()
-  const [viewX, viewY, width, height] = root.slice(1).map(Number)
-  if (!(width > 0 && height > 0 && [viewX, viewY, width, height].every(Number.isFinite))) return fallback()
-  const defaultDistance = Math.max(0.5, Math.min(8, 0.005 * Math.min(width, height)))
-  const distance = options.distance === undefined ? defaultDistance : options.distance
-  const colorMode = options.colorMode ?? 'proximity'
-  const includeSingletons = options.includeSingletons ?? false
-  const strategy = options.strategy ?? 'proximity'
-  if (!Number.isFinite(distance) || distance < 0 || distance > Math.min(width, height) * 0.1) return fallback()
+/** One `<path d="…"/>` of an SVG, in document order. `pathIndices` in grouping metadata index this list. */
+export type ParsedPath = { start: number; raw: string; d: string; fill: string | null; transform: Matrix | null; parentTransform: Matrix | null; protected: boolean; reorderSafe: boolean }
+
+/** Every self-closing `<path>` with a `d`, with the fill and transform it inherits. */
+export function parsePathTags(svg: string): ParsedPath[] {
   // Read path styles and transforms through their ancestors. VTracer emits both flat paths
   // and paths inside fill-bearing groups; ignoring inherited styles silently left whole
   // presets (notably Pixel art) with zero animation groups.
   const protectedTag = new Set(['defs', 'clippath', 'mask', 'symbol', 'pattern'])
   const tag = /<!--[\s\S]*?-->|<\/?([A-Za-z][\w:.-]*)\b[^>]*>/g
   type Context = { name: string; fill: string | null; transform: Matrix | null; reorderSafe: boolean }
-  type ParsedPath = { start: number; raw: string; d: string; fill: string | null; transform: Matrix | null; parentTransform: Matrix | null; protected: boolean; reorderSafe: boolean }
   const unsafeReorderAttributes = new Set(['filter', 'marker-start', 'marker-mid', 'marker-end', 'mix-blend-mode', 'style', 'stroke'])
   const stack: Context[] = []
   const matches: ParsedPath[] = []
@@ -130,15 +115,11 @@ export function groupNearbyPaths(svg: string, options: { distance?: number; colo
     }
     if (!full.endsWith('/>')) stack.push({ name, fill, transform, reorderSafe })
   }
-  // Reject exceptionally complex documents instead of blocking the interface indefinitely.
-  if (matches.length > MAX_PATHS) return { ...fallback(), skipped: matches.length, limit: 'path-count' }
-  let totalPathData = 0
-  for (const match of matches) {
-    totalPathData += match.d.length
-    if (match.d.length > MAX_PATH_DATA || totalPathData > MAX_TOTAL_PATH_DATA)
-      return { ...fallback(), skipped: matches.length, limit: 'geometry-size' }
-  }
+  return matches
+}
 
+/** Resolves a path's fill to a solid `#rrggbb`; a gradient counts as its mean stop colour. */
+export function solidFillResolver(svg: string): (fill: string | null) => string | null {
   // A path painted with a gradient is grouped under the gradient's mean stop colour,
   // so gradient regions can be grouped, named and animated like flat ones.
   const gradientFills = new Map<string, string>()
@@ -148,12 +129,60 @@ export function groupNearbyPaths(svg: string, options: { distance?: number; colo
     const mean = [0, 2, 4].map((offset) => Math.round(stops.reduce((sum, hex) => sum + parseInt(hex.slice(offset, offset + 2), 16), 0) / stops.length))
     gradientFills.set(gradient[2].toLowerCase(), `#${mean.map((value) => value.toString(16).padStart(2, '0')).join('')}`)
   }
-  const solidFill = (fill: string | null): string | null => {
+  return (fill: string | null): string | null => {
     if (!fill) return null
     if (/^#[0-9a-f]{6}$/i.test(fill)) return fill.toLowerCase()
     const reference = /^url\(#([^)]+)\)$/i.exec(fill)
     return reference ? gradientFills.get(reference[1].toLowerCase()) ?? null : null
   }
+}
+
+/** Axis-aligned bounds of flattened polygons (non-finite when there are no points). */
+export function polygonBounds(polygons: number[][]): Bounds {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
+  for (const poly of polygons) for (let i = 0; i + 1 < poly.length; i += 2) {
+    x0 = Math.min(x0, poly[i]); y0 = Math.min(y0, poly[i + 1]); x1 = Math.max(x1, poly[i]); y1 = Math.max(y1, poly[i + 1])
+  }
+  return [x0, y0, x1, y1]
+}
+
+/** Bounds of one parsed path as the grouping pass measures it, or null when it cannot be grouped. */
+export function pathBounds(path: ParsedPath): Bounds | null {
+  if (!isAxisAlignedTransform(path.transform)) return null
+  const box = polygonBounds(applyTransform(flattenPath(path.d), path.transform))
+  return box.every(Number.isFinite) && box[2] > box[0] && box[3] > box[1] ? box : null
+}
+
+/** Group nearby consecutive paths without reordering, altering or moving any path.
+ * Bounds approximate curves, not semantic objects; artwork in defs/masks is never touched.
+ * Non-RastaVec path syntax, rotated/skewed transforms and large background-like paths are skipped.
+ */
+export function groupNearbyPaths(svg: string, options: { distance?: number; colorMode?: NearbyColorMode; includeSingletons?: boolean; strategy?: NearbyStrategy; regionCount?: number } = {}): NearbyResult {
+  const fallback = (): NearbyResult => ({ svg, groups: [], considered: 0, skipped: 0 })
+  // A stylesheet can target the added <g> or depend on parent/child selectors.
+  // This feature is for RastaVec's generated SVG, not arbitrary external SVGs.
+  if (/<(?:style|script|foreignObject|use|image)\b|<\?xml-stylesheet|<!ENTITY/i.test(svg)) return fallback()
+  const root = svg.match(/<svg\b[^>]*\bviewBox="\s*([-+\d.eE]+)[\s,]+([-+\d.eE]+)[\s,]+([-+\d.eE]+)[\s,]+([-+\d.eE]+)\s*"/)
+  if (!root) return fallback()
+  const [viewX, viewY, width, height] = root.slice(1).map(Number)
+  if (!(width > 0 && height > 0 && [viewX, viewY, width, height].every(Number.isFinite))) return fallback()
+  const defaultDistance = Math.max(0.5, Math.min(8, 0.005 * Math.min(width, height)))
+  const distance = options.distance === undefined ? defaultDistance : options.distance
+  const colorMode = options.colorMode ?? 'proximity'
+  const includeSingletons = options.includeSingletons ?? false
+  const strategy = options.strategy ?? 'proximity'
+  if (!Number.isFinite(distance) || distance < 0 || distance > Math.min(width, height) * 0.1) return fallback()
+  const matches = parsePathTags(svg)
+  // Reject exceptionally complex documents instead of blocking the interface indefinitely.
+  if (matches.length > MAX_PATHS) return { ...fallback(), skipped: matches.length, limit: 'path-count' }
+  let totalPathData = 0
+  for (const match of matches) {
+    totalPathData += match.d.length
+    if (match.d.length > MAX_PATH_DATA || totalPathData > MAX_TOTAL_PATH_DATA)
+      return { ...fallback(), skipped: matches.length, limit: 'geometry-size' }
+  }
+
+  const solidFill = solidFillResolver(svg)
 
   const area = width * height
   let skipped = 0
@@ -188,12 +217,9 @@ export function groupNearbyPaths(svg: string, options: { distance?: number; colo
     const start = match.start, end = start + match.raw.length
     const fill = solidFill(match.fill)
     if (match.protected || !isAxisAlignedTransform(match.transform) || !fill) { skipped++; continue }
-    const polygons = applyTransform(flattenPath(match.d), match.transform)
-    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
-    for (const poly of polygons) for (let i = 0; i + 1 < poly.length; i += 2) {
-      x0 = Math.min(x0, poly[i]); y0 = Math.min(y0, poly[i + 1]); x1 = Math.max(x1, poly[i]); y1 = Math.max(y1, poly[i + 1])
-    }
-    const box: Bounds = [x0, y0, x1, y1]
+    const polygons = applyTransform(flattenPath(match.d), match.transform!)
+    const box = polygonBounds(polygons)
+    const [x0, y0, x1, y1] = box
     // Large silhouettes can touch almost everything, joining unrelated parts.
     // Keep them available as individual editable shapes when explicitly requested.
     if (!box.every(Number.isFinite) || x1 <= x0 || y1 <= y0) { skipped++; continue }

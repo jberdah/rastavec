@@ -72,7 +72,7 @@
   <div class="shapes" role="listbox" aria-label={t('shapeEdit.title')}>
     {#each entries as entry (entry.hint.index)}
       <button type="button" class="shape" class:hover={hovered === entry.hint.index} role="option" aria-selected={selected === entry.hint.index}
-        onclick={() => (selected = selected === entry.hint.index ? null : entry.hint.index)}
+        onclick={() => (selected = entry.hint.index)}
         onmouseenter={() => (hovered = entry.hint.index)} onmouseleave={() => (hovered = null)}>
         <span class="dot" style:background={swatch(entry)}></span><span class="nm">{names.get(entry.hint.index)}</span>
         {#if !entry.capabilities.geometry}<span class="muted tiny lock" title={t('shapeEdit.geometryLocked')}>🔒</span>{/if}
