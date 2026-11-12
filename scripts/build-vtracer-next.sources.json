@@ -1,6 +1,6 @@
 {
   "description": "VTracer-next source snapshot at the engine-quality branch: experimental gradient fitting with a continuous smooth-field model and whole-pixel validation, drift-bounded clustering (preserve_gradients), circle detection with overlap completion (detect_shapes), and the structured shape report.",
-  "head": "1c66edec007cdc955911fe2c738ce775692c1a12",
+  "head": "8f761afad230ef96c347d13fb8cf257120494df4",
   "files": {
     "README.md": "9fbe6fa72e9693430e9fe6b977d4caaf13b49cc1cf0ab12b6d94030583e43faf",
     "crates/vtracer/Cargo.toml": "f7c363dc58516bbf0c0a4cab9b4aceee7a2f593387136671f5cc84bed417c3d7",
@@ -36,7 +36,7 @@
     "crates/vtracer/src/progress.rs": "dd37ef4f51d7f50d52795eefe8dfea0c5d0f59695bb4a43318158e8689fc42a6",
     "crates/vtracer/src/report.rs": "2061977ee6271ee40d95ba73b7cc369f429b643b94cf7412297b150d032bccc7",
     "crates/vtracer/src/session.rs": "56b292155cd45faccc55ef793f6d7b3240ce90977ade27ff3b7cc11ad709cf6c",
-    "crates/vtracer/src/shapes.rs": "6e9af1c047803f1211314b4a8d4f7d3dc8ace98eede83bbc73af715d684037b3",
+    "crates/vtracer/src/shapes.rs": "83b0b6af7abaf8eef2f60ff004fbcd4d042f60493ff2b31b293f539ad95de186",
     "crates/vtracer/src/shapes/overlap.rs": "1ee9f2681f1d8b50dead87b159848eb28d7607b9f098d61451c2c50454d84f09",
     "crates/vtracer/src/simplify.rs": "a43482c27552aa2dfd296617a6ad422d88b94588801cd81c48caf018cb2b95d6",
     "crates/vtracer/src/svg.rs": "4cbd28803c3796a2f5886c7179e5da6d9d3532b4abae2edaaf0ba3d13c04cfe9"
