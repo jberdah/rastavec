@@ -12,7 +12,7 @@
   import { applyShapeEdit } from '../shape-editing'
   import { editShape as editShapeSvg, editableShapes, type ShapePatch } from '../engine/shape-edits'
   import { groupsFromShapes } from '../engine/shape-groups'
-  import { canRedo, canUndo, record, redo, undo } from '../edit-history.svelte'
+  import { canRedo, canUndo, dropLastStep, record, redo, undo } from '../edit-history.svelte'
   import { publicAsset } from '../assets'
 
   type Bg = 'checker' | 'light' | 'dark'
@@ -62,9 +62,13 @@
     selectedShape = null
     hoveredShape = null
   })
-  // Picking a shape anywhere opens the Shapes tools.
+  // Picking a shape anywhere opens the Shapes tools; leaving them drops the selection, so keys
+  // pressed in another tab never move a shape nobody sees.
   $effect(() => {
     if (selectedShape !== null) untrack(() => { if (tab === 'colours') tab = 'shapes' })
+  })
+  $effect(() => {
+    if (tab !== 'shapes') untrack(() => { selectedShape = null; cancelDrag() })
   })
   const viewBox = $derived(trial ? /\bviewBox="([^"]+)"/.exec(trial.svg)?.[1] ?? `0 0 ${item?.width ?? 0} ${item?.height ?? 0}` : '')
   const entries = $derived(trial?.shapes ? editableShapes(trial.svg, trial.shapes) : [])
@@ -72,10 +76,11 @@
   const pickable = $derived(entries.filter((entry) => entry.hint.kind !== 'path'))
   const selectedEntry = $derived(entries.find((entry) => entry.hint.index === selectedShape) ?? null)
 
-  function editShape(index: number, patch: ShapePatch) {
+  function editShape(index: number, patch: ShapePatch, key = `shape:${index}:${Object.keys(patch).join(',')}`) {
     if (!item) return
-    record(item, `shape:${index}:${Object.keys(patch).join(',')}`)
-    applyShapeEdit(item, index, patch)
+    record(item, key)
+    // A refused edit (e.g. a non-positive radius typed in a field) changes nothing: no step.
+    if (!applyShapeEdit(item, index, patch)) dropLastStep(item)
   }
   // Undo every shape edit: go back to the traced trial the edited variant came from.
   const canResetShapes = $derived(trial?.traceMethod === 'shapes-edited' && trial.sourceTrial !== undefined)
@@ -105,7 +110,13 @@
   // and the shape is redrawn live; one edit (one undo step) is committed on release.
   type Mode = 'move' | 'resize' | 'rotate'
   type Geometry = { cx: number; cy: number; rx: number; ry: number; rotation: number }
-  let drag = $state<{ index: number; mode: Mode; sx: number; sy: number; startX: number; startY: number; from: Geometry; to: Geometry } | null>(null)
+  let drag = $state<{ index: number; mode: Mode; sx: number; sy: number; startX: number; startY: number; startLx: number; startLy: number; from: Geometry; to: Geometry } | null>(null)
+  let gesture = 0
+  // Pointer position in the shape's own (unrotated) frame, as distances from its centre.
+  function localDistances(at: [number, number], from: Geometry): [number, number] {
+    const a = (-from.rotation * Math.PI) / 180, dx = at[0] - from.cx, dy = at[1] - from.cy
+    return [Math.abs(dx * Math.cos(a) - dy * Math.sin(a)), Math.abs(dx * Math.sin(a) + dy * Math.cos(a))]
+  }
   let pickSvg = $state<SVGSVGElement | null>(null)
   const geometryOf = (hint: EngineShapeHint): Geometry => ({
     cx: hint.cx ?? 0, cy: hint.cy ?? 0, rx: hint.rx ?? hint.r ?? 0, ry: hint.ry ?? hint.r ?? 0, rotation: hint.kind === 'circle' ? 0 : hint.rotation ?? 0,
@@ -126,7 +137,9 @@
     if (!at) return
     ;(event.currentTarget as Element).setPointerCapture(event.pointerId)
     const from = geometryOf(hint)
-    drag = { index: hint.index, mode, sx, sy, startX: at[0], startY: at[1], from, to: from }
+    const [startLx, startLy] = localDistances(at, from)
+    gesture++
+    drag = { index: hint.index, mode, sx, sy, startX: at[0], startY: at[1], startLx, startLy, from, to: from }
   }
   function moveDrag(event: PointerEvent) {
     const at = drag ? toUser(event) : null
@@ -139,14 +152,16 @@
       const angle = (Math.atan2(at[1] - from.cy, at[0] - from.cx) * 180) / Math.PI + 90
       to = { ...from, rotation: round1(((angle + 540) % 360) - 180) }
     } else {
-      // Pointer in the shape's own (unrotated) frame; the centre stays put.
-      const a = (-from.rotation * Math.PI) / 180, dx = at[0] - from.cx, dy = at[1] - from.cy
-      const lx = Math.abs(dx * Math.cos(a) - dy * Math.sin(a)), ly = Math.abs(dx * Math.sin(a) + dy * Math.cos(a))
+      // Around the centre, by how far the pointer moved from where it was pressed, so pressing a
+      // grip slightly off the drawn handle does not snap the size to the pointer.
+      const [lx, ly] = localDistances(at, from)
+      const growX = lx - drag.startLx, growY = ly - drag.startLy
       if (isCircle(drag.index)) {
-        const r = Math.max(1, drag.sx && drag.sy ? Math.max(lx, ly) : drag.sx ? lx : ly)
+        const grow = drag.sx && drag.sy ? (Math.abs(growX) > Math.abs(growY) ? growX : growY) : drag.sx ? growX : growY
+        const r = Math.max(1, from.rx + grow)
         to = { ...from, rx: r, ry: r }
       } else {
-        to = { ...from, rx: drag.sx ? Math.max(1, lx) : from.rx, ry: drag.sy ? Math.max(1, ly) : from.ry }
+        to = { ...from, rx: drag.sx ? Math.max(1, from.rx + growX) : from.rx, ry: drag.sy ? Math.max(1, from.ry + growY) : from.ry }
       }
     }
     drag = { ...drag, to }
@@ -173,7 +188,12 @@
     if (!done) return
     const patch = patchOf(done.index, done.from, done.to)
     const moved = Math.hypot(done.to.cx - done.from.cx, done.to.cy - done.from.cy) >= 0.5
-    if (Object.keys(patch).length && (done.mode !== 'move' || moved)) editShape(done.index, patch)
+    if (Object.keys(patch).length && (done.mode !== 'move' || moved)) editShape(done.index, patch, `drag:${gesture}`)
+  }
+  // An interrupted gesture (pointer lost, undo, tab change) is dropped, never committed.
+  function cancelDrag() {
+    drag = null
+    livePreview = null
   }
 
   // Live redraw while dragging. Palette filters are recomputed on release, so the live frame is the
@@ -206,6 +226,11 @@
     return () => observer.disconnect()
   })
   const HANDLES: [number, number][] = [[-1, -1], [0, -1], [1, -1], [1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0]]
+  const CORNERS: [number, number][] = [[-1, -1], [1, -1], [1, 1], [-1, 1]]
+  // Below this on-screen radius only the corner handles are drawn, with grips no larger than the
+  // drawn squares, so the middle of a small shape still moves it.
+  const SMALL_SHAPE_PX = 24
+  const isSmall = (g: Geometry) => Math.min(g.rx, g.ry) / unitsPerPx < SMALL_SHAPE_PX
   const handleCursor = (sx: number, sy: number) => (sx && sy ? (sx === sy ? 'nwse-resize' : 'nesw-resize') : sx ? 'ew-resize' : 'ns-resize')
 
   function saveGrouping(grouping: GroupingMetadata) {
@@ -240,8 +265,11 @@
   }
   const appliedCount = $derived(list.filter((i) => i.edit && i.edit.trial === i.chosen && !isDefault(i.edit.settings)).length)
 
-  function doUndo() { if (item && undo(item)) selectedShape = null }
-  function doRedo() { if (item && redo(item)) selectedShape = null }
+  // Bumped on undo / redo: the groups panel keeps its own copy of the groups and is remounted
+  // from the restored ones, otherwise its next action would push the undone state back.
+  let restored = $state(0)
+  function doUndo() { cancelDrag(); if (item && undo(item)) { selectedShape = null; restored++ } }
+  function doRedo() { cancelDrag(); if (item && redo(item)) { selectedShape = null; restored++ } }
 
   // Keyboard: undo / redo, Escape to deselect, arrows to nudge the selected shape.
   function onKey(event: KeyboardEvent) {
@@ -254,14 +282,14 @@
     if (mod && key === 'z') { event.preventDefault(); if (event.shiftKey) doRedo(); else doUndo(); return }
     if (mod && key === 'y') { event.preventDefault(); doRedo(); return }
     if (event.key === 'Escape' && selectedShape !== null) { selectedShape = null; return }
-    if (selectedEntry?.capabilities.geometry && event.key.startsWith('Arrow') && !mod && target?.tagName !== 'INPUT') {
+    const navigating = !!target?.closest('[role=tree], [role=treeitem], [role=grid], [role=tablist]')
+    if (tab === 'shapes' && selectedEntry?.capabilities.geometry && event.key.startsWith('Arrow') && !mod && target?.tagName !== 'INPUT' && !navigating) {
       event.preventDefault()
       const by = event.shiftKey ? 10 : 1
       const hint = selectedEntry.hint
       const dx = event.key === 'ArrowLeft' ? -by : event.key === 'ArrowRight' ? by : 0
       const dy = event.key === 'ArrowUp' ? -by : event.key === 'ArrowDown' ? by : 0
-      record(item, `nudge:${hint.index}`)
-      applyShapeEdit(item, hint.index, { cx: round1((hint.cx ?? 0) + dx), cy: round1((hint.cy ?? 0) + dy) })
+      editShape(hint.index, { cx: round1((hint.cx ?? 0) + dx), cy: round1((hint.cy ?? 0) + dy) }, `nudge:${hint.index}`)
     }
   }
 
@@ -333,7 +361,9 @@
 
     {#if tab === 'groups'}
       <p class="muted small intro">{t('edit.groupHint')}</p>
+      {#key restored}
       <GroupReview embedded svg={result.svg} name={item.name} grouping={item.grouping} sourceImage={{ url: item.srcUrl, width: item.width, height: item.height }} onGroupingChange={saveGrouping} />
+      {/key}
     {:else}
       <div class="wrap" style="gap: 20px; align-items: flex-start">
         <!-- One large canvas; the original image is shown on demand instead of a permanent "Before" half. -->
@@ -366,7 +396,7 @@
                       class="target" class:movable={entry.capabilities.geometry} class:hover={hoveredShape === entry.hint.index} class:on={selectedShape === entry.hint.index}
                       cx={g.cx} cy={g.cy} rx={g.rx} ry={g.ry} transform={`rotate(${g.rotation} ${g.cx} ${g.cy})`}
                       onpointerenter={() => (hoveredShape = entry.hint.index)} onpointerleave={() => (hoveredShape = null)}
-                      onpointerdown={(event) => startDrag(event, entry.hint, 'move')} onpointermove={moveDrag} onpointerup={endDrag} onpointercancel={endDrag}
+                      onpointerdown={(event) => startDrag(event, entry.hint, 'move')} onpointermove={moveDrag} onpointerup={endDrag} onpointercancel={cancelDrag}
                     />
                   {/each}
                   {#if selectedEntry && selectedEntry.hint.kind !== 'path'}
@@ -380,13 +410,16 @@
                           <line class="frame" x1={g.cx} y1={g.cy - g.ry} x2={g.cx} y2={g.cy - g.ry - 26 * unitsPerPx} />
                           <circle class="handle" cx={g.cx} cy={g.cy - g.ry - 26 * unitsPerPx} r={hs * 0.6} />
                           <circle class="hit rotate" cx={g.cx} cy={g.cy - g.ry - 26 * unitsPerPx} r={hs * 1.2}
-                            onpointerdown={(event) => startDrag(event, hint, 'rotate')} onpointermove={moveDrag} onpointerup={endDrag} onpointercancel={endDrag} />
+                            onpointerdown={(event) => startDrag(event, hint, 'rotate')} onpointermove={moveDrag} onpointerup={endDrag} onpointercancel={cancelDrag} />
                         {/if}
-                        {#each HANDLES as [sx, sy] (`${sx}${sy}`)}
+                        {@const small = isSmall(g)}
+                        {@const grip = small ? hs / 2 : hs}
+                        {#each small ? CORNERS : HANDLES as [sx, sy] (`${sx}${sy}`)}
                           <rect class="handle" x={g.cx + sx * g.rx - hs / 2} y={g.cy + sy * g.ry - hs / 2} width={hs} height={hs} />
-                          <!-- A larger invisible grip than the drawn square, so handles are easy to catch. -->
-                          <rect class="hit" style:cursor={handleCursor(sx, sy)} x={g.cx + sx * g.rx - hs} y={g.cy + sy * g.ry - hs} width={hs * 2} height={hs * 2}
-                            onpointerdown={(event) => startDrag(event, hint, 'resize', sx, sy)} onpointermove={moveDrag} onpointerup={endDrag} onpointercancel={endDrag} />
+                          <!-- A larger invisible grip than the drawn square, so handles are easy to catch
+                               (not on small shapes, where it would cover the body). -->
+                          <rect class="hit" style:cursor={handleCursor(sx, sy)} x={g.cx + sx * g.rx - grip} y={g.cy + sy * g.ry - grip} width={grip * 2} height={grip * 2}
+                            onpointerdown={(event) => startDrag(event, hint, 'resize', sx, sy)} onpointermove={moveDrag} onpointerup={endDrag} onpointercancel={cancelDrag} />
                         {/each}
                       {/if}
                     </g>

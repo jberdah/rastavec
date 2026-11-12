@@ -7,7 +7,7 @@
 import { forgetTrialCaches } from './edit'
 import type { Item, Trial } from './engine/types'
 import { refreshOutputMetrics } from './pipeline'
-import { dropSvgUrl } from './store.svelte'
+import { dropSvgUrl, outsideEdits } from './store.svelte'
 
 interface Snapshot {
   chosen: number
@@ -22,6 +22,8 @@ interface History {
   /** Consecutive records with the same key within COALESCE_MS are one step (a slider drag). */
   lastKey: string
   lastAt: number
+  /** `outsideEdits[item.id]` when this history was started; a change empties it. */
+  stamp: number
 }
 
 const LIMIT = 100
@@ -40,7 +42,10 @@ function take(item: Item): Snapshot {
 }
 
 function historyOf(item: Item): History {
-  return (histories[item.id] ??= { past: [], future: [], lastKey: '', lastAt: 0 })
+  const stamp = outsideEdits[item.id] ?? 0
+  const h = (histories[item.id] ??= { past: [], future: [], lastKey: '', lastAt: 0, stamp })
+  if (h.stamp !== stamp) Object.assign(h, { past: [], future: [], lastKey: '', lastAt: 0, stamp })
+  return h
 }
 
 /** Call right before changing `item`. `key` groups a burst of similar changes into one step. */
@@ -84,6 +89,19 @@ function step(item: Item, from: 'past' | 'future') {
 
 export const undo = (item: Item) => step(item, 'past')
 export const redo = (item: Item) => step(item, 'future')
-export const canUndo = (item: Item | undefined) => version >= 0 && !!item && (histories[item.id]?.past.length ?? 0) > 0
-export const canRedo = (item: Item | undefined) => version >= 0 && !!item && (histories[item.id]?.future.length ?? 0) > 0
+const current = (item: Item) => {
+  const h = histories[item.id]
+  return h && h.stamp === (outsideEdits[item.id] ?? 0) ? h : undefined
+}
+export const canUndo = (item: Item | undefined) => version >= 0 && !!item && (current(item)?.past.length ?? 0) > 0
+export const canRedo = (item: Item | undefined) => version >= 0 && !!item && (current(item)?.future.length ?? 0) > 0
+
+/** Forget the newest step without restoring it: the change it was recorded for did not happen. */
+export function dropLastStep(item: Item) {
+  const h = current(item)
+  if (!h?.past.length) return
+  h.past.pop()
+  h.lastKey = ''
+  version++
+}
 
