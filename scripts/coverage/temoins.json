@@ -1,0 +1,242 @@
+[
+  {
+    "id": "T01",
+    "name": "rastavec-logo",
+    "corpus": "PROJET",
+    "profile": "B02",
+    "path": "assets/rastavec-logo.png",
+    "sha256": "987cc5ba38974a837884692510f5f53fd6c173310e58bbd160568c0409463eae"
+  },
+  {
+    "id": "T02",
+    "name": "tiny-wizard",
+    "corpus": "C01",
+    "profile": "B06",
+    "path": "tests/fixtures/pixel-art/tiny-wizard.png",
+    "sha256": "01ad38975122c812a5ea3b33fc550181d5b290dcb259f4e6de9a642bffae127c"
+  },
+  {
+    "id": "T03",
+    "name": "potion",
+    "corpus": "C01",
+    "profile": "B06",
+    "path": "tests/fixtures/pixel-art/potion.png",
+    "sha256": "18ede5df909ce810f82998ed188d9931b7bac3de1c532e1c9363d6424f94c52b"
+  },
+  {
+    "id": "T04",
+    "name": "sword",
+    "corpus": "C01",
+    "profile": "B06",
+    "path": "tests/fixtures/pixel-art/sword.png",
+    "sha256": "028425430b2bad73e30c95c353c7fc70cc3036c4554dc170784d851aa703c99f"
+  },
+  {
+    "id": "T05",
+    "name": "shield",
+    "corpus": "C01",
+    "profile": "B06",
+    "path": "tests/fixtures/pixel-art/shield.png",
+    "sha256": "1b79e0156153572ff40ab84900ac6db1483151923a4999a3fafb6a8b2554da78"
+  },
+  {
+    "id": "T06",
+    "name": "kenney-bear",
+    "corpus": "C02",
+    "profile": "B02",
+    "path": "tests/fixtures/grouping-corpus/kenney-bear.png",
+    "sha256": "38bc0b488212af64a3146373f4e5bae731acd97cb0f0da1b06ce9e20d36adea6"
+  },
+  {
+    "id": "T07",
+    "name": "kenney-dog",
+    "corpus": "C02",
+    "profile": "B02",
+    "path": "tests/fixtures/grouping-corpus/kenney-dog.png",
+    "sha256": "2319095c34858fa9610d16dc2468dfc308ca9e061cc98b42762318fae7157b87"
+  },
+  {
+    "id": "T08",
+    "name": "bat",
+    "corpus": "C02",
+    "profile": "B02",
+    "path": "tests/fixtures/grouping-corpus/bat.png",
+    "sha256": "da1059fb8dce54ee6b704a8c98c3a134cd84da721a96024159d81f43b2ff97bc"
+  },
+  {
+    "id": "T09",
+    "name": "spell",
+    "corpus": "C02",
+    "profile": "B02",
+    "path": "tests/fixtures/grouping-corpus/spell.png",
+    "sha256": "ce00fc3850fa2fe10952c697a04576a954788fabbad27ae7df1b96220f834027"
+  },
+  {
+    "id": "T10",
+    "name": "01-single-circle-flat-transparent-canvas",
+    "corpus": "C05",
+    "profile": "B01",
+    "path": "internal-docs/tests/fixtures/object-detection/raster/01-single-circle-flat-transparent-canvas.png",
+    "sha256": "1d699f740386d8a51a9068f995967a33aa565f9a9677f7ac6880e70af6fc66d8"
+  },
+  {
+    "id": "T11",
+    "name": "03-single-rounded-rectangle-linear-gradient",
+    "corpus": "C05",
+    "profile": "B03",
+    "path": "internal-docs/tests/fixtures/object-detection/raster/03-single-rounded-rectangle-linear-gradient.png",
+    "sha256": "2c56246eb69daa5a23b4720cc832f805ea34f5c5757f829f03780556efdeedfc"
+  },
+  {
+    "id": "T12",
+    "name": "04-single-organic-radial-gradient-alpha",
+    "corpus": "C05",
+    "profile": "B03",
+    "path": "internal-docs/tests/fixtures/object-detection/raster/04-single-organic-radial-gradient-alpha.png",
+    "sha256": "8165e2f0dab33ac365e1006c704ea9f3a6b7b448f7794ba053025ab08725bbcb"
+  },
+  {
+    "id": "T13",
+    "name": "05-single-donut-evenodd-flat",
+    "corpus": "C05",
+    "profile": "B01",
+    "path": "internal-docs/tests/fixtures/object-detection/raster/05-single-donut-evenodd-flat.png",
+    "sha256": "43d3dcbeeb87aef8ea186ba78a7a329cebceb18e26ff8cf50d0da0052285187c"
+  },
+  {
+    "id": "T14",
+    "name": "08-touching-same-fill-circles",
+    "corpus": "C05",
+    "profile": "B01",
+    "path": "internal-docs/tests/fixtures/object-detection/raster/08-touching-same-fill-circles.png",
+    "sha256": "b3e4a69c91940cd4844939c489fde7d1192c21de3f6e18f4bacc7f0ae850995b"
+  },
+  {
+    "id": "T15",
+    "name": "09-overlap-flat-opaque-mixed-shapes",
+    "corpus": "C05",
+    "profile": "B02",
+    "path": "internal-docs/tests/fixtures/object-detection/raster/09-overlap-flat-opaque-mixed-shapes.png",
+    "sha256": "3df445261d4f34f86f0d16d0784861942b08c530f5b7fcc0d0926857ed96220c"
+  },
+  {
+    "id": "T16",
+    "name": "12-overlap-gradient-alpha-dark-backdrop",
+    "corpus": "C05",
+    "profile": "B03",
+    "path": "internal-docs/tests/fixtures/object-detection/raster/12-overlap-gradient-alpha-dark-backdrop.png",
+    "sha256": "808ace36034e6c56f988d579b47447405657987fe6888b91b74a7d75871580d8"
+  },
+  {
+    "id": "T17",
+    "name": "15-overlap-concave-c-flat",
+    "corpus": "C05",
+    "profile": "B02",
+    "path": "internal-docs/tests/fixtures/object-detection/raster/15-overlap-concave-c-flat.png",
+    "sha256": "85588c808a3234661e95a959f4088342932060d3b8d2093d97e727ce05122717"
+  },
+  {
+    "id": "T18",
+    "name": "18-one-object-multiple-components-gradient",
+    "corpus": "C05",
+    "profile": "B03",
+    "path": "internal-docs/tests/fixtures/object-detection/raster/18-one-object-multiple-components-gradient.png",
+    "sha256": "9698997179807c37296b2b57e349bf55705dda07a2d62556ebb7fca9b2b09b67"
+  },
+  {
+    "id": "T19",
+    "name": "19-overlap-donut-and-gradient-circle",
+    "corpus": "C05",
+    "profile": "B03",
+    "path": "internal-docs/tests/fixtures/object-detection/raster/19-overlap-donut-and-gradient-circle.png",
+    "sha256": "bc1510ca969a6a49ad763ef7c10c14153b40de974faa8726781f988921793e5b"
+  },
+  {
+    "id": "T20",
+    "name": "01-circles-object-opacity",
+    "corpus": "C06",
+    "profile": "B02",
+    "path": "internal-docs/tests/fixtures/overlap-reconstruction/raster/01-circles-object-opacity.png",
+    "sha256": "499d709e16569b6f559ebe326bd2828acd217dac1fd339a3919595073ea2b0fd"
+  },
+  {
+    "id": "T21",
+    "name": "01b-circles-group-opacity-control",
+    "corpus": "C06",
+    "profile": "B02",
+    "path": "internal-docs/tests/fixtures/overlap-reconstruction/raster/01b-circles-group-opacity-control.png",
+    "sha256": "49e122832ec347da1529b3f593de12424a7204b2834edbb6ebd6fe8b905aa272"
+  },
+  {
+    "id": "T22",
+    "name": "09-mixed-primitives-group-opacity",
+    "corpus": "C06",
+    "profile": "B02",
+    "path": "internal-docs/tests/fixtures/overlap-reconstruction/raster/09-mixed-primitives-group-opacity.png",
+    "sha256": "c7b0a953a06e9e28ee5781ae35d9fb4e85606fc3b5c32f926be75e75df33308d"
+  },
+  {
+    "id": "T23",
+    "name": "11-rotated-ellipses-group-opacity",
+    "corpus": "C06",
+    "profile": "B02",
+    "path": "internal-docs/tests/fixtures/overlap-reconstruction/raster/11-rotated-ellipses-group-opacity.png",
+    "sha256": "522cda6365d79e3be26cfcde3ae81d88c98597a03216c30fa7210364ec039cae"
+  },
+  {
+    "id": "T24",
+    "name": "13-bezier-concave-overlaps-group-opacity",
+    "corpus": "C06",
+    "profile": "B02",
+    "path": "internal-docs/tests/fixtures/overlap-reconstruction/raster/13-bezier-concave-overlaps-group-opacity.png",
+    "sha256": "d42e04a56b812bca0d5b74fd9cedbb670518f59b43b9fddea990f65a06b9bdd3"
+  },
+  {
+    "id": "T25",
+    "name": "rainbow-saturated",
+    "corpus": "C07",
+    "profile": "B03",
+    "path": "internal-docs/gradient-research/datasets/gradients-openclipart/rainbow-saturated.svg",
+    "sha256": "9bf2dd78f37583ab33ac58ef6606b0b98a8c60f8986203dcc81eed8cbc520857"
+  },
+  {
+    "id": "T26",
+    "name": "sunset-gradient",
+    "corpus": "C07",
+    "profile": "B03",
+    "path": "internal-docs/gradient-research/datasets/gradients-openclipart/sunset-gradient.svg",
+    "sha256": "462af94869fa69cb7e772d99fe1370bba402ea0e3329f4d41d1b89723e82d5bf"
+  },
+  {
+    "id": "T27",
+    "name": "grassy-horizon",
+    "corpus": "C07",
+    "profile": "B03",
+    "path": "internal-docs/gradient-research/datasets/gradients-openclipart/grassy-horizon.svg",
+    "sha256": "94c0cf9daa3656d99f073daa42dd16a7af74b724453bcb7530eda29dcc054f44"
+  },
+  {
+    "id": "T28",
+    "name": "gradient-spiral",
+    "corpus": "C07",
+    "profile": "B05",
+    "path": "internal-docs/gradient-research/datasets/gradients-openclipart/gradient-spiral.svg",
+    "sha256": "e34538f01b66855097f6dcd3d91121b205a0acf230f79d0dc959f4943b6a3d27"
+  },
+  {
+    "id": "T29",
+    "name": "fluent__assets_Tomato_Color_tomato_color",
+    "corpus": "C08",
+    "profile": "B03",
+    "path": "internal-docs/gradient-research/datasets/semantic-svg-gradients/fluent__assets_Tomato_Color_tomato_color.svg",
+    "sha256": "68393923f5b7846dbb2b15ce211eae04aa3ec5b75145dbf183dbb612deafcfeb"
+  },
+  {
+    "id": "T30",
+    "name": "fluent__assets_Sun_behind_cloud_Color_sun_behind_cloud_color",
+    "corpus": "C08",
+    "profile": "B03",
+    "path": "internal-docs/gradient-research/datasets/semantic-svg-gradients/fluent__assets_Sun_behind_cloud_Color_sun_behind_cloud_color.svg",
+    "sha256": "1d4ceea6051809553e6ea2f33748d8d9d5d4474929547e8b4028d82b7fbf6300"
+  }
+]
