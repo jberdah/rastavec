@@ -15,6 +15,9 @@
   let gridSheetInput: HTMLInputElement
   let sheetInfo = $state<string | null>(null)
   let slicing = $state(false)
+  // Opened on load only when a budget is already set; afterwards the user folds it, so
+  // dragging the slider back to "no size limit" does not collapse it mid-gesture.
+  let budgetOpen = $state(app.auto.maxKB > 0)
   let gridFile = $state<File | null>(null)
   let gridPreviewUrl = $state('')
   let gridSize = $state<{ width: number; height: number } | null>(null)
@@ -223,6 +226,12 @@
             {/if}
           </div>
         {/if}
+        {#if app.items.length}
+          <button type="button" class="btn btn-primary cta" disabled={app.running || slicing} onclick={start}>
+            {app.running ? t('cta.running') : t('cta.run', app.items.length)}
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14" /><path d="m13 6 6 6-6 6" /></svg>
+          </button>
+        {/if}
       </div>
     </div>
 
@@ -313,18 +322,23 @@
         <label for="thr"><span>{t('auto.threshold')}</span><span class="value accent">{pct(app.auto.threshold, 1)}</span></label>
         <input id="thr" type="range" min="0.5" max="10" step="0.5" bind:value={app.auto.threshold} />
       </div>
-      <div class="field">
-        <label for="kb"><span>{t('auto.maxSize')}</span><span class="value accent">{app.auto.maxKB > 0 ? `${num(app.auto.maxKB)} ${kbUnit()}` : t('auto.noBudget')}</span></label>
-        <input id="kb" type="range" min="0" max="3000" step="50" bind:value={app.auto.maxKB} />
-      </div>
-      <span class="mono faint small">{t('auto.score')}</span>
+      <!-- Optional and off by default: folded unless a budget is set. -->
+      <details class="fold budget" bind:open={budgetOpen}>
+        <summary><span>{t('auto.maxSize')}</span><span class="value accent">{app.auto.maxKB > 0 ? `${num(app.auto.maxKB)} ${kbUnit()}` : t('auto.noBudget')}</span></summary>
+        <div class="fold-body">
+          <input id="kb" type="range" min="0" max="3000" step="50" bind:value={app.auto.maxKB} aria-label={t('auto.maxSize')} />
+          <span class="mono faint small">{t('auto.score')}</span>
+        </div>
+      </details>
     </div>
 
-    <div class="card stack">
-      <div class="between">
+    <!-- Auto recomputes these for each image, so they stay folded until asked for. -->
+    <details class="card fold params" open={app.presetId !== 'auto'}>
+      <summary>
         <h2 class="h3">{t('params.title')}</h2>
-        <span class="mono muted small">VTracer-Next</span>
-      </div>
+        <span class="mono muted small">{app.presetId === 'auto' ? t('params.autoSummary') : 'VTracer-Next'}</span>
+      </summary>
+      <div class="stack fold-body">
       {#if app.presetId === 'auto'}
         <span class="small" style="color: var(--accent-text)">{t('params.autoNote')}</span>
       {/if}
@@ -368,12 +382,9 @@
           <input id="af" type="range" min="0" max="64" bind:value={app.params.alphaFloor} oninput={markCustom} />
         </div>
       {/if}
-    </div>
+      </div>
+    </details>
 
-    <button type="button" class="btn btn-light cta" disabled={!app.items.length || app.running || slicing} onclick={start}>
-      {app.running ? t('cta.running') : app.items.length ? t('cta.run', app.items.length) : t('cta.empty')}
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14" /><path d="m13 6 6 6-6 6" /></svg>
-    </button>
   </aside>
 </div>
 
@@ -418,5 +429,14 @@
   .toggle span { position: absolute; top: 3px; left: 3px; width: 24px; height: 24px; border-radius: 50%; background: var(--bg); transition: left 0.15s; }
   .toggle[aria-pressed='true'] { background: var(--accent); }
   .toggle[aria-pressed='true'] span { left: 25px; }
-  .cta { min-height: 56px; border-radius: 16px; font-size: 16px; }
+  .cta { flex: 1 1 100%; min-height: 56px; border-radius: 16px; font-size: 16px; justify-content: center; }
+  .fold > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; cursor: pointer; list-style: none; }
+  .fold > summary::-webkit-details-marker { display: none; }
+  .fold > summary::after { content: ''; flex: none; width: 8px; height: 8px; margin-left: 4px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: rotate(45deg); transition: transform 0.15s; }
+  .fold[open] > summary::after { transform: rotate(-135deg); }
+  .fold > summary > :first-child { margin-right: auto; }
+  .fold-body { display: flex; flex-direction: column; gap: 14px; padding-top: 14px; }
+  .budget > summary { font-size: 13px; color: var(--muted); }
+  .budget > summary .value { font-family: 'Geist Mono', monospace; }
+  .fold > summary > * { white-space: nowrap; }
 </style>
