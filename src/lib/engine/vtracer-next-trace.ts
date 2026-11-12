@@ -35,9 +35,10 @@ export function parseShapeHints(report: string): EngineShapeHint[] {
     if (!Array.isArray(shapes)) return []
     return shapes
       .filter((shape) => shape.kind !== 'path' || shape.gradient !== undefined || shape.overlayOf !== undefined)
-      .map(({ index, kind, cx, cy, r, rx, ry, rotation, gradient, overlayOf, bounds }) => ({
+      .map(({ index, kind, cx, cy, r, rx, ry, rotation, innerCx, innerCy, innerR, gradient, overlayOf, bounds }) => ({
         index, kind,
-        ...(kind === 'circle' ? { cx, cy, r } : kind === 'ellipse' ? { cx, cy, rx, ry, rotation } : {}),
+        ...(kind === 'circle' ? { cx, cy, r } : kind === 'ellipse' ? { cx, cy, rx, ry, rotation }
+          : kind === 'crescent' ? { cx, cy, r, innerCx, innerCy, innerR } : {}),
         ...(gradient ? { gradient } : {}), ...(overlayOf !== undefined ? { overlayOf } : {}), bounds,
       }))
   } catch {

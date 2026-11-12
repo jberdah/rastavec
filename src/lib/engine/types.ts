@@ -70,12 +70,16 @@ export interface Metrics {
  */
 export interface EngineShapeHint {
   index: number
-  kind: 'path' | 'circle' | 'ellipse'
-  /** Centre, in viewBox units (circles and ellipses). */
+  kind: 'path' | 'circle' | 'ellipse' | 'crescent'
+  /** Centre, in viewBox units (circles and ellipses; a crescent's outer circle). */
   cx?: number
   cy?: number
-  /** Circle radius. */
+  /** Circle radius (a crescent's outer radius). */
   r?: number
+  /** A crescent's inner circle: the disc taken out of the outer one. */
+  innerCx?: number
+  innerCy?: number
+  innerR?: number
   /** Ellipse semi-axes; `rotation` is the direction of `rx` in degrees, as in an SVG `rotate()`. */
   rx?: number
   ry?: number
@@ -96,6 +100,8 @@ export interface Trial {
   traceMethod?: 'pixel-grid' | 'experimental-gradients' | 'simple-gradients' | 'fill-calibrated' | 'palette-calibrated' | 'paths-merged' | 'shapes-edited'
   params: TraceParams
   svg: string
+  /** Listed for comparison but never chosen automatically (see `choose`). */
+  comparisonOnly?: boolean
   /** Engine hints for `svg`; dropped whenever a later pass renumbers its paths. */
   shapes?: EngineShapeHint[]
   /** For a 'shapes-edited' variant: index of the traced trial it was derived from. */

@@ -257,7 +257,13 @@ export async function vectorize(
       .sort((a, b) => a.score - b.score)[0]
     if (polygonBase) {
       try {
-        trials.push(await runTrial(src, { ...polygonBase.params, mode: 'polygon' }, false, backend))
+        const polygon = await runTrial(src, { ...polygonBase.params, mode: 'polygon' }, false, backend)
+        // Curves stay smoother when scaled and edited, and polygons are usually lighter, so
+        // the size term alone would pick polygons for curved logos (a crescent moon came out
+        // as 147 straight segments). Polygons keep their point, sharp corners, only when they
+        // are clearly more faithful; otherwise they are listed for comparison only.
+        if (!(polygon.metrics.pctDiff < polygonBase.metrics.pctDiff * 0.9)) polygon.comparisonOnly = true
+        trials.push(polygon)
       } catch (error) {
         checkCancelled()
         failedTrials.push({ traceScale: 1, message: error instanceof Error ? error.message : String(error) })

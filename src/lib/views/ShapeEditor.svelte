@@ -22,7 +22,7 @@
   const entries = $derived(editableShapes(svg, shapes))
   const current = $derived(entries.find((entry) => entry.hint.index === selected) ?? null)
   const label = (hint: EngineShapeHint) =>
-    hint.overlayOf !== undefined ? t('shapeEdit.overlay') : hint.kind === 'circle' ? t('shapeEdit.circle') : hint.kind === 'ellipse' ? t('shapeEdit.ellipse') : t('shapeEdit.gradientRegion')
+    hint.overlayOf !== undefined ? t('shapeEdit.overlay') : hint.kind === 'circle' ? t('shapeEdit.circle') : hint.kind === 'ellipse' ? t('shapeEdit.ellipse') : hint.kind === 'crescent' ? t('shapeEdit.crescent') : t('shapeEdit.gradientRegion')
   // Layer names like a vector editor: "Circle 1", "Ellipse 2"…, numbered per kind in paint order.
   const names = $derived.by(() => {
     const counts = new Map<string, number>()
@@ -41,6 +41,10 @@
     const hint = current?.hint
     if (!hint || !current?.capabilities?.geometry) return []
     const centre = [{ key: 'cx', value: hint.cx }, { key: 'cy', value: hint.cy }] as const
+    if (hint.kind === 'crescent') {
+      return [...centre, { key: 'r', value: hint.r } as const, { key: 'innerCx', value: hint.innerCx } as const,
+        { key: 'innerCy', value: hint.innerCy } as const, { key: 'innerR', value: hint.innerR } as const]
+    }
     return hint.kind === 'circle'
       ? [...centre, { key: 'r', value: hint.r } as const]
       : [...centre, { key: 'rx', value: hint.rx } as const, { key: 'ry', value: hint.ry } as const, { key: 'rotation', value: hint.rotation } as const]
@@ -76,7 +80,7 @@
       <div class="grid">
         {#each fields as field (field.key)}
           <label class="num"><span class="muted tiny">{t(`shapeEdit.${field.key}`)}</span>
-            <input type="number" step="1" min={field.key === 'r' || field.key === 'rx' || field.key === 'ry' ? 1 : undefined} value={Math.round((field.value ?? 0) * 10) / 10} onchange={(e) => setNumber(field.key, e.currentTarget.value)} />
+            <input type="number" step="1" min={field.key === 'r' || field.key === 'rx' || field.key === 'ry' || field.key === 'innerR' ? 1 : undefined} value={Math.round((field.value ?? 0) * 10) / 10} onchange={(e) => setNumber(field.key, e.currentTarget.value)} />
           </label>
         {/each}
       </div>

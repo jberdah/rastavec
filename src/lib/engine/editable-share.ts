@@ -35,6 +35,7 @@ export function editableShare(svg: string, shapes: EngineShapeHint[] | undefined
   for (const hint of hints) {
     if (hint.kind === 'circle') area += Math.PI * (hint.r ?? 0) ** 2
     else if (hint.kind === 'ellipse') area += Math.PI * (hint.rx ?? 0) * (hint.ry ?? 0)
+    else if (hint.kind === 'crescent') area += crescentArea(hint.r ?? 0, hint.innerR ?? 0, Math.hypot((hint.innerCx ?? 0) - (hint.cx ?? 0), (hint.innerCy ?? 0) - (hint.cy ?? 0)))
     else {
       tags ??= [...svg.matchAll(PATH_DATA)]
       const d = tags[hint.index]?.[1]
@@ -42,4 +43,14 @@ export function editableShare(svg: string, shapes: EngineShapeHint[] | undefined
     }
   }
   return Math.min(1, area / total)
+}
+
+/** Area of the outer disc minus its overlap with the inner one (circles `d` apart). */
+function crescentArea(r: number, ir: number, d: number): number {
+  if (d >= r + ir) return Math.PI * r * r
+  if (d <= Math.abs(r - ir)) return Math.max(0, Math.PI * (r * r - Math.min(r, ir) ** 2))
+  const a = r * r * Math.acos((d * d + r * r - ir * ir) / (2 * d * r))
+  const b = ir * ir * Math.acos((d * d + ir * ir - r * r) / (2 * d * ir))
+  const c = 0.5 * Math.sqrt((-d + r + ir) * (d + r - ir) * (d - r + ir) * (d + r + ir))
+  return Math.PI * r * r - (a + b - c)
 }

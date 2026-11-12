@@ -5,7 +5,7 @@ import { createRequire } from 'node:module'
 const sharp = createRequire(new URL('../cli/package.json', import.meta.url))('sharp')
 const { buildSync } = createRequire(new URL('../cli/package.json', import.meta.url))('esbuild')
 const bundled = buildSync({ stdin: { contents: `export * from './src/lib/engine/shape-edits'; export { analyzeShapes, applyFilters, DEFAULT_FILTERS } from './src/lib/engine/palette'`, resolveDir: process.cwd(), loader: 'ts' }, bundle: true, write: false, format: 'esm', platform: 'node' }).outputFiles[0].text
-const { editShape, ellipsePath, shapeCapabilities, analyzeShapes, applyFilters, DEFAULT_FILTERS } = await import(`data:text/javascript;base64,${Buffer.from(bundled).toString('base64')}`)
+const { editShape, ellipsePath, crescentPath, shapeCapabilities, analyzeShapes, applyFilters, DEFAULT_FILTERS } = await import(`data:text/javascript;base64,${Buffer.from(bundled).toString('base64')}`)
 
 // Engine-style output: a background, a flat circle, a gradient-painted ellipse with one overlay.
 const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="120" viewBox="0 0 200 120">
@@ -97,4 +97,26 @@ test('recognised shapes become animation groups, overlays staying with their bas
   for (const at of [[50, 60], [150, 60], [5, 5]]) assert.deepEqual(await pixel(grouping.svg, ...at), await pixel(svg, ...at))
   assert.equal(groupsFromShapes(grouping.svg, hints, () => 'x'), null, 'an already grouped SVG is left alone')
   assert.equal(groupsFromShapes(svg, [], () => 'x'), null)
+})
+
+test('a crescent is moved as a whole, or reshaped by its inner circle, and stays a crescent', async () => {
+  const d = crescentPath(100, 100, 60, 125, 85, 50)
+  assert.ok(d && /^M[^MZ]+Z$/.test(d) && (d.match(/C/g) ?? []).length === 8, d)
+  assert.equal(crescentPath(100, 100, 60, 300, 300, 20), null, 'circles that do not cross make no crescent')
+  const moon = `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">
+<path d="M0,0H200V200H0Z" fill="#fafaf5"/>
+<path d="${d}" fill="#25303e"/>
+</svg>`
+  const hints = [{ index: 1, kind: 'crescent', cx: 100, cy: 100, r: 60, innerCx: 125, innerCy: 85, innerR: 50, bounds: [40, 40, 160, 160] }]
+  assert.equal(shapeCapabilities(moon, hints, 1).geometry, true)
+
+  const moved = editShape(moon, hints, 1, { cx: 110, cy: 90 })
+  const after = moved.hints[0]
+  assert.deepEqual([after.cx, after.cy, after.innerCx, after.innerCy], [110, 90, 135, 75], 'the inner circle travels with the crescent')
+  assert.ok(moved.svg.includes(`d="${crescentPath(110, 90, 60, 135, 75, 50)}"`))
+
+  const thinner = editShape(moon, hints, 1, { innerCx: 115, innerR: 55 })
+  assert.deepEqual([thinner.hints[0].cx, thinner.hints[0].innerCx, thinner.hints[0].innerR], [100, 115, 55])
+  assert.equal(editShape(moon, hints, 1, { innerCx: 400 }), null, 'an inner circle moved off the crescent is refused')
+  assert.equal(editShape(moon, hints, 1, { innerR: 0 }), null)
 })

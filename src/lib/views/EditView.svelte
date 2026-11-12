@@ -10,7 +10,7 @@
   import GroupReview from './GroupReview.svelte'
   import ShapeEditor from './ShapeEditor.svelte'
   import { applyShapeEdit } from '../shape-editing'
-  import { editShape as editShapeSvg, editableShapes, type ShapePatch } from '../engine/shape-edits'
+  import { crescentPath, editShape as editShapeSvg, editableShapes, type ShapePatch } from '../engine/shape-edits'
   import { groupsFromShapes } from '../engine/shape-groups'
   import { canRedo, canUndo, dropLastStep, record, redo, undo } from '../edit-history.svelte'
   import { publicAsset } from '../assets'
@@ -99,7 +99,7 @@
   function animateShapes() {
     if (!item || !result || !trial?.shapes) return
     const grouping = groupsFromShapes(result.svg, trial.shapes, (hint, ordinal) =>
-      `${hint.kind === 'circle' ? t('shapeEdit.circle') : hint.kind === 'ellipse' ? t('shapeEdit.ellipse') : t('shapeEdit.gradientRegion')} ${ordinal}`)
+      `${hint.kind === 'circle' ? t('shapeEdit.circle') : hint.kind === 'ellipse' ? t('shapeEdit.ellipse') : hint.kind === 'crescent' ? t('shapeEdit.crescent') : t('shapeEdit.gradientRegion')} ${ordinal}`)
     if (!grouping) return
     saveGrouping(grouping)
     go('animate', item.id)
@@ -108,8 +108,10 @@
   // Direct manipulation, like a vector editor: drag the body to move, a corner or side handle to
   // resize around the centre, the top handle to rotate an ellipse. The outline follows the pointer
   // and the shape is redrawn live; one edit (one undo step) is committed on release.
-  type Mode = 'move' | 'resize' | 'rotate'
-  type Geometry = { cx: number; cy: number; rx: number; ry: number; rotation: number }
+  // A crescent is edited by its two circles: the body and the outer handles act on the outer one
+  // (moving carries the inner circle along), the inner circle has its own centre and radius grips.
+  type Mode = 'move' | 'resize' | 'rotate' | 'inner-move' | 'inner-resize'
+  type Geometry = { cx: number; cy: number; rx: number; ry: number; rotation: number; icx: number; icy: number; ir: number }
   let drag = $state<{ index: number; mode: Mode; sx: number; sy: number; startX: number; startY: number; startLx: number; startLy: number; from: Geometry; to: Geometry } | null>(null)
   let gesture = 0
   // Pointer position in the shape's own (unrotated) frame, as distances from its centre.
@@ -119,10 +121,14 @@
   }
   let pickSvg = $state<SVGSVGElement | null>(null)
   const geometryOf = (hint: EngineShapeHint): Geometry => ({
-    cx: hint.cx ?? 0, cy: hint.cy ?? 0, rx: hint.rx ?? hint.r ?? 0, ry: hint.ry ?? hint.r ?? 0, rotation: hint.kind === 'circle' ? 0 : hint.rotation ?? 0,
+    cx: hint.cx ?? 0, cy: hint.cy ?? 0, rx: hint.rx ?? hint.r ?? 0, ry: hint.ry ?? hint.r ?? 0,
+    rotation: hint.kind === 'ellipse' ? hint.rotation ?? 0 : 0,
+    icx: hint.innerCx ?? 0, icy: hint.innerCy ?? 0, ir: hint.innerR ?? 0,
   })
   const liveGeometry = (hint: EngineShapeHint): Geometry => (drag && drag.index === hint.index ? drag.to : geometryOf(hint))
-  const isCircle = (index: number) => trial?.shapes?.find((shape) => shape.index === index)?.kind === 'circle'
+  const kindOf = (index: number) => trial?.shapes?.find((shape) => shape.index === index)?.kind
+  // Resized like a circle: circles, and a crescent's outer circle.
+  const isCircle = (index: number) => kindOf(index) === 'circle' || kindOf(index) === 'crescent'
   function toUser(event: PointerEvent): [number, number] | null {
     const matrix = pickSvg?.getScreenCTM()
     if (!matrix) return null
@@ -137,7 +143,10 @@
     if (!at) return
     ;(event.currentTarget as Element).setPointerCapture(event.pointerId)
     const from = geometryOf(hint)
-    const [startLx, startLy] = localDistances(at, from)
+    // For the inner radius grip, the distance is measured from the inner centre.
+    const [startLx, startLy] = mode === 'inner-resize'
+      ? [Math.hypot(at[0] - from.icx, at[1] - from.icy), 0]
+      : localDistances(at, from)
     gesture++
     drag = { index: hint.index, mode, sx, sy, startX: at[0], startY: at[1], startLx, startLy, from, to: from }
   }
@@ -146,8 +155,13 @@
     if (!drag || !at) return
     const { from } = drag
     let to: Geometry = from
+    const dx = at[0] - drag.startX, dy = at[1] - drag.startY
     if (drag.mode === 'move') {
-      to = { ...from, cx: from.cx + at[0] - drag.startX, cy: from.cy + at[1] - drag.startY }
+      to = { ...from, cx: from.cx + dx, cy: from.cy + dy, icx: from.icx + dx, icy: from.icy + dy }
+    } else if (drag.mode === 'inner-move') {
+      to = { ...from, icx: from.icx + dx, icy: from.icy + dy }
+    } else if (drag.mode === 'inner-resize') {
+      to = { ...from, ir: Math.max(1, from.ir + Math.hypot(at[0] - from.icx, at[1] - from.icy) - drag.startLx) }
     } else if (drag.mode === 'rotate') {
       const angle = (Math.atan2(at[1] - from.cy, at[0] - from.cx) * 180) / Math.PI + 90
       to = { ...from, rotation: round1(((angle + 540) % 360) - 180) }
@@ -164,8 +178,31 @@
         to = { ...from, rx: drag.sx ? Math.max(1, from.rx + growX) : from.rx, ry: drag.sy ? Math.max(1, from.ry + growY) : from.ry }
       }
     }
+    if (kindOf(drag.index) === 'crescent') to = keepCrescent(to, drag.mode)
     drag = { ...drag, to }
     scheduleLive()
+  }
+  // A crescent exists only while its two circles cross (|r - ir| < d < r + ir). Clamp the value the
+  // gesture changes, so the handle stops at the last valid crescent instead of the edit being
+  // refused on release.
+  function keepCrescent(g: Geometry, mode: Mode): Geometry {
+    const margin = 0.5
+    const d = Math.hypot(g.icx - g.cx, g.icy - g.cy)
+    if (mode === 'inner-resize') {
+      const lo = Math.max(1, Math.abs(g.rx - d) + margin), hi = g.rx + d - margin
+      return lo < hi ? { ...g, ir: Math.min(hi, Math.max(lo, g.ir)) } : g
+    }
+    if (mode === 'resize') {
+      const lo = Math.max(1, Math.abs(g.ir - d) + margin), hi = g.ir + d - margin
+      const r = lo < hi ? Math.min(hi, Math.max(lo, g.rx)) : g.rx
+      return { ...g, rx: r, ry: r }
+    }
+    if (mode === 'inner-move' && d > 0) {
+      const lo = Math.abs(g.rx - g.ir) + margin, hi = g.rx + g.ir - margin
+      const k = Math.min(hi, Math.max(lo, d)) / d
+      return { ...g, icx: g.cx + (g.icx - g.cx) * k, icy: g.cy + (g.icy - g.cy) * k }
+    }
+    return g
   }
   const round1 = (value: number) => Math.round(value * 10) / 10
   function patchOf(index: number, from: Geometry, to: Geometry): ShapePatch {
@@ -174,6 +211,13 @@
     if (to.cy !== from.cy) patch.cy = round1(to.cy)
     if (isCircle(index)) {
       if (to.rx !== from.rx) patch.r = round1(to.rx)
+      if (kindOf(index) === 'crescent') {
+        // Moving the whole crescent carries the inner circle (shape-edits does that); only an
+        // inner-circle gesture places it explicitly.
+        const innerMoved = (to.icx - from.icx) !== (to.cx - from.cx) || (to.icy - from.icy) !== (to.cy - from.cy)
+        if (innerMoved) { patch.innerCx = round1(to.icx); patch.innerCy = round1(to.icy) }
+        if (to.ir !== from.ir) patch.innerR = round1(to.ir)
+      }
     } else {
       if (to.rx !== from.rx) patch.rx = round1(to.rx)
       if (to.ry !== from.ry) patch.ry = round1(to.ry)
@@ -187,8 +231,10 @@
     livePreview = null
     if (!done) return
     const patch = patchOf(done.index, done.from, done.to)
-    const moved = Math.hypot(done.to.cx - done.from.cx, done.to.cy - done.from.cy) >= 0.5
-    if (Object.keys(patch).length && (done.mode !== 'move' || moved)) editShape(done.index, patch, `drag:${gesture}`)
+    const moved = done.mode === 'inner-move'
+      ? Math.hypot(done.to.icx - done.from.icx, done.to.icy - done.from.icy) >= 0.5
+      : Math.hypot(done.to.cx - done.from.cx, done.to.cy - done.from.cy) >= 0.5
+    if (Object.keys(patch).length && ((done.mode !== 'move' && done.mode !== 'inner-move') || moved)) editShape(done.index, patch, `drag:${gesture}`)
   }
   // An interrupted gesture (pointer lost, undo, tab change) is dropped, never committed.
   function cancelDrag() {
@@ -392,12 +438,21 @@
                 <svg class="fit pick" bind:this={pickSvg} {viewBox} preserveAspectRatio="xMidYMid meet" onclick={(event) => { if (event.target === event.currentTarget) selectedShape = null }}>
                   {#each pickable as entry (entry.hint.index)}
                     {@const g = liveGeometry(entry.hint)}
-                    <ellipse
-                      class="target" class:movable={entry.capabilities.geometry} class:hover={hoveredShape === entry.hint.index} class:on={selectedShape === entry.hint.index}
-                      cx={g.cx} cy={g.cy} rx={g.rx} ry={g.ry} transform={`rotate(${g.rotation} ${g.cx} ${g.cy})`}
-                      onpointerenter={() => (hoveredShape = entry.hint.index)} onpointerleave={() => (hoveredShape = null)}
-                      onpointerdown={(event) => startDrag(event, entry.hint, 'move')} onpointermove={moveDrag} onpointerup={endDrag} onpointercancel={cancelDrag}
-                    />
+                    {#if entry.hint.kind === 'crescent'}
+                      <path
+                        class="target" class:movable={entry.capabilities.geometry} class:hover={hoveredShape === entry.hint.index} class:on={selectedShape === entry.hint.index}
+                        d={crescentPath(g.cx, g.cy, g.rx, g.icx, g.icy, g.ir) ?? ''}
+                        onpointerenter={() => (hoveredShape = entry.hint.index)} onpointerleave={() => (hoveredShape = null)}
+                        onpointerdown={(event) => startDrag(event, entry.hint, 'move')} onpointermove={moveDrag} onpointerup={endDrag} onpointercancel={cancelDrag}
+                      />
+                    {:else}
+                      <ellipse
+                        class="target" class:movable={entry.capabilities.geometry} class:hover={hoveredShape === entry.hint.index} class:on={selectedShape === entry.hint.index}
+                        cx={g.cx} cy={g.cy} rx={g.rx} ry={g.ry} transform={`rotate(${g.rotation} ${g.cx} ${g.cy})`}
+                        onpointerenter={() => (hoveredShape = entry.hint.index)} onpointerleave={() => (hoveredShape = null)}
+                        onpointerdown={(event) => startDrag(event, entry.hint, 'move')} onpointermove={moveDrag} onpointerup={endDrag} onpointercancel={cancelDrag}
+                      />
+                    {/if}
                   {/each}
                   {#if selectedEntry && selectedEntry.hint.kind !== 'path'}
                     {@const hint = selectedEntry.hint}
@@ -423,6 +478,16 @@
                         {/each}
                       {/if}
                     </g>
+                    {#if hint.kind === 'crescent' && selectedEntry.capabilities.geometry}
+                      <!-- The disc taken out of the crescent: drag its centre to move it, its rim grip to resize it. -->
+                      <circle class="frame inner" cx={g.icx} cy={g.icy} r={g.ir} />
+                      <circle class="handle" cx={g.icx} cy={g.icy} r={hs * 0.55} />
+                      <circle class="hit" style:cursor="move" cx={g.icx} cy={g.icy} r={hs * 1.1}
+                        onpointerdown={(event) => startDrag(event, hint, 'inner-move')} onpointermove={moveDrag} onpointerup={endDrag} onpointercancel={cancelDrag} />
+                      <rect class="handle" x={g.icx + g.ir - hs / 2} y={g.icy - hs / 2} width={hs} height={hs} />
+                      <rect class="hit" style:cursor="ew-resize" x={g.icx + g.ir - hs} y={g.icy - hs} width={hs * 2} height={hs * 2}
+                        onpointerdown={(event) => startDrag(event, hint, 'inner-resize')} onpointermove={moveDrag} onpointerup={endDrag} onpointercancel={cancelDrag} />
+                    {/if}
                   {:else if selectedEntry}
                     {@const b = selectedEntry.hint.bounds}
                     <rect class="frame" x={b[0]} y={b[1]} width={b[2] - b[0]} height={b[3] - b[1]} />
@@ -545,6 +610,7 @@
   .shapes-mode .pick .target { stroke: rgba(255, 255, 255, 0.6); stroke-width: 1; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; }
   .pick .target.hover, .pick .target.on { stroke: var(--accent); stroke-width: 2; stroke-dasharray: none; vector-effect: non-scaling-stroke; }
   .pick .frame { fill: none; stroke: var(--accent); stroke-width: 1; stroke-dasharray: 5 4; vector-effect: non-scaling-stroke; pointer-events: none; }
+  .pick .frame.inner { stroke: #fff; stroke-dasharray: 3 3; }
   .pick .handle { fill: #fff; stroke: var(--accent); stroke-width: 1.5; vector-effect: non-scaling-stroke; pointer-events: none; }
   .pick .hit { fill: transparent; stroke: none; }
   .pick .hit.rotate { cursor: grab; }

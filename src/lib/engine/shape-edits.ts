@@ -17,6 +17,10 @@ export interface ShapePatch {
   rx?: number
   ry?: number
   rotation?: number
+  /** A crescent's inner circle. Moving a crescent (cx, cy) moves both circles. */
+  innerCx?: number
+  innerCy?: number
+  innerR?: number
   /** New `#rrggbb` for a flat fill. */
   fill?: string
   /** New `#rrggbb` per gradient stop, by position; `undefined` entries are left alone. */
@@ -36,6 +40,40 @@ export function ellipsePath(cx: number, cy: number, rx: number, ry: number, rota
   const at = (u: number, v: number) => `${round(cx + rx * u * cos - ry * v * sin)},${round(cy + rx * u * sin + ry * v * cos)}`
   const k = KAPPA
   return `M${at(1, 0)}C${at(1, k)} ${at(k, 1)} ${at(0, 1)}C${at(-k, 1)} ${at(-1, k)} ${at(-1, 0)}C${at(-1, -k)} ${at(-k, -1)} ${at(0, -1)}C${at(k, -1)} ${at(1, -k)} ${at(1, 0)}Z`
+}
+
+/**
+ * A crescent (outer disc minus inner disc) as the engine writes it: four cubic arcs along the outer
+ * circle from tip to tip, then four back along the inner circle. `null` when the circles do not
+ * cross, so there is no crescent.
+ */
+export function crescentPath(cx: number, cy: number, r: number, icx: number, icy: number, ir: number): string | null {
+  const dx = icx - cx, dy = icy - cy, d = Math.hypot(dx, dy)
+  if (!(d > Math.abs(r - ir)) || !(d < r + ir) || d < 1e-9) return null
+  const along = (r * r - ir * ir + d * d) / (2 * d), half = Math.sqrt(Math.max(0, r * r - along * along))
+  const mx = cx + dx * along / d, my = cy + dy * along / d
+  const p = { x: mx - dy * half / d, y: my + dx * half / d }, q = { x: mx + dy * half / d, y: my - dx * half / d }
+  const away = Math.atan2(cy - icy, cx - icx)
+  const angle = (ox: number, oy: number, at: { x: number; y: number }) => Math.atan2(at.y - oy, at.x - ox)
+  const sweepThrough = (from: number, to: number, through: number) => {
+    const tau = Math.PI * 2, ccw = ((to - from) % tau + tau) % tau, mid = ((through - from) % tau + tau) % tau
+    return mid <= ccw ? ccw : ccw - tau
+  }
+  const arc = (ox: number, oy: number, radius: number, start: number, sweep: number) => {
+    const step = sweep / 4, k = 4 / 3 * Math.tan(step / 4)
+    let out = ''
+    for (let n = 0; n < 4; n++) {
+      const t0 = start + step * n, t1 = start + step * (n + 1)
+      const [s0, c0, s1, c1] = [Math.sin(t0), Math.cos(t0), Math.sin(t1), Math.cos(t1)]
+      const x0 = ox + radius * c0, y0 = oy + radius * s0, x1 = ox + radius * c1, y1 = oy + radius * s1
+      out += `C${round(x0 - k * radius * s0)},${round(y0 + k * radius * c0)} ${round(x1 + k * radius * s1)},${round(y1 - k * radius * c1)} ${round(x1)},${round(y1)}`
+    }
+    return out
+  }
+  const outerStart = angle(cx, cy, p), innerStart = angle(icx, icy, q)
+  return `M${round(p.x)},${round(p.y)}`
+    + arc(cx, cy, r, outerStart, sweepThrough(outerStart, angle(cx, cy, q), away))
+    + arc(icx, icy, ir, innerStart, sweepThrough(innerStart, angle(icx, icy, p), away)) + 'Z'
 }
 
 /** Axis-aligned bounds of an ellipse. */
@@ -134,8 +172,20 @@ export function editShape(svg: string, hints: EngineShapeHint[], index: number, 
   let next: EngineShapeHint = { ...hint }
   let gradientShift: [number, number] | null = null
 
-  const geometryKeys = ['cx', 'cy', 'r', 'rx', 'ry', 'rotation'] as const
-  if (geometryKeys.some((key) => patch[key] !== undefined)) {
+  const geometryKeys = ['cx', 'cy', 'r', 'rx', 'ry', 'rotation', 'innerCx', 'innerCy', 'innerR'] as const
+  if (hint.kind === 'crescent' && geometryKeys.some((key) => patch[key] !== undefined)) {
+    if (!capabilities.geometry || !/\bd="[^"]*"/.test(tag)) return null
+    const cx = patch.cx ?? hint.cx ?? 0, cy = patch.cy ?? hint.cy ?? 0, r = patch.r ?? hint.r ?? 0
+    // Moving the crescent carries its inner circle along, unless that is placed explicitly.
+    const icx = patch.innerCx ?? (hint.innerCx ?? 0) + (cx - (hint.cx ?? 0))
+    const icy = patch.innerCy ?? (hint.innerCy ?? 0) + (cy - (hint.cy ?? 0))
+    const ir = patch.innerR ?? hint.innerR ?? 0
+    if (![cx, cy, r, icx, icy, ir].every(Number.isFinite) || r <= 0 || ir <= 0) return null
+    const d = crescentPath(cx, cy, r, icx, icy, ir)
+    if (!d) return null // the circles no longer cross: that would not be a crescent
+    tag = tag.replace(/\bd="[^"]*"/, `d="${d}"`)
+    next = { ...next, cx, cy, r, innerCx: icx, innerCy: icy, innerR: ir, bounds: ellipseBounds(cx, cy, r, r, 0) }
+  } else if (geometryKeys.some((key) => patch[key] !== undefined)) {
     if (!capabilities.geometry) return null
     const cx = patch.cx ?? hint.cx ?? 0, cy = patch.cy ?? hint.cy ?? 0
     const rx = hint.kind === 'circle' ? patch.r ?? hint.r ?? 0 : patch.rx ?? hint.rx ?? 0

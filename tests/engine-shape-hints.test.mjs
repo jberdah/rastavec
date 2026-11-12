@@ -72,3 +72,22 @@ test('a tilted ellipse crossed by a bar is reported whole, with its axes and rot
   assert.ok(turn < 1 || turn > 179, JSON.stringify(ellipse))
   assert.ok(trial.metrics.pctDiff < 1, `completion keeps the picture: ${trial.metrics.pctDiff}`)
 })
+
+test('a crescent moon is reported as a crescent with both circles', async () => {
+  // Outer disc (100, 100) r 70 minus inner disc (128, 82) r 58, dark on paper, 4×4 supersampled.
+  const scene = image(220, 210, (x, y) => {
+    let inked = 0
+    for (let sy = 0; sy < 4; sy++) for (let sx = 0; sx < 4; sx++) {
+      const px = x - 0.5 + (sx + 0.5) / 4, py = y - 0.5 + (sy + 0.5) / 4
+      if (Math.hypot(px - 100, py - 100) <= 70 && Math.hypot(px - 128, py - 82) > 58) inked++
+    }
+    const t = inked / 16
+    return [Math.round(250 - 213 * t), Math.round(249 - 201 * t), Math.round(245 - 183 * t), 255]
+  })
+  const trial = await runTrial(scene, { ...DEFAULT_PARAMS }, true, backend)
+  const crescent = (trial.shapes ?? []).find((shape) => shape.kind === 'crescent')
+  assert.ok(crescent, JSON.stringify(trial.shapes))
+  assert.ok(Math.abs(crescent.cx - 100) < 1.5 && Math.abs(crescent.cy - 100) < 1.5 && Math.abs(crescent.r - 70) < 1.5, JSON.stringify(crescent))
+  assert.ok(Math.abs(crescent.innerCx - 128) < 1.5 && Math.abs(crescent.innerCy - 82) < 1.5 && Math.abs(crescent.innerR - 58) < 1.5, JSON.stringify(crescent))
+  assert.ok(trial.metrics.pctDiff < 1, `the picture is kept: ${trial.metrics.pctDiff}`)
+})
