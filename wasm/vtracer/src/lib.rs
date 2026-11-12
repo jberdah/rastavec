@@ -18,6 +18,9 @@ struct Options {
     splice_threshold: Option<i32>,
     path_precision: Option<u32>,
     optimize: Option<u8>,
+    detect_shapes: Option<bool>,
+    preserve_gradients: Option<bool>,
+    gradient_tolerance: Option<f64>,
     binary_threshold: Option<u8>,
 }
 
@@ -75,17 +78,19 @@ fn config_from(options: JsValue) -> Result<Config, JsValue> {
     if let Some(value) = options.binary_threshold {
         config.binary_threshold = value;
     }
+    if let Some(value) = options.detect_shapes {
+        config.detect_shapes = value;
+    }
+    if let Some(value) = options.preserve_gradients {
+        config.preserve_gradients = value;
+    }
+    if let Some(value) = options.gradient_tolerance {
+        config.gradient_tolerance = value;
+    }
     Ok(config)
 }
 
-/// Trace one opaque RGBA image and return VTracer's SVG document.
-#[wasm_bindgen]
-pub fn vectorize_rgba(
-    data: Vec<u8>,
-    width: usize,
-    height: usize,
-    options: JsValue,
-) -> Result<String, JsValue> {
+fn checked_image(data: Vec<u8>, width: usize, height: usize) -> Result<ColorImage, JsValue> {
     let expected = width
         .checked_mul(height)
         .and_then(|pixels| pixels.checked_mul(4))
@@ -97,10 +102,40 @@ pub fn vectorize_rgba(
         )));
     }
 
-    let image = ColorImage {
+    Ok(ColorImage {
         pixels: data,
         width,
         height,
-    };
+    })
+}
+
+/// Trace one opaque RGBA image and return VTracer's SVG document.
+#[wasm_bindgen]
+pub fn vectorize_rgba(
+    data: Vec<u8>,
+    width: usize,
+    height: usize,
+    options: JsValue,
+) -> Result<String, JsValue> {
+    let image = checked_image(data, width, height)?;
     config_from(options)?.build().map_err(js_error)?.to_svg(&image).map_err(js_error)
+}
+
+/// Trace one RGBA image and also describe every shape of the result.
+/// Returns `[svg, reportJson]`; the report lists, per `<path>` in document
+/// order, exact circles, gradient paints and overlay-to-base links.
+#[wasm_bindgen]
+pub fn vectorize_rgba_structured(
+    data: Vec<u8>,
+    width: usize,
+    height: usize,
+    options: JsValue,
+) -> Result<JsValue, JsValue> {
+    let image = checked_image(data, width, height)?;
+    let (svg, report) = config_from(options)?
+        .build()
+        .map_err(js_error)?
+        .to_svg_with_report(&image)
+        .map_err(js_error)?;
+    serde_wasm_bindgen::to_value(&(svg, report.to_json())).map_err(js_error)
 }

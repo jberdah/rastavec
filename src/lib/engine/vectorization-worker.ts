@@ -3,6 +3,7 @@ import type { Analysis } from './analyze'
 import type { RGBAImage } from './core'
 import type { VectorizeResult, VectorizeSettings } from './vectorize'
 import { workerBackend } from './worker-backend'
+import { selectTraceBackend, type TraceEngine } from './web-trace-engine'
 import { beginWorkerRasterRequest, endWorkerRasterRequest, resolveWorkerRasterization, type RasterizeReplyMessage } from './worker-raster-rpc'
 
 type VectorizeMessage = {
@@ -12,6 +13,7 @@ type VectorizeMessage = {
   width: number
   height: number
   settings: VectorizeSettings
+  traceEngine: TraceEngine
   analysis?: Analysis
 }
 type CancelMessage = { type: 'cancel'; requestId: number }
@@ -37,7 +39,8 @@ async function run(message: VectorizeMessage) {
     height: message.height,
   }
   try {
-    const result = await vectorize(source, message.settings, workerBackend, {
+    const backend = await selectTraceBackend(workerBackend, message.traceEngine)
+    const result = await vectorize(source, message.settings, backend, {
       analysis: message.analysis,
       onProgress: (done, total) => scope.postMessage({ type: 'progress', requestId: message.requestId, done, total }),
       shouldCancel: () => cancelled.has(message.requestId),

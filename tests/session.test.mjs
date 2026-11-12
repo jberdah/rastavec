@@ -59,7 +59,9 @@ test('session saves atomically, preserves settings and refuses to replace an ope
     app.items.push({ id: 'two', name: 'bad', file: badFile, srcUrl: 'blob:bad', srcBytes: badFile.size, width: 0, height: 0,
       semiPct: 0, status: 'queued', progress: '', trials: [], chosen: 0, autoTuned: false })
     app.presetId = 'flat'
+    app.batchSettings = { presetId: 'flat', params: app.params, auto: app.auto, traceEngine: 'official' }
     const snapshot = captureSession()
+    assert.equal(snapshot.traceEngine, 'next')
     assert.equal(snapshot.items[0].file.name, 'test.png')
     assert.equal('srcUrl' in snapshot.items[0], false)
     await saveSession(snapshot)
@@ -69,13 +71,17 @@ test('session saves atomically, preserves settings and refuses to replace an ope
     assert.equal((await loadSession()).presetId, 'flat', 'a failed save keeps the previous session')
     await assert.rejects(restoreSession(snapshot), /not empty/)
     app.items = []
-    await restoreSession(snapshot)
+    const { traceEngine: _traceEngine, batchSettings, ...legacySnapshot } = snapshot
+    const { traceEngine: _batchEngine, ...legacyBatchSettings } = batchSettings
+    await restoreSession({ ...legacySnapshot, batchSettings: legacyBatchSettings })
     assert.equal(app.items[0].file.name, 'test.png')
     assert.match(app.items[0].srcUrl, /^blob:/)
     assert.ok(app.items[0].analysis, 'an image saved while queued is analysed when restored')
     assert.equal(app.items[1].status, 'error', 'one unreadable queued image does not block recovery')
     assert.match(app.items[1].error, /unreadable image/)
     assert.equal(app.presetId, 'flat')
+    assert.equal(app.traceEngine, 'next', 'a legacy saved session defaults to VTracer-Next')
+    assert.equal(app.batchSettings.traceEngine, 'official', 'a historical batch keeps its original engine provenance')
     URL.revokeObjectURL(app.items[0].srcUrl)
     URL.revokeObjectURL(app.items[1].srcUrl)
     app.items = []

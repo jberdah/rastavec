@@ -1,8 +1,34 @@
-// Browser backend: VTracer 1 WebAssembly for tracing and Canvas for rendering.
+// Browser-side raster decoding and SVG rendering for VTracer-Next.
 // The same backend serves the website and Tauri WebViews; only filesystem access differs.
-import type { RGBAImage } from './core'
+import type { Prepared, RGBAImage, TraceBackend } from './core'
+import type { TraceParams } from './types'
 import { validateImageBytes, validateImageDimensions } from './image-limits.js'
-export { vtracer1Backend as browserBackend } from './vtracer1-backend'
+
+/** Canvas-backed SVG renderer shared by the selected tracing engine. */
+export const browserBackend: TraceBackend = {
+  name: 'VTracer-Next (WASM) + Canvas',
+  async trace(_prepared: Prepared, _params: TraceParams) {
+    throw new Error('Select the VTracer-Next tracing backend before vectorizing.')
+  },
+  async rasterize(svg: string, width: number, height: number) {
+    const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }))
+    try {
+      const image = new Image()
+      image.src = url
+      await image.decode()
+      const canvas = document.createElement('canvas')
+      canvas.width = width
+      canvas.height = height
+      const context = canvas.getContext('2d', { willReadFrequently: true })
+      if (!context) throw new Error('Could not allocate a canvas to render SVG output.')
+      context.drawImage(image, 0, 0, width, height)
+      const pixels = context.getImageData(0, 0, width, height)
+      return { data: pixels.data, width, height }
+    } finally {
+      URL.revokeObjectURL(url)
+    }
+  },
+}
 
 /** Read dimensions before allocating our own bitmap and canvas. The browser may decode internally. */
 async function checkFileDimensions(file: File): Promise<void> {

@@ -8,6 +8,7 @@ test('cancelling a new run keeps the previous trials, edit and batch settings', 
     const { app, sources } = await server.ssrLoadModule('/src/lib/store.svelte.ts')
     const { browserBackend } = await server.ssrLoadModule('/src/lib/engine/browser-backend.ts')
     const { processAll, cancelProcessing } = await server.ssrLoadModule('/src/lib/pipeline.ts')
+    app.traceEngine = 'test'
     const oldTrace = browserBackend.trace, oldRasterize = browserBackend.rasterize
     const pixel = { data: new Uint8ClampedArray([0, 0, 0, 255]), width: 1, height: 1 }
     let release, began

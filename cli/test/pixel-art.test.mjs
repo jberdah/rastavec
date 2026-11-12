@@ -27,6 +27,9 @@ test('CC0 pixel art retains its size and visible detail with a bounded vector', 
   const constrained = run(join(dir, 'small'), '--threshold', '2', '--max-size', '2')
   assert.equal(constrained.status, 1, constrained.stderr)
   const fallback = JSON.parse(constrained.stdout).items[0]
+  assert.equal(fallback.status, 'review')
   assert.equal(fallback.traceScale, 1)
-  assert.ok(fallback.metrics.bytes <= 2 * 1024)
+  assert.equal(fallback.metrics.pctDiff, 0)
+  assert.ok(fallback.metrics.bytes > 2 * 1024)
+  assert.ok(readFileSync(fallback.output).length > 0, 'over-budget SVG is still written for review')
 })

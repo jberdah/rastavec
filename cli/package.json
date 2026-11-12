@@ -23,13 +23,16 @@
     "rastavec": "dist/rastavec.cjs"
   },
   "files": [
-    "dist",
+    "dist/rastavec.cjs",
+    "dist/vtracer-next-wasm/vtracer_next.mjs",
+    "dist/vtracer-next-wasm/vtracer_next_bg.wasm",
+    "dist/vtracer-next-wasm/LICENSE",
     "README.md",
     "LICENSE",
     "NOTICE"
   ],
   "engines": {
-    "node": ">=18"
+    "node": ">=22"
   },
   "scripts": {
     "build": "node build.mjs",
@@ -38,7 +41,6 @@
     "prepack": "node build.mjs"
   },
   "dependencies": {
-    "@visioncortex/vtracer": "1.0.0-alpha.4",
     "sharp": "^0.34.5"
   },
   "devDependencies": {

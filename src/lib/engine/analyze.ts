@@ -88,6 +88,9 @@ export function analyze(img: RGBAImage): Analysis {
   else if (long <= 160 && gradient < 0.04 && dominant <= 48) kind = 'pixel'
   else if (gradient > 0.45 || dominant > 400) kind = 'photo' // detailed illustrations reach 100-200 colours
   else if (dominant <= 12 && gradient < 0.12) kind = 'flat'
+  // Two or three colors cannot be shading: what looks like gentle steps is antialiasing on a
+  // dense outline, or lossy-compression noise.
+  else if (dominant <= 3 && gradient < 0.3) kind = 'flat'
   else kind = 'shaded'
 
   return { width: w, height: h, kind, alpha, transparentPct, softPct, dominantColors: dominant, gradient, grayscale }

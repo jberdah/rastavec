@@ -2,18 +2,20 @@ import type { Analysis, NoteCode } from './analyze'
 import type { FilterSettings } from './palette'
 
 export type ColorMode = 'color' | 'binary'
-export type CurveMode = 'spline' | 'polygon'
+export type CurveMode = 'spline' | 'polygon' | 'none'
 export type ClusteringMode = 'color-cluster' | 'watershed'
 
 /** Tracing parameters, in the same units as the Python `trace.py` helper. */
 export interface TraceParams {
+  /** Region layering within VTracer-Next. Missing in older sessions means stacked. */
+  hierarchical?: 'stacked' | 'cutout'
   colormode: ColorMode
   /** Region clustering algorithm for color traces. Binary traces always use BW. */
   clustering: ClusteringMode
   /** VTracer Watershed cut detail, 0..255. */
   watershedDetail: number
   mode: CurveMode
-  /** Discard patches smaller than N px (side of a square). */
+  /** Cluster area threshold (N squared); nonzero also absorbs thin, thread-like patches. */
   speckle: number
   /** Significant bits per RGB channel, 1..8. */
   colorPrecision: number
@@ -50,9 +52,39 @@ export interface Metrics {
   rgbDark: number
   /** % of pixels whose worst-channel difference (either background) exceeds 32/255. */
   pctDiff: number
+  /** Visible difference on a one-pixel band around source edges; diagnostic only. */
+  edgePctDiff?: number
+  /** % of pixels where the render shows a color step in an area the source keeps smooth (banding). */
+  falseEdgePct?: number
+  /** Share (0-1) of the image painted by gradients or exact circles / ellipses the engine reported. */
+  editableShare?: number
   bytes: number
   paths: number
   embeddedRaster: boolean
+}
+
+/**
+ * A fact the tracing engine knows about one `<path>` of its SVG, so later stages need not
+ * re-derive it from path data. `index` is the path's ordinal in the document.
+ * Only paths with something to say are listed: exact circles and ellipses, gradient paints, overlays.
+ */
+export interface EngineShapeHint {
+  index: number
+  kind: 'path' | 'circle' | 'ellipse'
+  /** Centre, in viewBox units (circles and ellipses). */
+  cx?: number
+  cy?: number
+  /** Circle radius. */
+  r?: number
+  /** Ellipse semi-axes; `rotation` is the direction of `rx` in degrees, as in an SVG `rotate()`. */
+  rx?: number
+  ry?: number
+  rotation?: number
+  /** Gradient paint: the `id` of its element in the SVG. */
+  gradient?: { id: string; type: 'linear' | 'radial'; stops: number; opaque: boolean }
+  /** For a translucent gradient overlay: index of the opaque path it belongs to. */
+  overlayOf?: number
+  bounds: [number, number, number, number]
 }
 
 export interface Trial {
@@ -61,9 +93,13 @@ export interface Trial {
   /** Integer nearest-neighbour enlargement used before tracing (1 = original size). */
   traceScale?: number
   /** Identifies post-trace output variants such as pixel-grid or source-guided color correction. */
-  traceMethod?: 'pixel-grid' | 'fill-calibrated' | 'palette-calibrated' | 'paths-merged'
+  traceMethod?: 'pixel-grid' | 'experimental-gradients' | 'simple-gradients' | 'fill-calibrated' | 'palette-calibrated' | 'paths-merged' | 'shapes-edited'
   params: TraceParams
   svg: string
+  /** Engine hints for `svg`; dropped whenever a later pass renumbers its paths. */
+  shapes?: EngineShapeHint[]
+  /** For a 'shapes-edited' variant: index of the traced trial it was derived from. */
+  sourceTrial?: number
   metrics: Metrics
   score: number
   ms: number
@@ -150,6 +186,6 @@ export interface AutoTune {
   enabled: boolean
   /** Max acceptable pctDiff. */
   threshold: number
-  /** Max SVG size in KiB. */
+  /** Size budget per SVG in KiB; 0 means no budget (the score alone weighs size). */
   maxKB: number
 }

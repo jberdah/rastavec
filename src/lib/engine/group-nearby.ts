@@ -139,6 +139,22 @@ export function groupNearbyPaths(svg: string, options: { distance?: number; colo
       return { ...fallback(), skipped: matches.length, limit: 'geometry-size' }
   }
 
+  // A path painted with a gradient is grouped under the gradient's mean stop colour,
+  // so gradient regions can be grouped, named and animated like flat ones.
+  const gradientFills = new Map<string, string>()
+  for (const gradient of svg.matchAll(/<(linearGradient|radialGradient)\b[^>]*\bid="([^"]+)"[^>]*>([\s\S]*?)<\/\1>/g)) {
+    const stops = [...gradient[3].matchAll(/\bstop-color="#([0-9a-fA-F]{6})"/g)].map((stop) => stop[1])
+    if (!stops.length) continue
+    const mean = [0, 2, 4].map((offset) => Math.round(stops.reduce((sum, hex) => sum + parseInt(hex.slice(offset, offset + 2), 16), 0) / stops.length))
+    gradientFills.set(gradient[2].toLowerCase(), `#${mean.map((value) => value.toString(16).padStart(2, '0')).join('')}`)
+  }
+  const solidFill = (fill: string | null): string | null => {
+    if (!fill) return null
+    if (/^#[0-9a-f]{6}$/i.test(fill)) return fill.toLowerCase()
+    const reference = /^url\(#([^)]+)\)$/i.exec(fill)
+    return reference ? gradientFills.get(reference[1].toLowerCase()) ?? null : null
+  }
+
   const area = width * height
   let skipped = 0
   type FlatPoly = { points: number[]; bounds: Bounds }
@@ -170,7 +186,8 @@ export function groupNearbyPaths(svg: string, options: { distance?: number; colo
   }
   for (const [pathIndex, match] of matches.entries()) {
     const start = match.start, end = start + match.raw.length
-    if (match.protected || !isAxisAlignedTransform(match.transform) || !/^#[0-9a-f]{6}$/i.test(match.fill ?? '')) { skipped++; continue }
+    const fill = solidFill(match.fill)
+    if (match.protected || !isAxisAlignedTransform(match.transform) || !fill) { skipped++; continue }
     const polygons = applyTransform(flattenPath(match.d), match.transform)
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
     for (const poly of polygons) for (let i = 0; i + 1 < poly.length; i += 2) {
@@ -188,7 +205,7 @@ export function groupNearbyPaths(svg: string, options: { distance?: number; colo
       return { points, bounds: [px0, py0, px1, py1] as Bounds }
     }).filter((poly) => poly.points.length >= 6)
     if (!flatPolygons.length) { skipped++; continue }
-    const candidate = { start, end, pathIndex, box, center: pathCenter(flatPolygons, box), area: pathArea(flatPolygons), parentTransform: match.parentTransform, fill: match.fill!.toLowerCase(), polygons: flatPolygons, reorderSafe: match.reorderSafe }
+    const candidate = { start, end, pathIndex, box, center: pathCenter(flatPolygons, box), area: pathArea(flatPolygons), parentTransform: match.parentTransform, fill, polygons: flatPolygons, reorderSafe: match.reorderSafe }
     const groupingArea = strategy === 'spatial' ? candidate.area : (x1 - x0) * (y1 - y0)
     if (groupingArea > area * 0.15) {
       largeShapes.push(candidate)

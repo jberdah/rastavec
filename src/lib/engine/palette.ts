@@ -359,6 +359,7 @@ export function applyFilters(svg: string, analysis: ShapeAnalysis, p: FilterSett
   const kept = shapes.filter((s) => !drop(s))
   const post = p.colours < MAX_COLOURS ? posterize(kept, p.colours) : null
   const memo = new Map<string, string>()
+  const stopMemo = new Map<string, string>()
   const areaByHex = new Map<string, number>()
   let i = 0
   const out = svg.replace(SHAPE, (_m, d: string, _fill: string, tr: string) => {
@@ -369,6 +370,14 @@ export function applyFilters(svg: string, analysis: ShapeAnalysis, p: FilterSett
     areaByHex.set(hex, (areaByHex.get(hex) ?? 0) + s.area)
     return `<path d="${d}" fill="${hex}"${tr}/>`
   })
+  // Gradient stops are not shapes (they are never dropped or posterized), but hue, tone and
+  // theme changes must reach them, or gradient regions keep the original colours.
+  const recoloured = out.replace(/(<stop\b[^>]*\bstop-color=")(#[0-9a-fA-F]{6})(")/g, (_m, head: string, stop: string, tail: string) => {
+    const source = stop.toLowerCase()
+    let hex = stopMemo.get(source)
+    if (!hex) stopMemo.set(source, (hex = labToHex(transformColour(hexToLab(source), p))))
+    return head + hex + tail
+  })
   const palette = [...areaByHex.entries()].sort((a, b) => b[1] - a[1]).map(([h]) => h)
-  return { svg: out.replace(/\n{2,}/g, '\n'), colours: areaByHex.size, kept: kept.length, total: shapes.length, palette }
+  return { svg: recoloured.replace(/\n{2,}/g, '\n'), colours: areaByHex.size, kept: kept.length, total: shapes.length, palette }
 }

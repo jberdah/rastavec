@@ -1,0 +1,112 @@
+VTracer-Next License, version 1.0
+
+Copyright (c) 2026 VTracer-next contributors
+
+VTracer-Next is based on VTracer, Copyright (c) 2024 TSANG, Hao Fung, which
+is licensed under the MIT License. The text of that license and its copyright
+notice are in the file LICENSE-MIT and must be kept with every copy. The parts
+of VTracer-Next that come from VTracer remain available under the MIT License
+from the VTracer project (https://github.com/visioncortex/vtracer). This
+license applies to VTracer-Next as a whole, as modified and extended by its
+contributors.
+
+1. Definitions
+
+"Software" means VTracer-Next in any form: source code and compiled forms,
+including the WebAssembly module and its JavaScript bindings.
+
+"Output" means the vector graphics and any other files or data produced by
+running the Software on your own input.
+
+"Noncommercial Application" means an application, library, website or service
+that is made available free of charge and is not operated for commercial
+advantage or monetary compensation. An application is not Noncommercial if it,
+or access to it, is sold, licensed or rented for a fee, is offered as part of
+a paid product or paid service, or is used to deliver a paid service to third
+parties (for example a paid conversion service).
+
+"You" means the person or organization exercising rights under this license.
+
+2. Using the Software and its Output
+
+You may run the Software, on its own or as part of an application that this
+license allows, for any purpose, including commercial purposes.
+
+The Output is yours. The licensor claims no right in it. You may use, modify,
+sell and distribute the Output for any purpose, including commercial
+purposes, without attribution.
+
+3. Integrating and redistributing the Software
+
+You may copy the Software, modify it, and integrate it into another
+application, and you may distribute the Software as part of that application,
+provided that:
+
+  a. the application is a Noncommercial Application;
+  b. every copy of the Software keeps this license, the file LICENSE-MIT and
+     the third-party notices that accompany the Software;
+  c. recipients receive the Software under this license, with no additional
+     restriction and no fee for the Software itself;
+  d. if you changed the Software, you say so prominently.
+
+4. Commercial integration
+
+Integrating the Software into an application, product or service that is not
+a Noncommercial Application, or distributing it with or as part of one,
+requires prior written permission from the copyright holders.
+
+5. No other rights
+
+This license does not grant any right to the names, logos or trademarks of
+the licensor, nor any right not expressly stated above. Rights that
+applicable law gives you regardless of this license are not limited by it.
+
+6. Termination
+
+If you do not comply with this license, the rights it grants you end. They
+are reinstated if you cure the breach within 30 days of becoming aware of it.
+Rights in Output already produced are not affected.
+
+7. No warranty, no liability
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Third-party components built into compiled forms of the Software keep their
+own licenses; their notices accompany those compiled forms.
+
+==============================================================================
+LICENSE-MIT (VTracer, upstream of VTracer-Next)
+==============================================================================
+
+Copyright (c) 2024 TSANG, Hao Fung
+Copyright (c) 2026 VTracer-next contributors
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.

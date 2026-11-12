@@ -2,9 +2,10 @@
 
 ## Run
 
-The browser dev server and app builds generate the ignored VTracer WebAssembly module. Install Rust, add the
-`wasm32-unknown-unknown` target with `rustup target add wasm32-unknown-unknown`, and install
-`wasm-pack` (`cargo install wasm-pack --version 0.15.1 --locked`).
+The generated VTracer-Next WebAssembly module is checked in. Web and CLI builds use Node.js,
+and Tauri uses its standard Rust desktop toolchain. Rebuilding the engine itself requires the private VTracer-Next checkout,
+Rust, the `wasm32-unknown-unknown` target, and `wasm-pack` (`cargo install wasm-pack --version
+0.15.1 --locked`). See [VTracer-Next build notes](VTRACER-NEXT-LOCAL.md).
 
 ```bash
 npm install
@@ -31,9 +32,10 @@ node dist/rastavec.cjs trace ../assets -o out --threshold 2 --max-size 700 --com
 src/lib/engine/core.ts             pure TS, no DOM: prepare (alpha floor, keying, silhouette mask),
                                    metrics, diff map, auto-tune grid, scoring, choice
 src/lib/engine/browser-backend.ts  Browser entry point and image decode/encode helpers
-src/lib/engine/vtracer1-backend.ts VTracer 1.0.0-alpha.4 WebAssembly adapter + canvas rendering
-wasm/vtracer/                       Rust-to-WASM wrapper around the official VTracer crate
-scripts/build-vtracer-wasm.mjs      Builds the ignored wasm-bindgen package used by Vite
+src/lib/engine/vtracer-next-backend.ts VTracer-Next WebAssembly adapter
+src/lib/engine/trace-options.ts       shared parameter mapping and path parsing
+wasm/vtracer/src/lib.rs               Adapter source staged by the VTracer-Next build script
+scripts/build-vtracer-next.mjs        Builds the pinned local Next source snapshot for Vite
 src/lib/engine/presets.ts          presets, same parameter units as the raster-to-svg skill
 src/lib/engine/analyze.ts          image analysis (colours, gradients, alpha) -> Auto parameters
 src/lib/engine/compact.ts          compact path encoding (pure, deterministic)
@@ -69,20 +71,22 @@ independent of the CLI limits.
 
 The generated synthetic regression corpus and its limits are described in [CORPUS.md](CORPUS.md).
 
-- **Engine**: the browser and desktop app compile the official
-  [`vtracer` 1.0.0-alpha.4 crate](https://github.com/visioncortex/vtracer) to WebAssembly via
-  `wasm-pack`; the CLI uses the `@visioncortex/vtracer` 1.0.0-alpha.4 WebAssembly package from Node. Both backends share
-  the same `TraceBackend` contract and parameter mapping. Generated wasm-bindgen files and Cargo
-  build output are ignored; `npm run dev`, `npm run check` and `npm run build` build the WASM adapter first.
+- **Engine**: web, desktop and CLI builds use one VTracer-Next WebAssembly engine. The generated
+  runtime module is checked in and verified against `scripts/vtracer-next.artifacts.json`.
+  CI and release builds use the checked-in artifact. To rebuild it,
+  `npm run build:vtracer-next` verifies the fork against
+  `scripts/build-vtracer-next.sources.json` and the pinned Cargo lockfile. The CLI package copies
+  the same WASM module into its distribution.
 - **Batch execution**: tracing, SVG rendering and fidelity measurement run in dedicated Web Workers when
   `OffscreenCanvas` is available. Up to two images run at once for batches whose largest image is at most
   4 megapixels; larger images run one at a time to limit peak memory. The source RGBA buffer is transferred
   to the worker and returned after each image, avoiding an additional full-image clone. Unsupported worker
   rendering or a worker crash falls back to the browser backend on the main thread.
-- **Transparency**: transparent pixels are keyed, then the colour result is clipped by a
-  silhouette traced separately from the alpha channel (alpha ≥ 128 by default, configurable).
-  Soft edges / translucent areas below the cut are traced in colour at their mean opacity (or
-  as uniform alpha bands); fully semi-transparent artwork keeps its mean opacity.
+- **Transparency**: VTracer-Next traces color input directly and retains solid-fill alpha. The
+  engine detects small transparent holes across the full image and keeps regions with distinct
+  alpha separate. The RastaVec alpha-floor preparation remains available for binary traces;
+  alpha-gradient fitting is experimental and skips sparse translucent details it cannot model
+  reliably.
 - **Analysis & Auto preset**: dominant colours, gradients and alpha profile classify each image
   (flat logo, shaded illustration, line art, pixel art, photo) and pick its parameters.
 - **Metrics**: silhouette IoU at alpha ≥ 128, mean colour difference on white and on #202020
@@ -102,9 +106,14 @@ The generated synthetic regression corpus and its limits are described in [CORPU
 - **Animation**: the editor supports editable group pivots, rotation and vertical-motion
   keyframes, role-based walk cycles, and looping sequences of vectorized poses with matching
   dimensions.
-- **Auto-tune**: when an image exceeds the difference threshold or the size budget, a fixed
-  grid of parameter sets is tried; the best score (`% diff + 0.01 × mean RGB error (/255) +
-  0.002 × KiB`) within the budget wins. Auto also tests source-guided color refinements for flat
+- **Auto-tune**: when an image exceeds the difference threshold, or is heavy (above the size
+  budget if one is set, 400 KiB otherwise), a fixed grid of parameter sets is tried and the
+  lowest score wins. With `f = % diff + 0.01 × mean RGB error (/255)`, the score is
+  `f + f²/3 + 0.5 × false edges (%) + 1.5 × log2(bytes + 4096) − 0.6 × editable share`: false edges are
+  color steps rendered where the source is smooth (banding), the editable share is the part of
+  the image painted by gradients and exact circles / ellipses. There is no size budget by
+  default; when one is set, exceeding it adds a soft penalty and flags the result for review.
+  The weights come from a measured study (`scripts/score-study.mjs`). Auto also tests source-guided color refinements for flat
   artwork: small per-fill corrections and a dominant-source-palette snap. Palette snapping is
   retained only when visible difference and mean color error both improve without changing the
   silhouette or path count. Same input + same config → byte-identical SVG.

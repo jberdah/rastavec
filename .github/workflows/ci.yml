@@ -24,17 +24,6 @@ jobs:
           node-version: 22
           cache: npm
 
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: wasm/vtracer -> target
-
-      - name: Install wasm-pack
-        run: cargo install wasm-pack --version 0.15.1 --locked
-
       - run: npm ci
 
       # The web regression suite uses sharp from the CLI workspace to compare rendered SVGs.
@@ -49,6 +38,12 @@ jobs:
 
       - name: Build web app
         run: npm run build
+
+      - name: Check bundled VTracer-Next WASM
+        run: |
+          set -- dist/assets/vtracer_next_bg-*.wasm
+          test "$#" -eq 1
+          cmp "$1" src/lib/engine/vtracer-next-wasm/vtracer_next_bg.wasm
 
       - name: Upload web build
         uses: actions/upload-artifact@v7
@@ -80,12 +75,17 @@ jobs:
       - name: Build and run CLI regression tests
         run: npm test
 
-      - name: Smoke test (trace + analyze + slice, JSON contract)
+      - name: Install and smoke-test the packed CLI
         run: |
-          node dist/rastavec.cjs --version
-          node dist/rastavec.cjs trace ../assets/rastavec-path.png -o "$RUNNER_TEMP/out" --compare --json > "$RUNNER_TEMP/report.json"
-          node -e "const r=require(process.argv[1]); if (r.schemaVersion!==1||r.summary.total!==1||r.summary.errors!==0||r.items[0].status!=='ok') { console.error(JSON.stringify(r.summary)); process.exit(1) } console.log('trace ok', r.items[0].metrics)" "$RUNNER_TEMP/report.json"
+          npm pack --pack-destination "$RUNNER_TEMP"
+          package_path="$RUNNER_TEMP/rastavec-$(node -p 'require("./package.json").version').tgz"
+          install_path="$RUNNER_TEMP/rastavec-cli-install"
+          npm install --prefix "$install_path" --ignore-scripts --no-audit --no-fund "$package_path"
+          cli="$install_path/node_modules/.bin/rastavec"
+          "$cli" --version
+          "$cli" trace ../assets/rastavec-path.png -o "$RUNNER_TEMP/out" --compare --json > "$RUNNER_TEMP/report.json"
+          node -e "const r=require(process.argv[1]); if (r.schemaVersion!==1||r.traceEngine!=='next'||r.summary.total!==1||r.summary.errors!==0||r.items[0].status!=='ok') { console.error(JSON.stringify(r.summary)); process.exit(1) } console.log('trace ok', r.items[0].metrics)" "$RUNNER_TEMP/report.json"
           test -f "$RUNNER_TEMP/out/rastavec-path.svg" && test -f "$RUNNER_TEMP/out/rastavec-path.comparison.png"
-          node dist/rastavec.cjs analyze ../assets --json > /dev/null
-          set +e; node dist/rastavec.cjs trace does-not-exist.png; code=$?; set -e
+          "$cli" analyze ../assets --json > /dev/null
+          set +e; "$cli" trace does-not-exist.png; code=$?; set -e
           test "$code" = "2"

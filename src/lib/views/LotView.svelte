@@ -54,6 +54,7 @@
 
   // Readable scale: outliers are capped (the bar turns to the alert colour and reaches the top).
   const batchSettings = $derived(app.batchSettings ?? { presetId: app.presetId, params: app.params, auto: app.auto })
+  const traceEngine = $derived(app.batchSettings?.traceEngine)
   const scaleMax = $derived(Math.max(5, batchSettings.auto.threshold * 2.5))
   const barH = (p: number) => `${Math.min(100, (100 * p) / scaleMax)}%`
 
@@ -79,7 +80,9 @@
 <div class="stack" style="gap: 28px">
   <div class="between" style="align-items: flex-end">
     <div class="stack" style="gap: 8px">
-      <span class="mono muted small">{t('lot.summary', presetName(batchSettings.presetId), pct(batchSettings.auto.threshold, 1), `${num(batchSettings.auto.maxKB)} ${kbUnit()}`)}</span>
+      <span class="mono muted small">
+        {#if traceEngine}{t(`traceEngine.${traceEngine}`)} · {/if}{t('lot.summary', presetName(batchSettings.presetId), pct(batchSettings.auto.threshold, 1), batchSettings.auto.maxKB > 0 ? `max ${num(batchSettings.auto.maxKB)} ${kbUnit()}` : t('auto.noBudget'))}
+      </span>
       <h1 class="title">
         {#if app.running}
           {t('lot.running', processed, app.items.length)} <span class="faint">· {num(elapsed)} s</span>

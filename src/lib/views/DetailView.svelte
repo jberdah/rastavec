@@ -58,6 +58,18 @@
   const index = $derived(item ? list.indexOf(item) : -1)
   const trial = $derived(item ? chosenTrial(item) : null)
   const m = $derived(trial?.metrics)
+  // What the engine recognised in the chosen trace, e.g. "2 circles · 1 ellipse · 3 gradients".
+  const recognised = $derived.by(() => {
+    const shapes = trial?.shapes ?? []
+    const circles = shapes.filter((shape) => shape.kind === 'circle').length
+    const ellipses = shapes.filter((shape) => shape.kind === 'ellipse').length
+    const gradients = shapes.filter((shape) => shape.gradient && shape.overlayOf === undefined).length
+    return [
+      circles ? t('detail.shapesCircles', circles) : '',
+      ellipses ? t('detail.shapesEllipses', ellipses) : '',
+      gradients ? t('detail.shapesGradients', gradients) : '',
+    ].filter(Boolean).join(' · ')
+  })
 
   // Diff map for the chosen trial, computed on demand.
   $effect(() => {
@@ -191,6 +203,9 @@
               <dt>{t('fidelity.alpha')}</dt><dd class="mono">{num(m.alphaDiff, 1)} / 255</dd>
             </dl>
           </div>
+          {#if recognised}
+            <span class="small muted">{t('detail.shapes')} : <span class="mono">{recognised}</span></span>
+          {/if}
           {#if item.semiPct > 1}
             <span class="small" style="color: var(--warn-text)">
               {t('semi.intro', pct(item.semiPct, 1))}
@@ -229,7 +244,7 @@
                 <button type="button" class="trial" aria-pressed={item.chosen === k} onclick={() => { if (item.chosen !== k) { item.chosen = k; item.autoTuned = false; if (!outputMetrics(item)) refreshOutputMetrics(item) } }}>
                   <span class="dotc" class:on={item.chosen === k}></span>
                   <span class="stack" style="gap: 3px; flex: 1; min-width: 0">
-                    <span class="between" style="flex-wrap: nowrap"><span class="tl">{tr.traceMethod === 'pixel-grid' ? t('trials.pixelGrid') : tr.traceMethod === 'fill-calibrated' ? t('trials.fillCalibrated') : tr.traceMethod === 'palette-calibrated' ? t('trials.paletteCalibrated') : tr.traceMethod === 'paths-merged' ? t('trials.pathsMerged') : `${tr.base ? `${t('trials.base')} · ` : ''}${describeParams(tr.params)}${tr.traceScale && tr.traceScale > 1 ? ` · ${t('trials.scaled', tr.traceScale)}` : ''}`}</span><span class="mono" class:accent={item.chosen === k}>{pct(tr.metrics.pctDiff)}</span></span>
+                    <span class="between" style="flex-wrap: nowrap"><span class="tl">{tr.traceMethod === 'pixel-grid' ? t('trials.pixelGrid') : tr.traceMethod === 'experimental-gradients' ? t('trials.experimentalGradients') : tr.traceMethod === 'simple-gradients' ? t('trials.simpleGradients') : tr.traceMethod === 'fill-calibrated' ? t('trials.fillCalibrated') : tr.traceMethod === 'palette-calibrated' ? t('trials.paletteCalibrated') : tr.traceMethod === 'paths-merged' ? t('trials.pathsMerged') : tr.traceMethod === 'shapes-edited' ? t('trials.shapesEdited') : `${tr.base ? `${t('trials.base')} · ` : ''}${describeParams(tr.params)}${tr.traceScale && tr.traceScale > 1 ? ` · ${t('trials.scaled', tr.traceScale)}` : ''}`}</span><span class="mono" class:accent={item.chosen === k}>{pct(tr.metrics.pctDiff)}</span></span>
                     <span class="mono muted tiny">{t('trials.meta', size(tr.metrics.bytes), tr.metrics.paths, num(tr.score, 2))}</span>
                   </span>
                 </button>
