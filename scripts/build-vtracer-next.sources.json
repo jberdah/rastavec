@@ -1,6 +1,6 @@
 {
   "description": "VTracer-next source snapshot at the engine-quality branch: experimental gradient fitting with a continuous smooth-field model and whole-pixel validation, drift-bounded clustering (preserve_gradients), circle detection with overlap completion (detect_shapes), and the structured shape report.",
-  "head": "6db380f105a91873acddaca26c14209605059714",
+  "head": "97049fdaea211345a9e0ba16df9020f626dda08f",
   "files": {
     "README.md": "4cbdfb680a88b7ee09f7666c9c378be68963d3bc54183bf9279848836e0351dd",
     "crates/vtracer/Cargo.toml": "a1faa94a3234503beb283da70d135b420a6cbdb34e78c59bbf796636f14e42c0",
@@ -10,7 +10,7 @@
     "crates/vtracer/src/colorfit/palette.rs": "b0c14300b966b2cd7973bf107f89af4e812f561ae7ef86207c4c21931e645580",
     "crates/vtracer/src/colorfit/quantize.rs": "79286b55e4ef18aacfd46904d13010afbb4215c07ca0a02d1ab35184da685c8d",
     "crates/vtracer/src/compose.rs": "0625de2f156d0ca488b9b5fcbe14dcd837e4f9d58903a1a9a8c58c2eca6be4d1",
-    "crates/vtracer/src/config.rs": "80f1cdc9d96f1b1e1ef1be0e5f4594d04493469f8bfff4dea071b81b45371628",
+    "crates/vtracer/src/config.rs": "c9b6d2770cde2e28688e6927fe97f6165b53c48e67cc9f28d8a84875475da31a",
     "crates/vtracer/src/error.rs": "8d0d25f6c4e5a5aeabfb23eb36039ebaba553b18b0db0a779f156180b9795120",
     "crates/vtracer/src/fitter.rs": "065f98de740a46f11354a14c44978b4a69957cdec49fe0e108db128082a14531",
     "crates/vtracer/src/frontend.rs": "e7779d6a4e9ab322e1b2644c36ba83b260d35f38279565c6ba02e0ebd76c9032",
@@ -18,8 +18,8 @@
     "crates/vtracer/src/frontend/color_cluster.rs": "5ae549cae68174e0dc55617564010857e847b8525be108a64fc9e92389b228d5",
     "crates/vtracer/src/frontend/keying.rs": "8ad3fb5863e170632603c3b2c67099177a7003b361378faf42782806c9d3b797",
     "crates/vtracer/src/frontend/watershed.rs": "50865b8b93786c019a3918276049961bb54604669f8a3d67df68007332ab1a21",
-    "crates/vtracer/src/gradient.rs": "7834348db180bb12e61c95b2b9dfbbffb4c33ca27e915b61e443766969289cf6",
-    "crates/vtracer/src/gradient/mesh.rs": "9ce73c96d4c65fb191e4900ae9b7b51b8431732baeb0b93a15531abe57130415",
+    "crates/vtracer/src/gradient.rs": "d684ca191567b26a4969b408372d530b1b330e1d947f259209dee34c4af8452b",
+    "crates/vtracer/src/gradient/mesh.rs": "d44009303bf65461ae59ee4ae043773e6eabca107c9de36471a91599b835a972",
     "crates/vtracer/src/gradient/radial_stops.rs": "14625a5e3c472b9036a0f21345b52a5f53dfee5ea78773f71fc6b25413f47e2a",
     "crates/vtracer/src/gradient/repeat.rs": "3891a17df0becd65033eb1042b134394e503abff8cbb374a3ff7efb12e3202c2",
     "crates/vtracer/src/ir.rs": "3ad3879797b393d0a5261c3058d8931d7f5ca49b50d5c9f121777f3dc79310da",
@@ -32,13 +32,13 @@
     "crates/vtracer/src/mosaic/fit.rs": "c08a5f92ec283ff1026a5cb2754a8f17f89edc3e741001d0261c3bcdacab966e",
     "crates/vtracer/src/mosaic/graph.rs": "69310acf3b2d9003206f515a7ba02f835758d10bcdb7a39b9c22b49cadb43dab",
     "crates/vtracer/src/optimize.rs": "354261083e46db19a1e2e25422650e2971270e82de786b3b9e928ee76cc9ecbd",
-    "crates/vtracer/src/pipeline.rs": "6cd3a30389c8967b100dca19336ca95b6c5267016e5d07357765e52afbda62db",
+    "crates/vtracer/src/pipeline.rs": "313241170c42effb8b83a6bcf972ae6ba8acc8127d28c12c39f1fb05b12ce373",
     "crates/vtracer/src/progress.rs": "dd37ef4f51d7f50d52795eefe8dfea0c5d0f59695bb4a43318158e8689fc42a6",
-    "crates/vtracer/src/report.rs": "9f0eb3f3fcd2728ef3e85f6b4238f61f546442844b0b7d251dd27bcf02cf5283",
+    "crates/vtracer/src/report.rs": "2061977ee6271ee40d95ba73b7cc369f429b643b94cf7412297b150d032bccc7",
     "crates/vtracer/src/session.rs": "56b292155cd45faccc55ef793f6d7b3240ce90977ade27ff3b7cc11ad709cf6c",
     "crates/vtracer/src/shapes.rs": "6e9af1c047803f1211314b4a8d4f7d3dc8ace98eede83bbc73af715d684037b3",
     "crates/vtracer/src/shapes/overlap.rs": "1ee9f2681f1d8b50dead87b159848eb28d7607b9f098d61451c2c50454d84f09",
     "crates/vtracer/src/simplify.rs": "a43482c27552aa2dfd296617a6ad422d88b94588801cd81c48caf018cb2b95d6",
-    "crates/vtracer/src/svg.rs": "00b89989a4d231a0b816071851b196e85e93b0a6aebe8ac3adf4d08950664d9b"
+    "crates/vtracer/src/svg.rs": "4cbd28803c3796a2f5886c7179e5da6d9d3532b4abae2edaaf0ba3d13c04cfe9"
   }
 }

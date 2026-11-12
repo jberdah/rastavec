@@ -3,18 +3,28 @@ import type { RGBAImage, TraceBackend } from './core'
 import { optionsFor } from './trace-options'
 import type { EngineShapeHint, TraceParams } from './types'
 
+/**
+ * How a color trace treats gradients: not at all, fitted as closely as the color bands were
+ * (`true`), or `'simple'`: fewer, simpler gradient shapes at some cost in fidelity.
+ */
+export type GradientMode = boolean | 'simple'
+
+/** RMS color tolerance of the engine's `'simple'` gradient mode (its default is 4). */
+export const SIMPLE_GRADIENT_TOLERANCE = 10
+
 /** A converter returns the SVG, optionally with the engine's JSON shape report. */
-export type NextConvert = (image: RGBAImage, params: TraceParams, binary: boolean, gradients: boolean) => Promise<string | { svg: string; report?: string }>
+export type NextConvert = (image: RGBAImage, params: TraceParams, binary: boolean, gradients: GradientMode) => Promise<string | { svg: string; report?: string }>
 
 /**
  * Options for one VTracer-Next call. The gradient route also keeps gentle gradients as bands
  * (otherwise the engine flattens them before it can fit anything). Shape detection only
  * replaces outlines the engine has verified as circles, so every color trace asks for it.
  */
-export const nextOptions = (params: TraceParams, binary: boolean, gradients: boolean) => ({
+export const nextOptions = (params: TraceParams, binary: boolean, gradients: GradientMode) => ({
   ...optionsFor(params, binary),
-  experimentalGradients: gradients,
-  preserveGradients: gradients,
+  experimentalGradients: gradients !== false,
+  preserveGradients: gradients !== false,
+  ...(gradients === 'simple' ? { gradientTolerance: SIMPLE_GRADIENT_TOLERANCE } : {}),
   detectShapes: !binary,
 })
 
@@ -52,7 +62,7 @@ export function withVTracerNext(
 ): TraceBackend {
   // Hints are keyed by the exact SVG handed back, for the caller to pick up right after a trace.
   const hints = new Map<string, EngineShapeHint[]>()
-  const colorTrace = async (source: RGBAImage, params: TraceParams, withGradients: boolean) => {
+  const colorTrace = async (source: RGBAImage, params: TraceParams, withGradients: GradientMode) => {
     const result = await convert(source, params, false, withGradients)
     const svg = withViewport(typeof result === 'string' ? result : result.svg, source)
     const shapes = typeof result === 'string' || !result.report ? [] : parseShapeHints(result.report)
@@ -69,8 +79,9 @@ export function withVTracerNext(
     trace(prepared, params) {
       return composeSvg(prepared, params, binaryConverter)
     },
+    gradientsByDefault: gradients,
     traceColorSource: (source, params) => colorTrace(source, params, gradients),
-    ...(!gradients ? { traceColorSourceWithGradients: (source: RGBAImage, params: TraceParams) => colorTrace(source, params, true) } : {}),
+    traceColorSourceWithGradients: (source: RGBAImage, params: TraceParams, simple = false) => colorTrace(source, params, simple ? 'simple' : true),
     shapeHintsFor: (svg) => hints.get(svg),
   }
 }

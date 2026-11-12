@@ -44,21 +44,43 @@ function enlarge(src: RGBAImage, scale: number): RGBAImage {
   return { width, height, data }
 }
 
-export async function runTrial(src: RGBAImage, params: TraceParams, base: boolean, backend: TraceBackend, traceScale = 1, experimentalGradients = false): Promise<Trial> {
+// Pixels under the alpha floor are invisible, but a native color trace would still turn each
+// stray one (lossy alpha, a halo left by a cut-out) into a path of its own: hundreds of them on
+// some logos. The same source is traced many times, so the cleaned copy is kept with it.
+const flooredSources = new WeakMap<Uint8ClampedArray, Map<number, RGBAImage>>()
+function withAlphaFloor(src: RGBAImage, floor: number): RGBAImage {
+  if (floor <= 1) return src
+  let known = flooredSources.get(src.data)
+  if (!known) flooredSources.set(src.data, known = new Map())
+  const cached = known.get(floor)
+  if (cached) return cached
+  let result = src
+  const { data } = src
+  for (let i = 3; i < data.length; i += 4) {
+    if (data[i] === 0 || data[i] >= floor) continue
+    if (result === src) result = { width: src.width, height: src.height, data: new Uint8ClampedArray(data) }
+    result.data[i - 3] = 0; result.data[i - 2] = 0; result.data[i - 1] = 0; result.data[i] = 0
+  }
+  known.set(floor, result)
+  return result
+}
+
+export async function runTrial(src: RGBAImage, params: TraceParams, base: boolean, backend: TraceBackend, traceScale = 1, experimentalGradients: boolean | 'simple' = false): Promise<Trial> {
   params = { ...params, hierarchical: params.hierarchical ?? 'stacked' }
   const t0 = now()
   const input = traceScale === 1 ? src : enlarge(src, traceScale)
+  const native = traceScale === 1 ? withAlphaFloor(src, params.alphaFloor) : enlarge(withAlphaFloor(src, params.alphaFloor), traceScale)
   let svg = await (experimentalGradients && backend.traceColorSourceWithGradients
-    ? backend.traceColorSourceWithGradients(input, params)
+    ? backend.traceColorSourceWithGradients(native, params, experimentalGradients === 'simple')
     : params.colormode === 'color' && backend.traceColorSource
-      ? backend.traceColorSource(input, params)
+      ? backend.traceColorSource(native, params)
     : backend.trace(prepare(input, params), params))
   const shapes = backend.shapeHintsFor?.(svg)
   // Keep the enlarged viewBox and paths, but display/export at the original dimensions.
   if (traceScale !== 1) svg = svg.replace(/^(<svg\b[^>]*?)\bwidth="\d+"\s+height="\d+"/, `$1width="${src.width}" height="${src.height}"`)
   const render = await backend.rasterize(svg, src.width, src.height)
   const metrics = { ...computeMetrics(src, render, svg), ...(shapes ? { editableShare: editableShare(svg, shapes) } : {}) }
-  return { base, params: { ...params }, traceScale, ...(experimentalGradients ? { traceMethod: 'experimental-gradients' as const } : {}), svg, ...(shapes ? { shapes } : {}), metrics, score: score(metrics), ms: now() - t0 }
+  return { base, params: { ...params }, traceScale, ...(experimentalGradients ? { traceMethod: experimentalGradients === 'simple' ? 'simple-gradients' as const : 'experimental-gradients' as const } : {}), svg, ...(shapes ? { shapes } : {}), metrics, score: score(metrics), ms: now() - t0 }
 }
 
 async function runPixelGridTrial(src: RGBAImage, svg: string, backend: TraceBackend): Promise<Trial | null> {
@@ -136,15 +158,19 @@ export async function vectorize(
   const includeHardEdgeReview = auto.enabled && settings.presetId === 'auto' && nativeColor
     && backend.supportsHierarchyComparison === true && first.pctDiff > Math.max(3, auto.threshold)
     && needsHardEdgeReview(src)
-  // One bounded same-engine trial for opaque, meaningfully shaded illustrations. Photos,
-  // alpha art, flat artwork, and large rasters stay on the regular path.
+  // Bounded same-engine trials for meaningfully shaded illustrations, on an opaque canvas or
+  // cut out on a transparent one (hard or antialiased edges): gradients fitted closely, and
+  // gradients simplified (fewer shapes, less fidelity). The score arbitrates. Photos, soft
+  // alpha, flat artwork, and large rasters stay on the regular path. When the user forced
+  // gradients the base trace already fits them closely; only the simplified one is added.
   const includeGradientReview = auto.enabled
     && settings.presetId === 'auto'
     && nativeColor
     && backend.traceColorSourceWithGradients !== undefined
     && analysis.kind === 'shaded'
-    && analysis.alpha === 'opaque'
+    && analysis.alpha !== 'soft'
     && src.width * src.height <= 8_000_000
+  const gradientModes: (true | 'simple')[] = !includeGradientReview ? [] : backend.gradientsByDefault ? ['simple'] : [true, 'simple']
   // Photos can produce editable but oversized region mosaics. Reserve two bounded
   // simplification slots; the traces run only if existing Auto trials all exceed
   // the user's size budget, covering moderate and stronger size reductions.
@@ -171,7 +197,7 @@ export async function vectorize(
   // On pixel art an exact grid is not traded for a lighter, slightly softened trace.
   const pick = (list: Trial[], preferSimplicity = auto.enabled) =>
     choose(list, maxBytes, { preferSimplicity, preferExactPixelGrid: comparePixelGrid })
-  let total = 1 + tuningTrials + Number(includePolygonReview) + Number(includeHierarchyReview) + Number(includeHardEdgeReview) + Number(includeGradientReview) + (includePhotoBudgetReview ? 2 : 0) + Number(includeFillCalibration) + Number(includePaletteSnap) + Number(includePathMerge)
+  let total = 1 + tuningTrials + Number(includePolygonReview) + Number(includeHierarchyReview) + Number(includeHardEdgeReview) + gradientModes.length + (includePhotoBudgetReview ? 2 : 0) + Number(includeFillCalibration) + Number(includePaletteSnap) + Number(includePathMerge)
   let completed = 1
   const reportProgress = () => opts.onProgress?.(completed, total)
   const completeTrial = () => { completed++; reportProgress() }
@@ -278,22 +304,25 @@ export async function vectorize(
   if (includeGradientReview) {
     const native = trials.filter((trial) => !trial.traceMethod && (trial.traceScale ?? 1) === 1)
     const current = native[pick(native)]
-    await yieldControl()
-    try {
-      // Isolate the gradient fitter: reuse the best native parameters so this
-      // comparison measures paint fitting instead of changing segmentation and geometry too.
-      trials.push(await runTrial(src, current.params, false, backend, 1, true))
-    } catch (error) {
+    for (const mode of gradientModes) {
+      await yieldControl()
+      try {
+        // Isolate the gradient fitter: reuse the best native parameters so this
+        // comparison measures paint fitting instead of changing segmentation and geometry too.
+        trials.push(await runTrial(src, current.params, false, backend, 1, mode))
+      } catch (error) {
+        checkCancelled()
+        failedTrials.push({ traceScale: 1, message: error instanceof Error ? error.message : String(error) })
+      }
       checkCancelled()
-      failedTrials.push({ traceScale: 1, message: error instanceof Error ? error.message : String(error) })
+      completeTrial()
     }
-    checkCancelled()
-    completeTrial()
   }
   let chosen = pick(trials)
   const bestColorTransformInput = () => {
     const eligible = trials.filter((trial) => trial.traceMethod !== 'pixel-grid'
       && trial.traceMethod !== 'experimental-gradients'
+      && trial.traceMethod !== 'simple-gradients'
       && (trial.traceScale ?? 1) === 1
       && trial.params.colormode === 'color')
     return eligible.length

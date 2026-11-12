@@ -44,7 +44,10 @@ export interface TraceBackend {
   /** Optional color route for engines that handle source alpha directly. */
   traceColorSource?(source: RGBAImage, params: TraceParams): Promise<string>
   /** Optional one-off Auto candidate using the same engine's experimental gradient path. */
-  traceColorSourceWithGradients?(source: RGBAImage, params: TraceParams): Promise<string>
+  /** Same trace with gradients fitted; `simple` asks for fewer, simpler gradient shapes. */
+  traceColorSourceWithGradients?(source: RGBAImage, params: TraceParams, simple?: boolean): Promise<string>
+  /** True when `traceColorSource` already fits gradients (the user forced them). */
+  gradientsByDefault?: boolean
   /** Engine hints for an SVG this backend just returned from a color trace, if it has any. */
   shapeHintsFor?(svg: string): EngineShapeHint[] | undefined
   /** Render SVG markup at exactly width x height, unpremultiplied RGBA. */

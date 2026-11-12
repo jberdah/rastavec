@@ -93,7 +93,7 @@ export interface Trial {
   /** Integer nearest-neighbour enlargement used before tracing (1 = original size). */
   traceScale?: number
   /** Identifies post-trace output variants such as pixel-grid or source-guided color correction. */
-  traceMethod?: 'pixel-grid' | 'experimental-gradients' | 'fill-calibrated' | 'palette-calibrated' | 'paths-merged' | 'shapes-edited'
+  traceMethod?: 'pixel-grid' | 'experimental-gradients' | 'simple-gradients' | 'fill-calibrated' | 'palette-calibrated' | 'paths-merged' | 'shapes-edited'
   params: TraceParams
   svg: string
   /** Engine hints for `svg`; dropped whenever a later pass renumbers its paths. */

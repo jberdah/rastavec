@@ -20,6 +20,7 @@ struct Options {
     optimize: Option<u8>,
     detect_shapes: Option<bool>,
     preserve_gradients: Option<bool>,
+    gradient_tolerance: Option<f64>,
     binary_threshold: Option<u8>,
 }
 
@@ -82,6 +83,9 @@ fn config_from(options: JsValue) -> Result<Config, JsValue> {
     }
     if let Some(value) = options.preserve_gradients {
         config.preserve_gradients = value;
+    }
+    if let Some(value) = options.gradient_tolerance {
+        config.gradient_tolerance = value;
     }
     Ok(config)
 }
