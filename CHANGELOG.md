@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.5.0-beta.4 — 2026-11-12
+
+### Added
+
+- Edit screen tabs: Colours, Shapes and Groups, so grouping for animation is one click away.
+- Visual shape editing on one large canvas: recognised circles and ellipses are outlined in the
+  Shapes tab and highlighted on hover; the selection has resize handles and, for ellipses, a
+  rotation handle; drag to move, arrow keys to nudge (Shift ×10), Escape to deselect, with a live
+  redraw while dragging.
+- Undo and redo for edits (buttons, Ctrl+Z, Ctrl+Shift+Z / Ctrl+Y), per image.
+- "Compare with the original image" replaces the permanent Before view.
+
+### Improved
+
+- Download, Apply to all and undo / redo sit in the Edit header; palette presets and themes are
+  merged into one list.
+- Moving or shrinking a recognised shape no longer uncovers a hole: the engine now leaves the
+  region underneath whole, and completes discs hidden by anti-aliased, nearly opaque shapes.
+
+### Fixed
+
+- Palette filters, presets and themes did nothing on traces of near-opaque images (common with
+  exported PNG and WebP files).
+- The grouping distance showed a long unrounded number.
+
 ## 0.5.0-beta.3 — 2026-11-12
 
 ### Improved
