@@ -175,3 +175,32 @@ test('Auto fits gradients over stacked layers even when the hierarchy review pic
     assert.equal(gradient.params.hierarchical, 'stacked')
     assert.equal(result.trials[result.chosen], gradient)
 })
+
+test('on a large raster Auto runs the full gradient trials only when a reduced probe shows they help', async () => {
+    // Over a megapixel each full-size gradient fit costs seconds: a flat logo must not pay for them.
+    const src = image(1100, 1000, () => [120, 100, 80, 255])
+    const analysis = { width: 1100, height: 1000, kind: 'shaded', alpha: 'opaque', softPct: 0, transparentPct: 0, dominantColors: 20, gradient: 0.2, smoothRamps: 0.5, grayscale: false }
+    const run = async (helps) => {
+      const sizes = []
+      const backend = {
+        name: 'gradient-probe-test',
+        async trace() { return '<svg/>' },
+        async traceColorSource(img) { sizes.push(img.width); return '<svg data-g="off"/>' },
+        async traceColorSourceWithGradients(img) { sizes.push(img.width); return '<svg data-g="on"/>' },
+        async rasterize(svg, w, h) {
+          const exact = helps && svg.includes('data-g="on"')
+          const data = new Uint8ClampedArray(w * h * 4)
+          for (let i = 0; i < w * h; i++) data.set(exact ? [120, 100, 80, 255] : [180, 160, 140, 255], i * 4)
+          return { width: w, height: h, data }
+        },
+      }
+      const result = await vectorize(src, { presetId: 'auto', params: DEFAULT_PARAMS, auto: { enabled: true, threshold: 3, maxKB: 0 } }, backend, { analysis })
+      return { result, sizes }
+    }
+    const useless = await run(false)
+    assert.ok(useless.sizes.includes(275), 'the probe traces a reduced copy')
+    assert.equal(useless.result.trials.some((trial) => trial.traceMethod?.endsWith('gradients')), false)
+    const useful = await run(true)
+    assert.equal(useful.result.trials.filter((trial) => trial.traceMethod?.endsWith('gradients')).length, 2)
+    assert.equal(useful.result.trials[useful.result.chosen].traceMethod, 'experimental-gradients')
+})

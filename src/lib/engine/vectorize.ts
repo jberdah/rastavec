@@ -31,6 +31,38 @@ export interface VectorizeResult {
 /** Share of smooth ramps (Analysis.smoothRamps) from which flat-looking art gets gradient trials. */
 export const GENTLE_GRADIENT_RAMPS = 0.1
 
+/** Above this many pixels, gradient trials run only when a reduced probe shows they help. */
+export const GRADIENT_PROBE_PIXELS = 1_000_000
+const PROBE_MAX_PIXELS = 256 * 1024
+
+/** Box-filtered copy reduced by an integer factor (colours weighted by alpha), for cheap probes. */
+function shrink(src: RGBAImage, factor: number): RGBAImage {
+  const width = Math.max(1, Math.floor(src.width / factor)), height = Math.max(1, Math.floor(src.height / factor))
+  const data = new Uint8ClampedArray(width * height * 4)
+  const d = src.data
+  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+    let r = 0, g = 0, b = 0, a = 0
+    for (let sy = y * factor; sy < (y + 1) * factor; sy++) {
+      for (let i = (sy * src.width + x * factor) * 4, end = i + factor * 4; i < end; i += 4) {
+        const w = d[i + 3]
+        r += d[i] * w; g += d[i + 1] * w; b += d[i + 2] * w; a += w
+      }
+    }
+    if (!a) continue
+    const o = (y * width + x) * 4
+    data[o] = r / a; data[o + 1] = g / a; data[o + 2] = b / a; data[o + 3] = a / (factor * factor)
+  }
+  return { width, height, data }
+}
+
+/** True when simple gradients improve the Auto score of the same trace by more than 2 %: they
+ *  win on fidelity, or on simplicity when they replace bands of flat paths. */
+async function gradientsHelp(src: RGBAImage, params: TraceParams, backend: TraceBackend): Promise<boolean> {
+  const plain = await runTrial(src, params, false, backend)
+  const fitted = await runTrial(src, params, false, backend, 1, 'simple')
+  return fitted.score < plain.score * 0.98
+}
+
 const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now())
 
 export class VectorizationCancelled extends Error {
@@ -318,19 +350,37 @@ export async function vectorize(
   if (includeGradientReview) {
     const native = trials.filter((trial) => !trial.traceMethod && (trial.traceScale ?? 1) === 1)
     const current = native[pick(native)]
-    for (const mode of gradientModes) {
+    // Isolate the gradient fitter: reuse the best native parameters so this
+    // comparison measures paint fitting instead of changing segmentation and geometry too.
+    // The engine fits gradients over stacked layers only: when the hierarchy review
+    // picked a cutout mosaic, it rejected every gradient trial as unsupported.
+    const params = { ...current.params, hierarchical: 'stacked' as const }
+    // On a large raster each full-size gradient fit costs seconds. Probe a reduced copy first
+    // (shrunk by a power of two to at most PROBE_MAX_PIXELS): the full trials run only when gradients
+    // clearly improve the score there.
+    let worthIt = true
+    if (src.width * src.height > GRADIENT_PROBE_PIXELS) {
       await yieldControl()
       try {
-        // Isolate the gradient fitter: reuse the best native parameters so this
-        // comparison measures paint fitting instead of changing segmentation and geometry too.
-        // The engine fits gradients over stacked layers only: when the hierarchy review
-        // picked a cutout mosaic, it rejected every gradient trial as unsupported.
-        trials.push(await runTrial(src, { ...current.params, hierarchical: 'stacked' }, false, backend, 1, mode))
-      } catch (error) {
-        checkCancelled()
-        failedTrials.push({ traceScale: 1, message: error instanceof Error ? error.message : String(error) })
+        let factor = 2
+        while (src.width * src.height > PROBE_MAX_PIXELS * factor * factor) factor *= 2
+        worthIt = await gradientsHelp(shrink(src, factor), params, backend)
+      } catch {
+        // An inconclusive probe keeps the full comparison.
       }
       checkCancelled()
+    }
+    for (const mode of gradientModes) {
+      if (worthIt) {
+        await yieldControl()
+        try {
+          trials.push(await runTrial(src, params, false, backend, 1, mode))
+        } catch (error) {
+          checkCancelled()
+          failedTrials.push({ traceScale: 1, message: error instanceof Error ? error.message : String(error) })
+        }
+        checkCancelled()
+      }
       completeTrial()
     }
   }
