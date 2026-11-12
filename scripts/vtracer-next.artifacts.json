@@ -1,17 +1,17 @@
 {
   "inputs": {
-    "scripts/build-vtracer-next.mjs": "5e5dd6a5fa82baaf477a050b84cd252d5884362b8b42dd7d3c7e7cafa7e18802",
-    "scripts/build-vtracer-next.sources.json": "b1414988d3c6e05492e7b399f774f9a49e58ca6bcd740af7841b9a0d0f46b6c2",
+    "scripts/build-vtracer-next.mjs": "148a19618b286b0011dd94576be14bbbf1981cdd5e05b4d7e5ab36f903a6ba61",
+    "scripts/build-vtracer-next.sources.json": "295f3f18061bfedb39dbe760500124e514f6db409bff1315f7ec20f468c5e5a4",
     "scripts/build-vtracer-next.Cargo.lock": "d3a84e8ff6838a7cc4572da2e3a0eb4cc44f7f7db8ac279cd58a9589ce5198fa",
     "scripts/verify-vtracer-next.mjs": "f5a935dd8768999f6d24266ff8a5e4429541e5e015b29ee566fdf8f3d19a0f31",
     "wasm/vtracer/src/lib.rs": "bbfbeb6c94d1ed43470e45de3fa75c66cab3d180198eff3cbddc1fe12ce122b5",
-    "public/licenses/vtracer-next.txt": "fa3a2a13807291cae8db8e2f688b203b0ebd561ac146347d10ea3df427e2893a"
+    "public/licenses/vtracer-next.txt": "dc4a06edc75cf2c26591393fe52a10f1daaed09410e35caf57ea0d2933b9ad39"
   },
   "files": {
     "package.json": "363419e5580e2134cd379738acf0fd236e8cb68b448c96e27e43a39580cac053",
     "vtracer_next.js": "864c4c42c1f0c4d8318a6cb07e7081fb9f0bfaab2fc10b5210d0ed6a270d30c3",
     "vtracer_next.d.ts": "2021c5c25404702e391541421eee40f3f90805c998728b21d5211296a40a873b",
-    "vtracer_next_bg.wasm": "501170f83ff4b46fe11faac1feff307bd45510e491263b301e19e32f00725b5f",
+    "vtracer_next_bg.wasm": "e0760a640011348ae835d3d6ae9ab3d0e31031182bc0bf64513b23cb09c4f83a",
     "vtracer_next_bg.wasm.d.ts": "c049ded10df96333108857aeb8199ffc965cc2d774c9c1acd13bcb966126453a"
   }
 }

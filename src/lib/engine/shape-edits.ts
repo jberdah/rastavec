@@ -65,7 +65,14 @@ function gradientBlock(svg: string, id: string) {
 /** Capabilities of every hinted shape, in hint order; shapes that cannot be edited are left out. */
 export function editableShapes(svg: string, hints: EngineShapeHint[]): { hint: EngineShapeHint; capabilities: ShapeCapabilities }[] {
   const tags = pathTags(svg)
+  // The engine paints a color field as an underlay and a top shape sharing one gradient
+  // definition. Editing either edits the definition, so the pair is one entry: the first.
+  const listed = new Set<string>()
   return hints.flatMap((hint) => {
+    if (hint.kind === 'path' && hint.gradient) {
+      if (listed.has(hint.gradient.id)) return []
+      listed.add(hint.gradient.id)
+    }
     const capabilities = shapeCapabilities(svg, hints, hint.index, tags)
     return capabilities ? [{ hint, capabilities }] : []
   })
@@ -79,7 +86,10 @@ export function shapeCapabilities(svg: string, hints: EngineShapeHint[], index: 
   const fill = /\bfill="([^"]*)"/.exec(tag)?.[1]
   const capabilities: ShapeCapabilities = {
     // An overlay is a piece of its base cut by the engine; reshaping the base would leave it behind.
-    geometry: hint.kind !== 'path' && !hints.some((other) => other.overlayOf === index),
+    // Likewise a shape sharing its gradient definition with another: moving the definition
+    // would repaint the other.
+    geometry: hint.kind !== 'path' && !hints.some((other) => other.overlayOf === index)
+      && !(hint.gradient && hints.some((other) => other.index !== index && other.gradient?.id === hint.gradient!.id)),
   }
   if (fill && HEX.test(fill)) capabilities.fill = fill.toLowerCase()
   if (hint.gradient) {

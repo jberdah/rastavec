@@ -41,7 +41,9 @@ cpSync(join(source, 'crates', 'vtracer', 'Cargo.toml'), join(stage, 'crates', 'v
 const crateManifest = join(stage, 'crates', 'vtracer', 'Cargo.toml')
 writeFileSync(crateManifest, readFileSync(crateManifest, 'utf8').replace(/\[dev-dependencies\][\s\S]*$/, ''))
 cpSync(join(source, 'README.md'), join(stage, 'README.md'))
-writeFileSync(join(stage, 'Cargo.toml'), `[workspace]\nmembers = ["crates/vtracer", "adapter"]\nresolver = "2"\n\n[workspace.package]\nversion = "1.0.0-alpha.5"\nauthors = ["VTracer-next contributors"]\nedition = "2024"\nlicense = "MIT"\nhomepage = "https://github.com/jberdah/vtracer-next#readme"\nrepository = "https://github.com/jberdah/vtracer-next"\n\n[workspace.dependencies]\nvisioncortex = "0.9.3"\nflo_curves = "0.8"\nrayon = "1.10"\n\n[profile.release]\nopt-level = "s"\nlto = true\ncodegen-units = 1\n`)
+// The engine's manifests point to its license file (VTracer-Next License 1.0).
+cpSync(join(root, 'public', 'licenses', 'vtracer-next.txt'), join(stage, 'LICENSE'))
+writeFileSync(join(stage, 'Cargo.toml'), `[workspace]\nmembers = ["crates/vtracer", "adapter"]\nresolver = "2"\n\n[workspace.package]\nversion = "1.0.0-alpha.5"\nauthors = ["VTracer-next contributors"]\nedition = "2024"\nlicense-file = "LICENSE"\nhomepage = "https://github.com/jberdah/vtracer-next#readme"\nrepository = "https://github.com/jberdah/vtracer-next"\n\n[workspace.dependencies]\nvisioncortex = "0.9.3"\nflo_curves = "0.8"\nrayon = "1.10"\n\n[profile.release]\nopt-level = "s"\nlto = true\ncodegen-units = 1\n`)
 mkdirSync(join(stage, 'adapter', 'src'), { recursive: true })
 let adapter = readFileSync(join(root, 'wasm', 'vtracer', 'src', 'lib.rs'), 'utf8')
 if (!adapter.includes('    binary_threshold: Option<u8>,') || !adapter.includes('    Ok(config)')) throw new Error('VTracer adapter changed; update the Next build adapter explicitly')

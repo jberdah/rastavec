@@ -1,11 +1,17 @@
 # Third-party notices
 
 RastaVec is distributed under the Apache License 2.0 (see `LICENSE` and `NOTICE`).
-It relies on the following open-source components, each under its own license.
+It relies on the following components, each under its own license.
+
+The tracing engine is the exception to "open source": the VTracer-Next WebAssembly module in
+`src/lib/engine/vtracer-next-wasm/` is not under Apache-2.0. Its license lets you use
+RastaVec and everything you produce with it for any purpose, commercial included, and lets
+you reuse the module in another application only if that application is free of charge and
+not operated for commercial advantage.
 
 | Component | Use | License |
 |---|---|---|
-| VTracer-Next (`vtracer-next` 1.0.0-alpha.5, based on [VTracer](https://github.com/visioncortex/vtracer)) | raster to vector tracing engine (WebAssembly) | [MIT](public/licenses/vtracer-next.txt) |
+| VTracer-Next (`vtracer-next` 1.0.0-alpha.5, based on [VTracer](https://github.com/visioncortex/vtracer)) | raster to vector tracing engine (WebAssembly) | [VTracer-Next License 1.0](public/licenses/vtracer-next.txt): free output, noncommercial integration; upstream VTracer parts under MIT (same file) |
 | [Visioncortex](https://crates.io/crates/visioncortex/0.9.3) | clustering and geometry used by VTracer-Next | MIT OR Apache-2.0, used under [MIT](public/licenses/vtracer-next-third-party.txt) |
 | [flo_curves](https://crates.io/crates/flo_curves) | curve fitting used by VTracer-Next | [Apache-2.0](public/licenses/vtracer-next-third-party.txt) |
 | [roots](https://crates.io/crates/roots) | polynomial root finding used by flo_curves | [BSD-2-Clause](public/licenses/vtracer-next-third-party.txt) |

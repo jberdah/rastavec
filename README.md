@@ -176,3 +176,12 @@ Code: [Apache License 2.0](LICENSE). Redistributions and derivative works must k
 [`NOTICE`](NOTICE) file, which credits RastaVec (https://github.com/jberdah/rastavec).
 The RastaVec name, logo, symbol and mascot are brand assets and are not licensed for use
 beyond referring to this project. Third-party components: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+The tracing engine is licensed separately. The VTracer-Next WebAssembly module shipped in
+`src/lib/engine/vtracer-next-wasm/` is under the
+[VTracer-Next License 1.0](public/licenses/vtracer-next.txt), not Apache-2.0:
+
+- the SVG files you produce are yours, for any use, commercial included;
+- you may reuse the module in another application that is free of charge and not operated
+  for commercial advantage;
+- reusing it in a commercial product or service needs written permission.

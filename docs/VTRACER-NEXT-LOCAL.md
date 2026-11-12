@@ -24,7 +24,7 @@ npm --prefix cli run build
 
 App and CLI builds verify the module and its build inputs against
 `scripts/vtracer-next.artifacts.json`. The CLI packages an `.mjs` copy of the
-generated glue alongside the WASM and its MIT license. CLI CI installs the
+generated glue alongside the WASM and its license (VTracer-Next License 1.0, with the upstream MIT text). CLI CI installs the
 tarball and traces an image through the installed command.
 
 ## Rebuilding the engine

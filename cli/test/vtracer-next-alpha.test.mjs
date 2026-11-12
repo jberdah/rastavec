@@ -109,7 +109,8 @@ test('Auto recovers a shaded landscape with weak gradient-analysis signal', asyn
   const autoRun = run('trace', input, ...settings, '--out', autoOut, '--json')
   assert.equal(autoRun.status, 0, autoRun.stderr)
   const auto = JSON.parse(autoRun.stdout).items[0]
-  assert.equal(auto.traceMethod, 'experimental-gradients')
+  // Either gradient trial may win: fitted closely, or simplified (fewer shapes).
+  assert.ok(['experimental-gradients', 'simple-gradients'].includes(auto.traceMethod), auto.traceMethod)
   assert.ok(auto.metrics.pctDiff < baseline.metrics.pctDiff * 0.03,
     `gradient Auto error ${auto.metrics.pctDiff}% should be under 3% of baseline ${baseline.metrics.pctDiff}%`)
   assert.match(readFileSync(auto.output, 'utf8'), /<linearGradient\b/)
