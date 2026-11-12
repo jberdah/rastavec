@@ -5,6 +5,8 @@
   import type { ImageKind } from '../engine/analyze'
   import { kbUnit, kindLabel, num, pct, presetDesc, presetName, size, t } from '../i18n.svelte'
   import { publicAsset } from '../assets'
+  import { decodeFile, previewUrlFor } from '../engine/browser-backend'
+  import { isTiffBlob } from '../engine/tiff.js'
 
   let dragging = $state(false)
   let fileInput: HTMLInputElement
@@ -64,9 +66,18 @@
     gridSize = null
     sheetInfo = null
     try {
-      const bitmap = await createImageBitmap(file)
-      gridSize = { width: bitmap.width, height: bitmap.height }
-      bitmap.close()
+      if (await isTiffBlob(file)) {
+        // Most browsers cannot draw TIFF: decode it and preview a PNG rendering instead.
+        const decoded = await decodeFile(file)
+        const preview = await previewUrlFor(file, decoded)
+        if (gridFile !== file) { if (preview) URL.revokeObjectURL(preview); return }
+        if (preview) { URL.revokeObjectURL(gridPreviewUrl); gridPreviewUrl = preview }
+        gridSize = { width: decoded.width, height: decoded.height }
+      } else {
+        const bitmap = await createImageBitmap(file)
+        gridSize = { width: bitmap.width, height: bitmap.height }
+        bitmap.close()
+      }
     } catch (err) {
       sheetInfo = t('sheet.error', err instanceof Error ? err.message : String(err))
       closeGridSheet()
@@ -181,10 +192,10 @@
               <button type="button" class="btn" onclick={clearItems} disabled={app.running || slicing}>{t('drop.clear')}</button>
             {/if}
           </div>
-          <input bind:this={fileInput} class="sr-only" type="file" multiple accept="image/png,image/jpeg,image/webp,image/gif,image/bmp" onchange={onPick} tabindex="-1" aria-hidden="true" />
+          <input bind:this={fileInput} class="sr-only" type="file" multiple accept="image/png,image/jpeg,image/webp,image/gif,image/bmp,image/tiff,.png,.jpg,.jpeg,.webp,.gif,.bmp,.tif,.tiff" onchange={onPick} tabindex="-1" aria-hidden="true" />
           <input bind:this={folderInput} class="sr-only" type="file" multiple {...{ webkitdirectory: true }} onchange={onPick} tabindex="-1" aria-hidden="true" />
-          <input bind:this={sheetInput} class="sr-only" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/bmp" onchange={onSheet} tabindex="-1" aria-hidden="true" />
-          <input bind:this={gridSheetInput} class="sr-only" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/bmp" onchange={onGridSheet} tabindex="-1" aria-hidden="true" />
+          <input bind:this={sheetInput} class="sr-only" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/bmp,image/tiff,.png,.jpg,.jpeg,.webp,.gif,.bmp,.tif,.tiff" onchange={onSheet} tabindex="-1" aria-hidden="true" />
+          <input bind:this={gridSheetInput} class="sr-only" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/bmp,image/tiff,.png,.jpg,.jpeg,.webp,.gif,.bmp,.tif,.tiff" onchange={onGridSheet} tabindex="-1" aria-hidden="true" />
           {#if sheetInfo}<span class="small" style="color: var(--accent-text)" role="status">{sheetInfo}</span>{/if}
         </div>
         {#if app.items.length}
