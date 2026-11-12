@@ -17,7 +17,7 @@ export interface ShapePatch {
   rx?: number
   ry?: number
   rotation?: number
-  /** A crescent's inner circle. Moving a crescent (cx, cy) moves both circles. */
+  /** A crescent's or ring's inner circle. Moving the shape (cx, cy) moves both circles. */
   innerCx?: number
   innerCy?: number
   innerR?: number
@@ -74,6 +74,25 @@ export function crescentPath(cx: number, cy: number, r: number, icx: number, icy
   return `M${round(p.x)},${round(p.y)}`
     + arc(cx, cy, r, outerStart, sweepThrough(outerStart, angle(cx, cy, q), away))
     + arc(icx, icy, ir, innerStart, sweepThrough(innerStart, angle(icx, icy, p), away)) + 'Z'
+}
+
+/** Thinnest band, in viewBox units, the engine accepts for a ring. */
+export const RING_MIN_THICKNESS = 1.5
+
+/**
+ * A ring (outer disc minus an inner disc lying wholly inside it) as the engine writes it: the outer
+ * circle as four cubic arcs, then the inner one wound the other way, so the hole stays unpainted
+ * under either fill rule. `null` when the inner circle does not lie inside the outer one with a
+ * band of at least `RING_MIN_THICKNESS`.
+ */
+export function ringPath(cx: number, cy: number, r: number, icx: number, icy: number, ir: number): string | null {
+  const d = Math.hypot(icx - cx, icy - cy)
+  if (!(ir > 0) || !(r - d - ir >= RING_MIN_THICKNESS)) return null
+  const k = KAPPA
+  const at = (ox: number, oy: number, radius: number, u: number, v: number) => `${round(ox + radius * u)},${round(oy + radius * v)}`
+  const o = (u: number, v: number) => at(icx, icy, ir, u, v)
+  return ellipsePath(cx, cy, r, r)
+    + `M${o(1, 0)}C${o(1, -k)} ${o(k, -1)} ${o(0, -1)}C${o(-k, -1)} ${o(-1, -k)} ${o(-1, 0)}C${o(-1, k)} ${o(-k, 1)} ${o(0, 1)}C${o(k, 1)} ${o(1, k)} ${o(1, 0)}Z`
 }
 
 /** Axis-aligned bounds of an ellipse. */
@@ -173,16 +192,16 @@ export function editShape(svg: string, hints: EngineShapeHint[], index: number, 
   let gradientShift: [number, number] | null = null
 
   const geometryKeys = ['cx', 'cy', 'r', 'rx', 'ry', 'rotation', 'innerCx', 'innerCy', 'innerR'] as const
-  if (hint.kind === 'crescent' && geometryKeys.some((key) => patch[key] !== undefined)) {
+  if ((hint.kind === 'crescent' || hint.kind === 'ring') && geometryKeys.some((key) => patch[key] !== undefined)) {
     if (!capabilities.geometry || !/\bd="[^"]*"/.test(tag)) return null
     const cx = patch.cx ?? hint.cx ?? 0, cy = patch.cy ?? hint.cy ?? 0, r = patch.r ?? hint.r ?? 0
-    // Moving the crescent carries its inner circle along, unless that is placed explicitly.
+    // Moving the crescent or ring carries its inner circle along, unless that is placed explicitly.
     const icx = patch.innerCx ?? (hint.innerCx ?? 0) + (cx - (hint.cx ?? 0))
     const icy = patch.innerCy ?? (hint.innerCy ?? 0) + (cy - (hint.cy ?? 0))
     const ir = patch.innerR ?? hint.innerR ?? 0
     if (![cx, cy, r, icx, icy, ir].every(Number.isFinite) || r <= 0 || ir <= 0) return null
-    const d = crescentPath(cx, cy, r, icx, icy, ir)
-    if (!d) return null // the circles no longer cross: that would not be a crescent
+    const d = hint.kind === 'ring' ? ringPath(cx, cy, r, icx, icy, ir) : crescentPath(cx, cy, r, icx, icy, ir)
+    if (!d) return null // a crescent whose circles no longer cross, a ring whose hole leaves the disc
     tag = tag.replace(/\bd="[^"]*"/, `d="${d}"`)
     next = { ...next, cx, cy, r, innerCx: icx, innerCy: icy, innerR: ir, bounds: ellipseBounds(cx, cy, r, r, 0) }
   } else if (geometryKeys.some((key) => patch[key] !== undefined)) {

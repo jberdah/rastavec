@@ -5,7 +5,7 @@ import { createRequire } from 'node:module'
 const sharp = createRequire(new URL('../cli/package.json', import.meta.url))('sharp')
 const { buildSync } = createRequire(new URL('../cli/package.json', import.meta.url))('esbuild')
 const bundled = buildSync({ stdin: { contents: `export * from './src/lib/engine/shape-edits'; export { analyzeShapes, applyFilters, DEFAULT_FILTERS } from './src/lib/engine/palette'`, resolveDir: process.cwd(), loader: 'ts' }, bundle: true, write: false, format: 'esm', platform: 'node' }).outputFiles[0].text
-const { editShape, ellipsePath, crescentPath, shapeCapabilities, analyzeShapes, applyFilters, DEFAULT_FILTERS } = await import(`data:text/javascript;base64,${Buffer.from(bundled).toString('base64')}`)
+const { editShape, ellipsePath, crescentPath, ringPath, shapeCapabilities, analyzeShapes, applyFilters, DEFAULT_FILTERS } = await import(`data:text/javascript;base64,${Buffer.from(bundled).toString('base64')}`)
 
 // Engine-style output: a background, a flat circle, a gradient-painted ellipse with one overlay.
 const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="120" viewBox="0 0 200 120">
@@ -119,4 +119,68 @@ test('a crescent is moved as a whole, or reshaped by its inner circle, and stays
   assert.deepEqual([thinner.hints[0].cx, thinner.hints[0].innerCx, thinner.hints[0].innerR], [100, 115, 55])
   assert.equal(editShape(moon, hints, 1, { innerCx: 400 }), null, 'an inner circle moved off the crescent is refused')
   assert.equal(editShape(moon, hints, 1, { innerR: 0 }), null)
+})
+
+// The cubics of a path, each as [start, c1, c2, end].
+const cubics = (d) => {
+  const out = []
+  let current
+  for (const [, op, args] of d.matchAll(/([MCZ])([^MCZ]*)/g)) {
+    const n = args.trim().split(/[\s,]+/).filter(Boolean).map(Number)
+    if (op === 'M') current = [n[0], n[1]]
+    if (op === 'C') { const end = [n[4], n[5]]; out.push([current, [n[0], n[1]], [n[2], n[3]], end]); current = end }
+  }
+  return out
+}
+
+test('a ring path is the engine construction: the outer circle, then the inner one wound the other way', () => {
+  const d = ringPath(100, 100, 50, 110, 95, 20)
+  const parts = d.split(/(?=M)/)
+  assert.equal(parts.length, 2, d)
+  assert.equal(parts[0], ellipsePath(100, 100, 50, 50), 'the outer subpath is the exact circle the engine writes')
+  // Engine (shapes/ring.rs): inner subpath starts at (cx + r, cy) and goes through (cx, cy - r) first.
+  assert.ok(parts[1].startsWith('M130,95C130,83.95 121.05,75 110,75C'), parts[1])
+  assert.ok(/Z$/.test(parts[0]) && /Z$/.test(parts[1]))
+  const segments = cubics(d)
+  assert.equal(segments.length, 8)
+  const turn = (list, [ox, oy]) => list.reduce((sum, [a, , , b]) => sum + (a[0] - ox) * (b[1] - oy) - (a[1] - oy) * (b[0] - ox), 0)
+  for (const [list, centre, radius] of [[segments.slice(0, 4), [100, 100], 50], [segments.slice(4), [110, 95], 20]]) {
+    for (const [p0, p1, p2, p3] of list) {
+      for (const p of [p0, p3]) assert.ok(Math.abs(Math.hypot(p[0] - centre[0], p[1] - centre[1]) - radius) < 0.01)
+      const mid = [0, 1].map((axis) => (p0[axis] + 3 * p1[axis] + 3 * p2[axis] + p3[axis]) / 8)
+      assert.ok(Math.abs(Math.hypot(mid[0] - centre[0], mid[1] - centre[1]) - radius) < 0.02, `cubic midpoint on the circle: ${mid}`)
+    }
+  }
+  assert.ok(turn(segments.slice(0, 4), [100, 100]) * turn(segments.slice(4), [110, 95]) < 0, 'opposite windings')
+  assert.equal(ringPath(100, 100, 50, 120, 100, 29), null, 'a band under 1.5 is no ring')
+  assert.equal(ringPath(100, 100, 50, 160, 100, 10), null, 'an inner circle outside the disc is no ring')
+  assert.equal(ringPath(100, 100, 50, 100, 100, 0), null)
+})
+
+test('a ring is moved as a whole, its hole moved or resized inside it, and stays a ring', async () => {
+  const donut = `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">
+<path d="M0,0H200V200H0Z" fill="#ffffff"/>
+<path d="${ringPath(100, 100, 60, 100, 100, 30)}" fill="#1f6feb"/>
+</svg>`
+  const hints = [{ index: 1, kind: 'ring', cx: 100, cy: 100, r: 60, innerCx: 100, innerCy: 100, innerR: 30, bounds: [40, 40, 160, 160] }]
+  assert.equal(shapeCapabilities(donut, hints, 1).geometry, true)
+  assert.deepEqual(await pixel(donut, 100, 100), [255, 255, 255], 'the hole shows the background')
+  assert.deepEqual(await pixel(donut, 145, 100), [31, 111, 235])
+
+  const moved = editShape(donut, hints, 1, { cx: 90, cy: 110 })
+  assert.deepEqual([moved.hints[0].cx, moved.hints[0].cy, moved.hints[0].innerCx, moved.hints[0].innerCy, moved.hints[0].innerR], [90, 110, 90, 110, 30], 'the hole travels with the ring')
+  assert.ok(moved.svg.includes(`d="${ringPath(90, 110, 60, 90, 110, 30)}"`))
+  assert.deepEqual(moved.hints[0].bounds, [30, 50, 150, 170])
+  assert.deepEqual(await pixel(moved.svg, 90, 110), [255, 255, 255])
+
+  const shifted = editShape(donut, hints, 1, { innerCx: 115, innerR: 25 })
+  assert.deepEqual([shifted.hints[0].cx, shifted.hints[0].innerCx, shifted.hints[0].innerCy, shifted.hints[0].innerR], [100, 115, 100, 25])
+  assert.deepEqual(await pixel(shifted.svg, 130, 100), [255, 255, 255])
+  assert.deepEqual(await pixel(shifted.svg, 80, 100), [31, 111, 235])
+
+  assert.ok(editShape(donut, hints, 1, { r: 40 }), 'shrinking the disc while the band stays is fine')
+  assert.equal(editShape(donut, hints, 1, { r: 31 }), null, 'a disc shrunk onto its hole is refused')
+  assert.equal(editShape(donut, hints, 1, { innerR: 59 }), null, 'a hole as large as the disc is refused')
+  assert.equal(editShape(donut, hints, 1, { innerCx: 140 }), null, 'a hole moved through the rim is refused')
+  assert.equal(editShape(donut, hints, 1, { innerR: 0 }), null)
 })

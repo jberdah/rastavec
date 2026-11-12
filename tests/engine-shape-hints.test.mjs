@@ -91,3 +91,25 @@ test('a crescent moon is reported as a crescent with both circles', async () => 
   assert.ok(Math.abs(crescent.innerCx - 128) < 1.5 && Math.abs(crescent.innerCy - 82) < 1.5 && Math.abs(crescent.innerR - 58) < 1.5, JSON.stringify(crescent))
   assert.ok(trial.metrics.pctDiff < 1, `the picture is kept: ${trial.metrics.pctDiff}`)
 })
+
+test('a donut is reported as a ring with both circles, its hole left unpainted', async () => {
+  // Outer disc (100, 100) r 70 minus a concentric hole r 35, flat ink on paper, 4×4 supersampled.
+  const scene = image(200, 200, (x, y) => {
+    let inked = 0
+    for (let sy = 0; sy < 4; sy++) for (let sx = 0; sx < 4; sx++) {
+      const px = x - 0.5 + (sx + 0.5) / 4, py = y - 0.5 + (sy + 0.5) / 4
+      const d = Math.hypot(px - 100, py - 100)
+      if (d <= 70 && d > 35) inked++
+    }
+    const t = inked / 16
+    return [Math.round(250 - 220 * t), Math.round(249 - 139 * t), Math.round(245 - 10 * t), 255]
+  })
+  const trial = await runTrial(scene, { ...DEFAULT_PARAMS }, true, backend)
+  const ring = (trial.shapes ?? []).find((shape) => shape.kind === 'ring')
+  assert.ok(ring, JSON.stringify(trial.shapes))
+  assert.ok(Math.abs(ring.cx - 100) < 1.5 && Math.abs(ring.cy - 100) < 1.5 && Math.abs(ring.r - 70) < 1.5, JSON.stringify(ring))
+  assert.ok(Math.abs(ring.innerCx - 100) < 1.5 && Math.abs(ring.innerCy - 100) < 1.5 && Math.abs(ring.innerR - 35) < 1.5, JSON.stringify(ring))
+  const d = [...trial.svg.matchAll(/<path\b[^>]*\bd="([^"]*)"/g)][ring.index]?.[1] ?? ''
+  assert.equal((d.match(/M/g) ?? []).length, 2, `one path, two subpaths: ${d}`)
+  assert.ok(trial.metrics.pctDiff < 1, `the picture is kept: ${trial.metrics.pctDiff}`)
+})

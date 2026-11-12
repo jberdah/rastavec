@@ -35,6 +35,7 @@ export function editableShare(svg: string, shapes: EngineShapeHint[] | undefined
   for (const hint of hints) {
     if (hint.kind === 'circle') area += Math.PI * (hint.r ?? 0) ** 2
     else if (hint.kind === 'ellipse') area += Math.PI * (hint.rx ?? 0) * (hint.ry ?? 0)
+    else if (hint.kind === 'ring') area += Math.PI * Math.max(0, (hint.r ?? 0) ** 2 - (hint.innerR ?? 0) ** 2)
     else if (hint.kind === 'crescent') area += crescentArea(hint.r ?? 0, hint.innerR ?? 0, Math.hypot((hint.innerCx ?? 0) - (hint.cx ?? 0), (hint.innerCy ?? 0) - (hint.cy ?? 0)))
     else {
       tags ??= [...svg.matchAll(PATH_DATA)]
