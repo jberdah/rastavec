@@ -10,8 +10,9 @@ import type { Item, Trial } from './engine/types'
 import { measureSvg, refreshOutputMetrics } from './pipeline'
 import { chosenTrial, dropSvgUrl } from './store.svelte'
 
-/** Edit one hinted shape of the item's chosen trial. Returns false when the edit is not possible. */
-export function applyShapeEdit(item: Item, index: number, patch: ShapePatch): boolean {
+/** Edit one hinted shape of the item's chosen trial. Returns false when the edit is not possible.
+ * Pass `refresh: false` when the caller re-measures the output itself once its own changes are done. */
+export function applyShapeEdit(item: Item, index: number, patch: ShapePatch, { refresh = true } = {}): boolean {
   const current = chosenTrial(item)
   if (!current.shapes) return false
   const edited = editShape(current.svg, current.shapes, index, patch)
@@ -48,6 +49,6 @@ export function applyShapeEdit(item: Item, index: number, patch: ShapePatch): bo
     stored.metrics = { ...metrics, editableShare: editableShare(edited.svg, edited.hints) }
     stored.score = score(stored.metrics)
   }).catch(() => { /* keep the provisional metrics; the output measurement reports errors */ })
-  refreshOutputMetrics(item)
+  if (refresh) refreshOutputMetrics(item)
   return true
 }

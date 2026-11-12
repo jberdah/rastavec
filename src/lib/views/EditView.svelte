@@ -47,20 +47,21 @@
 
   // Groups follow every edit that keeps the image's paths (a moved shape, new colours). An edit
   // that changes the paths themselves (Detail drops small shapes) cannot carry them: say so.
-  let groupsLost = $state<{ itemId: string; count: number } | null>(null)
-  $effect(() => {
-    void item?.id
-    untrack(() => { groupsLost = null })
-  })
+  // One entry per image whose groups an edit could not carry (apply-to-all can hit several). An
+  // entry only shows while those groups still do not apply; undo / redo on that image clears it.
+  let groupsLost = $state<Record<string, number>>({})
   function changeSvg<T>(target: Item, edit: () => T): T {
     const { result, groupsKept } = keepingGroups(target, edit)
-    if (!groupsKept) groupsLost = { itemId: target.id, count: target.grouping?.groups.length ?? 0 }
-    else if (groupsLost?.itemId === target.id && appliedGrouping(target)) groupsLost = null
+    if (!groupsKept) groupsLost[target.id] = target.grouping?.groups.length ?? 0
+    else if (target.id in groupsLost && appliedGrouping(target)) delete groupsLost[target.id]
     void refreshOutputMetrics(target)
     return result
   }
   const groupsApplied = $derived(item ? appliedGrouping(item) : undefined)
   const staleGroups = $derived(item && !groupsApplied ? item.grouping?.groups.length ?? 0 : 0)
+  const lostHere = $derived(!!item && item.id in groupsLost && staleGroups > 0)
+  // Other images of the batch that lost their groups (apply-to-all), so none loses them silently.
+  const lostElsewhere = $derived(list.filter((other) => other.id !== item?.id && other.id in groupsLost && !!other.grouping?.groups.length && !appliedGrouping(other)).length)
   const activePreset = $derived(
     (Object.keys(FILTER_PRESETS) as PresetId[]).find((id) => {
       const p = { ...DEFAULT_FILTERS, ...FILTER_PRESETS[id] }
@@ -99,7 +100,7 @@
     const target = item
     record(target, key)
     // A refused edit (e.g. a non-positive radius typed in a field) changes nothing: no step.
-    if (!changeSvg(target, () => applyShapeEdit(target, index, patch))) dropLastStep(target)
+    if (!changeSvg(target, () => applyShapeEdit(target, index, patch, { refresh: false }))) dropLastStep(target)
   }
   // Undo every shape edit: go back to the traced trial the edited variant came from.
   const canResetShapes = $derived(trial?.traceMethod === 'shapes-edited' && trial.sourceTrial !== undefined)
@@ -335,8 +336,8 @@
   // Bumped on undo / redo: the groups panel keeps its own copy of the groups and is remounted
   // from the restored ones, otherwise its next action would push the undone state back.
   let restored = $state(0)
-  function doUndo() { cancelDrag(); if (item && undo(item)) { selectedShape = null; restored++ } }
-  function doRedo() { cancelDrag(); if (item && redo(item)) { selectedShape = null; restored++ } }
+  function doUndo() { cancelDrag(); if (item && undo(item)) { selectedShape = null; restored++; delete groupsLost[item.id] } }
+  function doRedo() { cancelDrag(); if (item && redo(item)) { selectedShape = null; restored++; delete groupsLost[item.id] } }
 
   // Keyboard: undo / redo, Escape to deselect, arrows to nudge the selected shape.
   function onKey(event: KeyboardEvent) {
@@ -425,11 +426,12 @@
       <button type="button" role="tab" aria-selected={tab === 'shapes'} onclick={() => (tab = 'shapes')}>{t('edit.tab.shapes')} <span class="count">{entries.length}</span></button>
       <button type="button" role="tab" aria-selected={tab === 'groups'} onclick={() => (tab = 'groups')}>{t('edit.tab.groups')}{#if groupsApplied?.groups.length}<span class="count">{groupsApplied.groups.length}</span>{:else if staleGroups}<span class="count stale" title={t('edit.groupsStale', staleGroups)}>!</span>{/if}</button>
     </div>
-    {#if groupsLost && groupsLost.itemId === item.id && staleGroups}<p class="notice small" role="status">{t('edit.groupsLost', groupsLost.count)}</p>{/if}
+    {#if lostHere}<p class="notice small" role="status">{t('edit.groupsLost', groupsLost[item.id] || staleGroups)}</p>{/if}
+    {#if lostElsewhere}<p class="notice small" role="status">{t('edit.groupsLostElsewhere', lostElsewhere)}</p>{/if}
 
     {#if tab === 'groups'}
       <p class="muted small intro">{t('edit.groupHint')}</p>
-      {#if staleGroups && !(groupsLost && groupsLost.itemId === item.id)}<p class="notice small" role="status">{t('edit.groupsStale', staleGroups)}</p>{/if}
+      {#if staleGroups && !lostHere}<p class="notice small" role="status">{t('edit.groupsStale', staleGroups)}</p>{/if}
       {#key restored}
       <GroupReview embedded svg={result.svg} name={item.name} grouping={item.grouping} sourceImage={{ url: item.srcUrl, width: item.width, height: item.height }} onGroupingChange={saveGrouping} />
       {/key}

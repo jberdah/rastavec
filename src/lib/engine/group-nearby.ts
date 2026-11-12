@@ -12,7 +12,18 @@ export type NearbyStrategy = 'proximity' | 'spatial'
 export interface NearbyResult { svg: string; groups: NearbyGroup[]; considered: number; skipped: number; limit?: 'path-count' | 'geometry-size' | 'geometry-work' | 'singleton-count' }
 
 /** Small deterministic fingerprint used to attach reviewed annotations to one exact SVG. */
+// The same SVG is fingerprinted several times per edit (export, measurement key, groups check):
+// remember the last few.
+const fingerprints = new Map<string, string>()
 export function svgFingerprint(svg: string): string {
+  const known = fingerprints.get(svg)
+  if (known !== undefined) return known
+  const value = computeFingerprint(svg)
+  fingerprints.set(svg, value)
+  if (fingerprints.size > 8) fingerprints.delete(fingerprints.keys().next().value!)
+  return value
+}
+function computeFingerprint(svg: string): string {
   let hash = 0x811c9dc5
   for (let i = 0; i < svg.length; i++) { hash ^= svg.charCodeAt(i); hash = Math.imul(hash, 0x01000193) }
   return (hash >>> 0).toString(16).padStart(8, '0')
@@ -91,29 +102,41 @@ export function parsePathTags(svg: string): ParsedPath[] {
   // presets (notably Pixel art) with zero animation groups.
   const protectedTag = new Set(['defs', 'clippath', 'mask', 'symbol', 'pattern'])
   const tag = /<!--[\s\S]*?-->|<\/?([A-Za-z][\w:.-]*)\b[^>]*>/g
-  type Context = { name: string; fill: string | null; transform: Matrix | null; reorderSafe: boolean }
+  type Context = { name: string; fill: string | null; transform: Matrix | null; reorderSafe: boolean; protected: boolean }
   const unsafeReorderAttributes = new Set(['filter', 'marker-start', 'marker-mid', 'marker-end', 'mix-blend-mode', 'style', 'stroke'])
+  const identity: Matrix = [1, 0, 0, 1, 0, 0]
+  const attribute = /\b([A-Za-z][\w:.-]*)="([^"]*)"/g
   const stack: Context[] = []
   const matches: ParsedPath[] = []
   for (const match of svg.matchAll(tag)) {
     const full = match[0], rawName = match[1]
     if (!rawName) continue
     const name = rawName.toLowerCase()
-    if (full.startsWith('</')) {
-      const index = stack.map((context) => context.name).lastIndexOf(name)
-      if (index >= 0) stack.length = index
+    if (full.charCodeAt(1) === 47 /* "/" */) {
+      for (let index = stack.length - 1; index >= 0; index--) if (stack[index].name === name) { stack.length = index; break }
       continue
     }
-    const attributes = Object.fromEntries([...full.matchAll(/\b([A-Za-z][\w:.-]*)="([^"]*)"/g)].map((attribute) => [attribute[1].toLowerCase(), attribute[2]]))
-    const parent = stack.at(-1)
-    const fill = (attributes.fill ?? parent?.fill ?? null)?.toLowerCase() ?? null
-    const reorderSafe = (parent?.reorderSafe ?? true) && !Object.keys(attributes).some((attribute) => unsafeReorderAttributes.has(attribute))
-    const ownTransform = parseTransform(attributes.transform === undefined ? '' : ` transform="${attributes.transform}"`)
-    const transform = parent?.transform === null ? null : parent?.transform ? ownTransform ? multiplyMatrix(parent.transform, ownTransform) : null : ownTransform
-    if (name === 'path' && attributes.d !== undefined && full.endsWith('/>')) {
-      matches.push({ start: match.index!, raw: full, d: attributes.d, fill, transform, parentTransform: parent ? parent.transform : [1, 0, 0, 1, 0, 0], protected: stack.some((context) => protectedTag.has(context.name)), reorderSafe })
+    // Plain loop instead of building entries: this runs once per tag on every colour-slider tick.
+    let d: string | undefined, ownFill: string | undefined, ownTransformText: string | undefined, unsafe = false
+    attribute.lastIndex = 0
+    for (let found = attribute.exec(full); found; found = attribute.exec(full)) {
+      const key = found[1].toLowerCase()
+      if (key === 'd') { if (d === undefined) d = found[2] }
+      else if (key === 'fill') { if (ownFill === undefined) ownFill = found[2] }
+      else if (key === 'transform') { if (ownTransformText === undefined) ownTransformText = found[2] }
+      if (unsafeReorderAttributes.has(key)) unsafe = true
     }
-    if (!full.endsWith('/>')) stack.push({ name, fill, transform, reorderSafe })
+    const parent = stack.at(-1)
+    const fill = (ownFill ?? parent?.fill ?? null)?.toLowerCase() ?? null
+    const reorderSafe = (parent?.reorderSafe ?? true) && !unsafe
+    const ownTransform = ownTransformText === undefined ? [...identity] as Matrix : parseTransform(` transform="${ownTransformText}"`)
+    const transform = parent?.transform === null ? null : parent?.transform ? ownTransform ? multiplyMatrix(parent.transform, ownTransform) : null : ownTransform
+    const isProtected = (parent?.protected ?? false) || protectedTag.has(name)
+    const selfClosing = full.endsWith('/>')
+    if (name === 'path' && d !== undefined && selfClosing) {
+      matches.push({ start: match.index!, raw: full, d, fill, transform, parentTransform: parent ? parent.transform : [...identity] as Matrix, protected: parent?.protected ?? false, reorderSafe })
+    }
+    if (!selfClosing) stack.push({ name, fill, transform, reorderSafe, protected: isProtected })
   }
   return matches
 }

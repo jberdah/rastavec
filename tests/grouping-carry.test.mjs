@@ -4,8 +4,8 @@ import { createRequire } from 'node:module'
 import { createServer } from 'vite'
 
 const { buildSync } = createRequire(new URL('../cli/package.json', import.meta.url))('esbuild')
-const bundled = buildSync({ stdin: { contents: `export { carryGrouping } from './src/lib/engine/carry-grouping'; export { groupNearbyPaths, svgFingerprint } from './src/lib/engine/group-nearby'; export { editShape, ellipsePath } from './src/lib/engine/shape-edits'; export { analyzeShapes, applyFilters, DEFAULT_FILTERS } from './src/lib/engine/palette'`, resolveDir: process.cwd(), loader: 'ts' }, bundle: true, write: false, format: 'esm', platform: 'node' }).outputFiles[0].text
-const { carryGrouping, groupNearbyPaths, svgFingerprint, editShape, ellipsePath, analyzeShapes, applyFilters, DEFAULT_FILTERS } = await import(`data:text/javascript;base64,${Buffer.from(bundled).toString('base64')}`)
+const bundled = buildSync({ stdin: { contents: `export { carryGrouping, carryStats } from './src/lib/engine/carry-grouping'; export { groupNearbyPaths, svgFingerprint } from './src/lib/engine/group-nearby'; export { editShape, ellipsePath } from './src/lib/engine/shape-edits'; export { analyzeShapes, applyFilters, DEFAULT_FILTERS } from './src/lib/engine/palette'`, resolveDir: process.cwd(), loader: 'ts' }, bundle: true, write: false, format: 'esm', platform: 'node' }).outputFiles[0].text
+const { carryGrouping, carryStats, groupNearbyPaths, svgFingerprint, editShape, ellipsePath, analyzeShapes, applyFilters, DEFAULT_FILTERS } = await import(`data:text/javascript;base64,${Buffer.from(bundled).toString('base64')}`)
 
 // Four separate ellipses (one painted by a gradient) on a background, like the rotated-ellipses fixture.
 const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">
@@ -104,6 +104,57 @@ test('a cluster the grouping pass reordered is matched by path identity', () => 
   assert.match(carried.svg, /<g id="a"[^>]*><path d="M0,0H10V10H0Z" fill="#111111"\/><path d="M2,2H8V8H2Z" fill="#00ff00"\/><\/g><g id="b"[^>]*><path d="M70,50H80V60H70Z" fill="#222222"\/>/)
   assert.deepEqual(carried.groups[1].bounds, [70, 50, 80, 60])
   assert.deepEqual(carried.groups[1].pivot, [75, 55])
+})
+
+test('a colour change does not re-measure any path; a moved shape re-measures only its own path', () => {
+  const grouping = reviewed(svg)
+  const before = carryStats.flattened
+  const recoloured = applyFilters(svg, analyzeShapes(svg), { ...DEFAULT_FILTERS, hue: 60 }).svg
+  const carried = carryGrouping(grouping, svg, recoloured)
+  assert.ok(carried)
+  assert.equal(carryStats.flattened, before, 'colours only: no path is flattened again')
+  assert.deepEqual(carried.groups.map((group) => [group.bounds, group.pivot]), grouping.groups.map((group) => [group.bounds, group.pivot]))
+  // Slider ticks chain on the carried grouping (its markup is never parsed again).
+  const next = applyFilters(svg, analyzeShapes(svg), { ...DEFAULT_FILTERS, hue: 65 }).svg
+  const again = carryGrouping(carried, recoloured, next)
+  assert.equal(unwrap(again.svg), next)
+  assert.equal(carryStats.flattened, before)
+  const moved = editShape(svg, hints, 1, { cx: 140, cy: 50 })
+  carryGrouping(grouping, svg, moved.svg)
+  assert.equal(carryStats.flattened - before, 1, 'only the moved path is measured')
+  // No groups: nothing to carry, the markup is the new SVG.
+  const empty = { ...grouping, groups: [], svg }
+  assert.equal(carryGrouping(empty, svg, recoloured).svg, recoloured)
+})
+
+test('a protected group keeps its pivot; member pivots move with their shape', () => {
+  const grouping = reviewed(svg)
+  const target = grouping.groups.findIndex((group) => group.pathIndices.includes(2))
+  const custom = { ...grouping.groups[target], locked: true, pivot: [12, 34], members: grouping.groups[target].members.map((member) => ({ ...member, pivot: [member.pivot[0] + 5, member.pivot[1] - 3] })) }
+  const groups = grouping.groups.map((group, index) => index === target ? custom : group)
+  const locked = { ...grouping, groups, svg: grouping.svg.replace(new RegExp(`(<g id="${custom.id}"[^>]*data-rastavec-pivot-x=")[^"]*(" data-rastavec-pivot-y=")[^"]*"`), '$112$234"') }
+  const edited = editShape(svg, hints, 2, { cx: 40, cy: 150 })
+  const carried = carryGrouping(locked, svg, edited.svg)
+  assert.ok(carried)
+  const after = carried.groups[target]
+  assert.deepEqual(after.pivot, [12, 34], 'protected annotations are not moved')
+  assert.match(carried.svg, new RegExp(`<g id="${custom.id}"[^>]*data-rastavec-pivot-x="12" data-rastavec-pivot-y="34"`))
+  assert.ok(Math.abs(after.members[0].pivot[0] - (custom.members[0].pivot[0] - 10)) < 0.01, 'a member pivot keeps its offset and moves with the shape')
+  assert.equal(after.members[0].pivot[1], custom.members[0].pivot[1])
+})
+
+test('paths a browser serialized with character references still match', () => {
+  const source = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><path d="M0,0H10&#10;V10H0Z" fill="#111111"/><path d="M50,50H60V60H50Z" fill="#222222"/></svg>`
+  // XMLSerializer writes a newline inside an attribute as &#xA; or &#10;, tabs as &#9;.
+  const grouped = source.replace('<path d="M0,0H10&#10;V10H0Z" fill="#111111"/>', '<g id="a" data-rastavec-group="proximity" data-rastavec-level="0"><path fill="#111111" d="M0,0H10&#xA;V10H0Z" /></g>')
+  const grouping = { sourceHash: svgFingerprint(source), distance: 1, colorMode: 'proximity', considered: 2, skipped: 0, svg: grouped, groups: [
+    { id: 'a', key: '0:0', pathIndices: [0], count: 1, bounds: [0, 0, 10, 10], pivot: [5, 5], fill: '#111111', zone: 'top-left', level: 0, name: 'A' },
+  ] }
+  const edited = source.replace('#111111', '#00ff00')
+  const carried = carryGrouping(grouping, source, edited)
+  assert.ok(carried)
+  assert.match(carried.svg, /<g id="a"[^>]*><path d="M0,0H10&#10;V10H0Z" fill="#00ff00"\/><\/g>/)
+  assert.equal(carried.groups[0].fill, '#00ff00')
 })
 
 test('Edit keeps groups through a shape edit; undo and redo restore each exact state', async () => {
