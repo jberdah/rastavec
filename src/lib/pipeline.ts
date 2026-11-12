@@ -1,7 +1,7 @@
 import { outputQueue } from './measurement-queue.js'
 import { alphaStats, computeMetrics, type RGBAImage } from './engine/core'
 import { forgetEdits, outputSvg } from './edit'
-import { browserBackend, decodeFile, toPngFile } from './engine/browser-backend'
+import { browserBackend, decodeFile, previewUrlFor, toPngFile } from './engine/browser-backend'
 import { crop, keyBackground, sliceGrid, sliceSheet, type GridSliceOptions } from './engine/slice'
 import { analyze } from './engine/analyze'
 import { vectorize, VectorizationCancelled, type VectorizeResult, type VectorizeSettings } from './engine/vectorize'
@@ -21,7 +21,7 @@ export async function measureSvg(item: Item, svg: string) {
   return computeMetrics(src, await browserBackend.rasterize(svg, src.width, src.height), svg)
 }
 
-const IMAGE_EXT = /\.(png|jpe?g|webp|gif|bmp)$/i
+const IMAGE_EXT = /\.(png|jpe?g|webp|gif|bmp|tiff?)$/i
 
 export function addFiles(files: Iterable<File>) {
   // A running batch iterates app.items directly; never insert or sort it mid-run.
@@ -74,6 +74,12 @@ async function ensureAnalysis(item: Item) {
       const decoded = await decodeFile(item.file)
       if (!app.items.some((i) => i.id === item.id)) return
       sources.set(item.id, decoded)
+      // TIFF cannot be shown by <img> in most browsers: swap in a PNG preview once decoded.
+      const preview = await previewUrlFor(item.file, decoded)
+      if (preview && app.items.some((i) => i.id === item.id)) {
+        URL.revokeObjectURL(item.srcUrl)
+        item.srcUrl = preview
+      } else if (preview) URL.revokeObjectURL(preview)
     }
     const src = sources.get(item.id)!
     item.width = src.width

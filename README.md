@@ -9,7 +9,7 @@
 
 # RastaVec
 
-**Turn PNG, JPEG and WebP images into clean, editable SVG, and see exactly how faithful each one is.**
+**Turn PNG, JPEG, WebP, BMP and TIFF images into clean, editable SVG, and see exactly how faithful each one is.**
 
 Drop a logo, an icon set or a whole folder of illustrations. RastaVec picks the right settings
 for each image, traces it into real vector paths, then compares the SVG with the original and
