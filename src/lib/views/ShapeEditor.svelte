@@ -49,8 +49,12 @@
       ? [...centre, { key: 'r', value: hint.r } as const]
       : [...centre, { key: 'rx', value: hint.rx } as const, { key: 'ry', value: hint.ry } as const, { key: 'rotation', value: hint.rotation } as const]
   })
-  function setNumber(key: keyof ShapePatch, raw: string) {
+  function setNumber(key: keyof ShapePatch, input: HTMLInputElement, shown: number) {
+    const raw = input.value
     const value = Number(raw)
+    // Show the shape's value again first: an accepted edit replaces it, a refused one (say, a
+    // crescent whose circles would no longer cross) must not leave the typed number on screen.
+    input.value = String(shown)
     if (selected === null || raw.trim() === '' || !Number.isFinite(value)) return
     onEdit(selected, { [key]: value })
   }
@@ -80,7 +84,7 @@
       <div class="grid">
         {#each fields as field (field.key)}
           <label class="num"><span class="muted tiny">{t(`shapeEdit.${field.key}`)}</span>
-            <input type="number" step="1" min={field.key === 'r' || field.key === 'rx' || field.key === 'ry' || field.key === 'innerR' ? 1 : undefined} value={Math.round((field.value ?? 0) * 10) / 10} onchange={(e) => setNumber(field.key, e.currentTarget.value)} />
+            <input type="number" step="1" min={field.key === 'r' || field.key === 'rx' || field.key === 'ry' || field.key === 'innerR' ? 1 : undefined} value={Math.round((field.value ?? 0) * 10) / 10} onchange={(e) => setNumber(field.key, e.currentTarget, Math.round((field.value ?? 0) * 10) / 10)} />
           </label>
         {/each}
       </div>

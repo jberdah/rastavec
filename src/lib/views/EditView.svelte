@@ -197,25 +197,26 @@
       const r = lo < hi ? Math.min(hi, Math.max(lo, g.rx)) : g.rx
       return { ...g, rx: r, ry: r }
     }
-    if (mode === 'inner-move' && d > 0) {
+    if (mode === 'inner-move') {
       const lo = Math.abs(g.rx - g.ir) + margin, hi = g.rx + g.ir - margin
+      // Exactly concentric has no direction to push along: step out to the right.
+      if (d === 0) return { ...g, icx: g.cx + Math.min(hi, lo) }
       const k = Math.min(hi, Math.max(lo, d)) / d
       return { ...g, icx: g.cx + (g.icx - g.cx) * k, icy: g.cy + (g.icy - g.cy) * k }
     }
     return g
   }
   const round1 = (value: number) => Math.round(value * 10) / 10
-  function patchOf(index: number, from: Geometry, to: Geometry): ShapePatch {
+  function patchOf(index: number, from: Geometry, to: Geometry, mode: Mode): ShapePatch {
     const patch: ShapePatch = {}
     if (to.cx !== from.cx) patch.cx = round1(to.cx)
     if (to.cy !== from.cy) patch.cy = round1(to.cy)
     if (isCircle(index)) {
       if (to.rx !== from.rx) patch.r = round1(to.rx)
       if (kindOf(index) === 'crescent') {
-        // Moving the whole crescent carries the inner circle (shape-edits does that); only an
-        // inner-circle gesture places it explicitly.
-        const innerMoved = (to.icx - from.icx) !== (to.cx - from.cx) || (to.icy - from.icy) !== (to.cy - from.cy)
-        if (innerMoved) { patch.innerCx = round1(to.icx); patch.innerCy = round1(to.icy) }
+        // Moving the whole crescent carries the inner circle (shape-edits does that, keeping the
+        // exact offset); only an inner-circle gesture places it explicitly.
+        if (mode === 'inner-move') { patch.innerCx = round1(to.icx); patch.innerCy = round1(to.icy) }
         if (to.ir !== from.ir) patch.innerR = round1(to.ir)
       }
     } else {
@@ -230,7 +231,7 @@
     drag = null
     livePreview = null
     if (!done) return
-    const patch = patchOf(done.index, done.from, done.to)
+    const patch = patchOf(done.index, done.from, done.to, done.mode)
     const moved = done.mode === 'inner-move'
       ? Math.hypot(done.to.icx - done.from.icx, done.to.icy - done.from.icy) >= 0.5
       : Math.hypot(done.to.cx - done.from.cx, done.to.cy - done.from.cy) >= 0.5
@@ -251,7 +252,7 @@
     liveFrame = requestAnimationFrame(() => {
       liveFrame = 0
       if (!drag || !trial?.shapes) return
-      const patch = patchOf(drag.index, drag.from, drag.to)
+      const patch = patchOf(drag.index, drag.from, drag.to, drag.mode)
       livePreview = Object.keys(patch).length ? editShapeSvg(trial.svg, trial.shapes, drag.index, patch)?.svg ?? null : null
     })
   }
