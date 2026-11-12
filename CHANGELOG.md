@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.0-beta.3 — 2026-11-12
+
+### Improved
+
+- Import screen: the "Vectorise" button sits at the bottom of the drop card, next to the images it
+  acts on; in Auto mode the Parameters card is folded, and the optional SVG size budget stays folded
+  until you set one.
+
 ## 0.5.0-beta.2 — 2026-11-12
 
 ### Changed
