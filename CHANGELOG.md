@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.5.0-beta.5 — 2026-11-12
+
+### Added
+
+- Crescents (moons) are recognised as one exact shape and can be edited in the Shapes tab: drag
+  the body to move it, the outer handles to resize it, and the dashed inner circle's centre and
+  rim grip to reshape the bite. Gestures stop at the last valid crescent.
+
+### Improved
+
+- Auto keeps smooth curves on curved logos: the polygon trace is only chosen when it is clearly
+  more faithful.
+
+### Fixed
+
+- A refused shape value (for example a crescent whose circles would no longer cross) no longer
+  stays displayed in its field.
+
 ## 0.5.0-beta.4 — 2026-11-12
 
 ### Added

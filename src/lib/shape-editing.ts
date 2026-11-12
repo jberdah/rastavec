@@ -21,6 +21,8 @@ export function applyShapeEdit(item: Item, index: number, patch: ShapePatch): bo
     ...current,
     base: false,
     traceMethod: 'shapes-edited',
+    // An edit is the user's choice, never a comparison-only trial.
+    comparisonOnly: undefined,
     svg: edited.svg,
     shapes: edited.hints,
     sourceTrial: current.sourceTrial ?? item.chosen,

@@ -573,11 +573,13 @@ const isExact = (m: Metrics) =>
  * that is not exact too: on pixel art, a slightly softened trace is not a fair trade for weight.
  */
 export function choose(
-  trials: { metrics: Metrics; score: number; traceMethod?: string }[],
+  trials: { metrics: Metrics; score: number; traceMethod?: string; comparisonOnly?: boolean }[],
   maxBytes: number,
   options: { preferSimplicity?: boolean; preferExactPixelGrid?: boolean } = {},
 ): number {
+  // Trials kept only for comparison never win while another trial exists.
   let idx = trials.map((_, i) => i)
+  if (idx.some((i) => !trials[i].comparisonOnly)) idx = idx.filter((i) => !trials[i].comparisonOnly)
   if (options.preferExactPixelGrid
     && trials.some((trial) => trial.traceMethod === 'pixel-grid' && isExact(trial.metrics)
       && (maxBytes <= 0 || trial.metrics.bytes <= maxBytes))) {
