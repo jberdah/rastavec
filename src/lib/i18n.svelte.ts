@@ -125,6 +125,7 @@ const fr = {
   'auto.score': 'score = écart visible (pénalisé plus fort quand il grandit) + 0,5 × faux contours dans les zones lisses + 1,5 par doublement du poids − 0,6 × part de dégradés et de formes exactes · un budget, s’il est fixé, ajoute 4 × son dépassement relatif',
 
   'params.title': 'Paramètres',
+  'params.autoSummary': 'choisis pour chaque image',
   'params.autoNote': 'Mode Auto : ces valeurs sont recalculées pour chaque image à partir de son analyse. Modifier un réglage passe en Personnalisé.',
   'params.colorGroup': 'Couleur',
   'params.clusteringGroup': 'Segmentation des couleurs',
@@ -446,6 +447,7 @@ const en: Record<Key, Msg> = {
   'auto.score': 'score = visible difference (costs more as it grows) + 0.5 × false edges in smooth areas + 1.5 per doubling of the size − 0.6 × share of gradients and exact shapes · a budget, when set, adds 4 × its relative overshoot',
 
   'params.title': 'Parameters',
+  'params.autoSummary': 'picked for each image',
   'params.autoNote': 'Auto mode: these values are recomputed for each image from its analysis. Changing a setting switches to Custom.',
   'params.colorGroup': 'Colour',
   'params.clusteringGroup': 'Colour segmentation',

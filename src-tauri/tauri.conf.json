@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "RastaVec",
-  "version": "0.5.0-beta.2",
+  "version": "0.5.0-beta.3",
   "identifier": "io.github.jberdah.rastavec",
   "build": {
     "frontendDist": "../dist",
@@ -37,7 +37,7 @@
     ],
     "windows": {
       "wix": {
-        "version": "0.5.0.2"
+        "version": "0.5.0.3"
       }
     },
     "android": {
