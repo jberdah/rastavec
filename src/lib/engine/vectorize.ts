@@ -11,6 +11,7 @@ import { presetById } from './presets'
 import { tracePixelGrid } from './pixel-grid'
 import { needsHierarchyReview } from './hierarchy-review'
 import { needsHardEdgeReview } from './hard-edge-review'
+import { resolveAntialiasing } from './antialias-resolve'
 
 export interface VectorizeSettings {
   /** 'auto' derives the parameters from the image analysis; anything else uses `params`. */
@@ -130,6 +131,27 @@ async function runPixelGridTrial(src: RGBAImage, svg: string, backend: TraceBack
   }
 }
 
+// Enlargement used to resolve anti-aliasing into sub-pixel edges. VTracer moves polygon
+// vertices by about one traced pixel: at 8x that is 1/8 of a source pixel (at 4x, ~2 % of a
+// small icon stayed visibly off; at 8x, ~1 %). Enlarged traces only run up to 256 px.
+const ANTIALIAS_SCALE = 8
+/** Share of visible pixels that must be anti-aliasing mixes before that trace is worth a try. */
+const MIN_ANTIALIAS_SHARE = 0.01
+
+// Native color trace of the source with each anti-aliasing mix split into its two flat colours
+// at sub-pixel precision (see antialias-resolve.ts). Displayed at the original size like the
+// other enlarged traces.
+async function runAntialiasResolvedTrial(resolved: RGBAImage, src: RGBAImage, params: TraceParams, backend: TraceBackend): Promise<Trial> {
+  params = { ...params, hierarchical: params.hierarchical ?? 'stacked' }
+  const t0 = now()
+  let svg = await backend.traceColorSource!(resolved, params)
+  const shapes = backend.shapeHintsFor?.(svg)
+  svg = svg.replace(/^(<svg\b[^>]*?)\bwidth="\d+"\s+height="\d+"/, `$1width="${src.width}" height="${src.height}"`)
+  const render = await backend.rasterize(svg, src.width, src.height)
+  const metrics = { ...computeMetrics(src, render, svg), ...(shapes ? { editableShare: editableShare(svg, shapes) } : {}) }
+  return { base: false, params: { ...params }, traceScale: ANTIALIAS_SCALE, traceMethod: 'antialias-resolved', svg, ...(shapes ? { shapes } : {}), metrics, score: score(metrics), ms: now() - t0 }
+}
+
 export async function vectorize(
   src: RGBAImage,
   settings: VectorizeSettings,
@@ -156,6 +178,12 @@ export async function vectorize(
   const transparent = !nativeColor && src.data.some((v, k) => (k & 3) === 3 && v < 255)
   const grid = candidates(base, { transparent, includeHighSilhouetteCut: settings.presetId === 'auto' })
   const pixelScales = (settings.presetId === 'auto' || settings.presetId === 'pixel') && Math.max(src.width, src.height) <= 256 ? [2, 4] : []
+  // Enlarged traces copy every source pixel. Pixel art keeps each shade apart; on other artwork
+  // that turns every anti-aliasing ramp into one thin layer per shade (8548 paths, 532 KB for a
+  // 121 x 120 icon). Merging shades 16 apart, as the flat preset does, keeps the edges.
+  const scaledParams = settings.presetId === 'pixel' || analysis.kind === 'pixel'
+    ? presetById('pixel').params
+    : { ...presetById('pixel').params, layerDifference: 16 }
   const exactGrid = auto.enabled && (settings.presetId === 'auto' || settings.presetId === 'pixel') ? tracePixelGrid(src) : null
   await yieldControl()
   const trials: Trial[] = [await runTrial(src, base, true, backend)]
@@ -163,6 +191,15 @@ export async function vectorize(
   const failedTrials: VectorizeResult['failedTrials'] = []
   const first = trials[0].metrics
   const needsTune = first.pctDiff > auto.threshold || first.bytes > heavyBytes
+  // Small anti-aliased artwork the regular trace misses: one trace with the anti-aliasing
+  // resolved into flat colours at sub-pixel precision. Its few flat shapes compete with the
+  // enlarged copies of every pixel; the score decides.
+  const antialiasResolved = auto.enabled && needsTune && settings.presetId === 'auto' && nativeColor
+    && analysis.kind !== 'pixel' && pixelScales.length > 0
+    ? resolveAntialiasing(withAlphaFloor(src, base.alphaFloor), ANTIALIAS_SCALE)
+    : null
+  const includeAntialiasReview = antialiasResolved !== null
+    && antialiasResolved.blended >= antialiasResolved.visible * MIN_ANTIALIAS_SHARE
   // Pixel-difference can undercount faint, sparse artwork: its lines may sit below the
   // 32/255 visibility threshold while the alpha>=128 silhouette shows that most shapes
   // disappeared. Try one low-complexity soft-layer fallback before accepting that result.
@@ -221,7 +258,7 @@ export async function vectorize(
   const tuningTrials = !auto.enabled
     ? 0
     : needsTune
-      ? grid.length + pixelScales.length + (exactGrid !== null ? 1 : 0)
+      ? grid.length + pixelScales.length + (exactGrid !== null ? 1 : 0) + Number(includeAntialiasReview)
       : needsFocusedTrial ? 1 : 0
   const includeFillCalibration = auto.enabled
     && settings.presetId === 'auto'
@@ -269,10 +306,25 @@ export async function vectorize(
     for (const scale of pixelScales) {
       await yieldControl()
       try {
-        trials.push(await runTrial(src, presetById('pixel').params, false, backend, scale))
+        trials.push(await runTrial(src, scaledParams, false, backend, scale))
       } catch (error) {
         checkCancelled()
         failedTrials.push({ traceScale: scale, message: error instanceof Error ? error.message : String(error) })
+      }
+      checkCancelled()
+      completeTrial()
+    }
+    if (includeAntialiasReview) {
+      await yieldControl()
+      try {
+        // Only flat colours are left to trace, one source pixel is ANTIALIAS_SCALE² traced
+        // pixels: drop specks under one source pixel, and keep straight sub-pixel steps
+        // (polygons) rather than fitting curves along them, which made the SVG ~4x larger.
+        trials.push(await runAntialiasResolvedTrial(antialiasResolved.image, src,
+          { ...base, mode: 'polygon', speckle: ANTIALIAS_SCALE, colorPrecision: 8, layerDifference: 16 }, backend))
+      } catch (error) {
+        checkCancelled()
+        failedTrials.push({ traceScale: ANTIALIAS_SCALE, message: error instanceof Error ? error.message : String(error) })
       }
       checkCancelled()
       completeTrial()

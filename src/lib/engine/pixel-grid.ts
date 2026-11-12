@@ -3,7 +3,9 @@ import type { RGBAImage } from './core'
 /** Hard limits for a bounded, editable pixel-grid candidate. */
 const MAX_PIXELS = 16384
 const MAX_SIDE = 128
-const MAX_COLORS = 256
+// Shaded sprites use many near shades: a 32 x 32 wizard has 274. Size stays bounded by the
+// pixel and segment limits.
+const MAX_COLORS = 1024
 const MAX_SEGMENTS = 8192
 
 /**

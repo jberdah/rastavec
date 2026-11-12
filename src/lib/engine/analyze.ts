@@ -39,7 +39,7 @@ export function analyze(img: RGBAImage): Analysis {
   const total = w * h
   // Sample at most ~1M pixels with a fixed stride (deterministic).
   const stride = Math.max(1, Math.floor(Math.sqrt(total / 1_000_000)))
-  let n = 0, transparent = 0, soft = 0, visible = 0, colored = 0, boundary = 0, pairs = 0, smooth = 0, gray = 0, runs = 0, ramps = 0
+  let n = 0, transparent = 0, soft = 0, partial = 0, visible = 0, colored = 0, boundary = 0, pairs = 0, smooth = 0, gray = 0, runs = 0, ramps = 0
   const bins = new Map<number, number>()
   const vis = (x: number, y: number) => d[(y * w + x) * 4 + 3] >= 128
   const step = (i: number, j: number) => Math.max(Math.abs(d[i] - d[j]), Math.abs(d[i + 1] - d[j + 1]), Math.abs(d[i + 2] - d[j + 2]))
@@ -62,6 +62,7 @@ export function analyze(img: RGBAImage): Analysis {
       n++
       if (a < 8) transparent++
       else if (a < 240) soft++
+      if (a > 0 && a < 255) partial++
       if (a < 8) continue
       colored++
       const r = d[i], g = d[i + 1], b = d[i + 2]
@@ -113,10 +114,17 @@ export function analyze(img: RGBAImage): Analysis {
   else alpha = softPct > 0.5 && (!boundary || soft / boundary > 2.5) ? 'soft' : 'edges'
 
   const long = Math.max(w, h)
+  // Native pixel art: a small sprite cut out with binary alpha, possibly enlarged by a whole
+  // factor. Shaded sprites have many small colour steps, so the gradient test below misses
+  // them; anti-aliased icons always have partially transparent edge pixels, so they never pass.
+  const sprite = transparent > 0 && partial === 0 && dominant <= 64
+    && (long <= 64 || long / pixelBlockSize(img) <= 64)
   let kind: ImageKind
   if (grayscale && dominant <= 3 && (alpha === 'opaque' || thin)) kind = 'line'
   else if (dominant <= 2 && thin) kind = 'line'
-  else if (long <= 160 && gradient < 0.04 && dominant <= 48) kind = 'pixel'
+  else if (sprite) kind = 'pixel'
+  // Anti-aliased or glowing edges are not pixel art, however few colours the image has.
+  else if (long <= 160 && gradient < 0.04 && dominant <= 48 && alpha !== 'edges' && alpha !== 'soft') kind = 'pixel'
   else if (gradient > 0.45 || dominant > 400) kind = 'photo' // detailed illustrations reach 100-200 colours
   else if (dominant <= 12 && gradient < 0.12) kind = 'flat'
   // Two or three colors cannot be shading: what looks like gentle steps is antialiasing on a
@@ -125,6 +133,23 @@ export function analyze(img: RGBAImage): Analysis {
   else kind = 'shaded'
 
   return { width: w, height: h, kind, alpha, transparentPct, softPct, dominantColors: dominant, gradient, smoothRamps, grayscale }
+}
+
+/**
+ * Side of the uniform square blocks an image is made of: 4 for pixel art enlarged 4x with
+ * nearest-neighbour scaling, 1 for anything else. Every colour change must fall on that grid.
+ */
+export function pixelBlockSize(img: RGBAImage): number {
+  const { data: d, width: w, height: h } = img
+  const gcd = (a: number, b: number): number => (b ? gcd(b, a % b) : a)
+  const same = (i: number, j: number) => d[i] === d[j] && d[i + 1] === d[j + 1] && d[i + 2] === d[j + 2] && d[i + 3] === d[j + 3]
+  let size = gcd(w, h)
+  for (let y = 0; y < h && size > 1; y++) for (let x = 0; x < w && size > 1; x++) {
+    const i = (y * w + x) * 4
+    if (x > 0 && !same(i, i - 4)) size = gcd(size, x)
+    if (y > 0 && !same(i, i - w * 4)) size = gcd(size, y)
+  }
+  return size
 }
 
 /** Recommended parameters for an analysed image, with a short justification. */
