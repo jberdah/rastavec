@@ -26,7 +26,7 @@ This checkout requires Node.js 22 or later. The published beta is attached to th
 [GitHub releases](https://github.com/jberdah/rastavec/releases):
 
 ```bash
-npm install -g https://github.com/jberdah/rastavec/releases/download/v0.5.0-beta.1/rastavec-0.5.0-beta.1.tgz
+npm install -g https://github.com/jberdah/rastavec/releases/download/v0.5.0-beta.2/rastavec-0.5.0-beta.2.tgz
 ```
 
 ## Commands
@@ -94,7 +94,7 @@ output over one of its input images.
 
 ```json
 {
-  "schemaVersion": 1, "tool": "rastavec", "version": "0.5.0-beta.1",
+  "schemaVersion": 1, "tool": "rastavec", "version": "0.5.0-beta.2",
   "engine": "VTracer-Next", "traceEngine": "next", "experimentalGradients": false,
   "settings": { "preset": "auto", "params": null, "autoTune": { "enabled": true, "threshold": 2, "maxKB": 700 } },
   "summary": { "total": 4, "ok": 2, "review": 2, "errors": 0, "seconds": 51.2 },
