@@ -53,6 +53,14 @@ export function forgetUrls(item: Item) {
 
 export const doneItems = () => app.items.filter((i) => i.status === 'done')
 /** Forget the cached object URL of one trial, after its SVG was replaced. */
+/** Per item, bumped whenever something outside the Edit screen replaces its trials, chosen
+ *  trial or groups (a new run, a trial picked in Detail, Animate). The Edit screen's undo history
+ *  of that item is dropped then, so undo never brings back an older run or erases animations. */
+export const outsideEdits = $state<Record<string, number>>({})
+export function markOutsideEdit(item: Item) {
+  outsideEdits[item.id] = (outsideEdits[item.id] ?? 0) + 1
+}
+
 export function dropSvgUrl(item: Item, index: number) {
   const key = `${item.id}:${index}`
   const url = svgUrls.get(key)

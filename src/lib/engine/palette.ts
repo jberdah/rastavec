@@ -7,8 +7,8 @@
 // - hue / saturation / lightness / contrast adjustments in OKLCH,
 // - replace one hue family by another, with a smooth falloff,
 // - map onto a theme palette, by lightness then hue.
-// Only `<path d="…" fill="#rrggbb"/>` shapes are filtered; the silhouette clip path and the
-// soft (semi-transparent) layers are left as they are.
+// Only `<path d="…" fill="#rrggbb"/>` shapes (optionally with fill-opacity and a transform) are
+// filtered; their opacity is kept as it is. Gradient fills are recoloured through their stops.
 
 export type ThemeId = '' | 'brand' | 'mono' | 'duo' | 'pastel' | 'night'
 
@@ -204,7 +204,9 @@ export function pointInPolys(polys: number[][], px: number, py: number): boolean
 
 // ---------------------------------------------------------------- SVG model
 
-const SHAPE = /<path d="([^"]*)" fill="(#[0-9a-fA-F]{6})"((?: transform="[^"]*")?)\/>/g
+// VTracer-Next writes fill-opacity on every path of a source with a lossy or near-opaque alpha
+// channel (0.99 is common in exported PNG/WebP files); those shapes must be filtered too.
+const SHAPE = /<path d="([^"]*)" fill="(#[0-9a-fA-F]{6})"((?: fill-opacity="[^"]*")?)((?: transform="[^"]*")?)\/>/g
 
 export interface Shape {
   hex: string
@@ -229,7 +231,7 @@ export function analyzeShapes(svg: string): ShapeAnalysis {
   const geo: { polys: number[][]; box: [number, number, number, number] }[] = []
   const shapes: Shape[] = []
   for (const m of svg.matchAll(SHAPE)) {
-    const t = m[3].match(/translate\(\s*(-?[\d.e+-]+)(?:[\s,]+(-?[\d.e+-]+))?/)
+    const t = m[4].match(/translate\(\s*(-?[\d.e+-]+)(?:[\s,]+(-?[\d.e+-]+))?/)
     const polys = flattenPath(m[1], t ? +t[1] : 0, t?.[2] ? +t[2] : 0)
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
     for (const p of polys) for (let k = 0; k < p.length; k += 2) {
@@ -362,13 +364,13 @@ export function applyFilters(svg: string, analysis: ShapeAnalysis, p: FilterSett
   const stopMemo = new Map<string, string>()
   const areaByHex = new Map<string, number>()
   let i = 0
-  const out = svg.replace(SHAPE, (_m, d: string, _fill: string, tr: string) => {
+  const out = svg.replace(SHAPE, (_m, d: string, _fill: string, opacity: string, tr: string) => {
     const s = shapes[i++]
     if (!s || drop(s)) return ''
     let hex = memo.get(s.hex)
     if (!hex) memo.set(s.hex, (hex = labToHex(transformColour(post?.get(s.hex) ?? s.lab, p))))
     areaByHex.set(hex, (areaByHex.get(hex) ?? 0) + s.area)
-    return `<path d="${d}" fill="${hex}"${tr}/>`
+    return `<path d="${d}" fill="${hex}"${opacity}${tr}/>`
   })
   // Gradient stops are not shapes (they are never dropped or posterized), but hue, tone and
   // theme changes must reach them, or gradient regions keep the original colours.

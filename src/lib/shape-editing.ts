@@ -32,6 +32,9 @@ export function applyShapeEdit(item: Item, index: number, patch: ShapePatch): bo
   let target = item.chosen
   if (current.traceMethod === 'shapes-edited') item.trials[target] = next
   else target = item.trials.push(next) - 1
+  // The trial as stored (reactive). Undo / redo keep this same object, so the measurement below
+  // lands on it even if the edit was undone and redone before the measurement finished.
+  const stored = item.trials[target]
   dropSvgUrl(item, target)
   forgetTrialCaches(item)
   // Palette settings belong to a trial; carry them over to the variant.
@@ -39,10 +42,9 @@ export function applyShapeEdit(item: Item, index: number, patch: ShapePatch): bo
   item.chosen = target
 
   void measureSvg(item, edited.svg).then((metrics) => {
-    const trial = item.trials[target]
-    if (!metrics || trial?.svg !== edited.svg) return
-    trial.metrics = { ...metrics, editableShare: editableShare(edited.svg, edited.hints) }
-    trial.score = score(trial.metrics)
+    if (!metrics || stored.svg !== edited.svg) return
+    stored.metrics = { ...metrics, editableShare: editableShare(edited.svg, edited.hints) }
+    stored.score = score(stored.metrics)
   }).catch(() => { /* keep the provisional metrics; the output measurement reports errors */ })
   refreshOutputMetrics(item)
   return true

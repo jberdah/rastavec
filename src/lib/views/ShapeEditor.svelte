@@ -6,10 +6,12 @@
   import type { EngineShapeHint } from '../engine/types'
   import { t } from '../i18n.svelte'
 
-  let { svg, shapes, selected = $bindable(null), onEdit, onReset, onAnimate }: {
+  let { svg, shapes, selected = $bindable(null), hovered = $bindable(null), onEdit, onReset, onAnimate }: {
     svg: string
     shapes: EngineShapeHint[]
     selected?: number | null
+    /** Shape under the pointer, on the canvas or in this list; each highlights the other. */
+    hovered?: number | null
     onEdit: (index: number, patch: ShapePatch) => void
     /** Present when shape edits can be undone. */
     onReset?: () => void
@@ -21,6 +23,16 @@
   const current = $derived(entries.find((entry) => entry.hint.index === selected) ?? null)
   const label = (hint: EngineShapeHint) =>
     hint.overlayOf !== undefined ? t('shapeEdit.overlay') : hint.kind === 'circle' ? t('shapeEdit.circle') : hint.kind === 'ellipse' ? t('shapeEdit.ellipse') : t('shapeEdit.gradientRegion')
+  // Layer names like a vector editor: "Circle 1", "Ellipse 2"…, numbered per kind in paint order.
+  const names = $derived.by(() => {
+    const counts = new Map<string, number>()
+    return new Map(entries.map((entry) => {
+      const base = label(entry.hint)
+      const n = (counts.get(base) ?? 0) + 1
+      counts.set(base, n)
+      return [entry.hint.index, `${base} ${n}`]
+    }))
+  })
   const swatch = (entry: (typeof entries)[number]) => {
     const { fill, stops } = entry.capabilities
     return fill ?? (stops && stops.length > 1 ? `linear-gradient(90deg, ${stops.join(', ')})` : stops?.[0] ?? 'transparent')
@@ -48,10 +60,14 @@
 
 <div class="card stack">
   <div class="between"><h2 class="h3">{t('shapeEdit.title')}</h2><span class="muted tiny">{t('shapeEdit.hint')}</span></div>
+  <span class="muted tiny">{t('shapeEdit.pick')}</span>
   <div class="shapes" role="listbox" aria-label={t('shapeEdit.title')}>
     {#each entries as entry (entry.hint.index)}
-      <button type="button" class="shape" role="option" aria-selected={selected === entry.hint.index} onclick={() => (selected = selected === entry.hint.index ? null : entry.hint.index)}>
-        <span class="dot" style:background={swatch(entry)}></span>{label(entry.hint)}
+      <button type="button" class="shape" class:hover={hovered === entry.hint.index} role="option" aria-selected={selected === entry.hint.index}
+        onclick={() => (selected = selected === entry.hint.index ? null : entry.hint.index)}
+        onmouseenter={() => (hovered = entry.hint.index)} onmouseleave={() => (hovered = null)}>
+        <span class="dot" style:background={swatch(entry)}></span><span class="nm">{names.get(entry.hint.index)}</span>
+        {#if !entry.capabilities.geometry}<span class="muted tiny lock" title={t('shapeEdit.geometryLocked')}>🔒</span>{/if}
       </button>
     {/each}
   </div>
@@ -79,8 +95,6 @@
         </label>
       {/each}
     </div>
-  {:else}
-    <span class="muted tiny">{t('shapeEdit.pick')}</span>
   {/if}
   {#if onReset || onAnimate}
     <div class="row actions">
@@ -91,9 +105,12 @@
 </div>
 
 <style>
-  .shapes { display: flex; flex-wrap: wrap; gap: 6px; max-height: 132px; overflow-y: auto; }
-  .shape { display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--line-2); background: var(--surface-2, transparent); color: inherit; font-size: 12px; cursor: pointer; }
-  .shape[aria-selected='true'] { border-color: var(--accent); color: var(--accent); }
+  .shapes { display: flex; flex-direction: column; gap: 2px; max-height: 260px; overflow-y: auto; border: 1px solid var(--line-2); border-radius: 10px; padding: 4px; }
+  .shape { display: flex; align-items: center; gap: 10px; min-height: 34px; padding: 0 10px; border-radius: 8px; border: 1px solid transparent; background: transparent; color: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+  .shape .nm { flex: 1; }
+  .shape.hover, .shape:hover { background: var(--surface-2); }
+  .shape[aria-selected='true'] { border-color: var(--accent); background: var(--accent-bg); color: var(--accent-text, var(--accent)); }
+  .lock { font-size: 11px; }
   .dot { width: 12px; height: 12px; border-radius: 50%; border: 1px solid var(--line-3); }
   .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
   .num { display: flex; flex-direction: column; gap: 4px; }

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy } from 'svelte'
-  import { app, doneItems, go } from '../store.svelte'
+  import { app, doneItems, go, markOutsideEdit } from '../store.svelte'
   import { outputSvg } from '../edit'
   import { download } from '../export'
   import { refreshOutputMetrics } from '../pipeline'
@@ -237,6 +237,7 @@
           }
           if (valid) {
             item.grouping = { ...grouping, groups: nextGroups, svg: new XMLSerializer().serializeToString(doc) }
+            markOutsideEdit(item)
             void refreshOutputMetrics(item)
           }
         }
@@ -319,6 +320,7 @@
       element.setAttribute('data-rastavec-pivot-y', String(pivot[1]))
     }
     item.grouping = { ...grouping, svg: new XMLSerializer().serializeToString(doc), groups }
+    markOutsideEdit(item)
     void refreshOutputMetrics(item)
   }
 

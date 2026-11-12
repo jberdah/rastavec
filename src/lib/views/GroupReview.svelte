@@ -40,7 +40,7 @@
     return (locale === 'fr' ? fr : en)[zone]
   }
 
-  let { svg, name, grouping, sourceImage, onGroupingChange }: { svg: string; name: string; grouping?: GroupingMetadata; sourceImage?: { url: string; width: number; height: number }; onGroupingChange: (grouping: GroupingMetadata) => void } = $props()
+  let { svg, name, grouping, sourceImage, onGroupingChange, embedded = false }: { svg: string; name: string; grouping?: GroupingMetadata; sourceImage?: { url: string; width: number; height: number }; onGroupingChange: (grouping: GroupingMetadata) => void; /** Rendered inside a titled container that already names and explains the tool. */ embedded?: boolean } = $props()
   const recommendedRegionCount = $derived(Math.max(6, Math.min(32, Math.round(Math.sqrt((svg.match(/<path\b/g) ?? []).length) * 1.35))))
   const words = $derived(i18n.locale === 'fr' ? {
     title: 'Regrouper les formes proches', description: 'Propose des groupes géométriques de chemins voisins. Ce ne sont pas des objets reconnus : vérifiez chaque groupe avant de l’utiliser.',
@@ -83,7 +83,8 @@
   let strategy = $state<NearbyStrategy>('proximity')
   let regionCount = $state(12)
   let regionSeed = ''
-  $effect(() => { distance = Math.min(maxDistance, Math.max(0.5, Math.min(8, maxDistance * 0.05))) })
+  // Rounded to the inputs' 0.1 step: a raw 5 % of the canvas showed as 1.2700000000000002.
+  $effect(() => { distance = Math.round(Math.min(maxDistance, Math.max(0.5, Math.min(8, maxDistance * 0.05))) * 10) / 10 })
   let busy = $state(false)
   let output = $state.raw<NearbyResult | null>(null)
   let source = $state('')
@@ -771,9 +772,9 @@
   }
 </script>
 
-<div class="card stack group-review">
+<div class="stack group-review" class:card={!embedded}>
   <div class="between heading">
-    <div><h2 class="h3">{words.title}</h2><p class="muted small">{words.description}</p></div>
+    {#if !embedded}<div><h2 class="h3">{words.title}</h2><p class="muted small">{words.description}</p></div>{/if}
     <div class="run-controls">
        <label class="small" for="group-strategy">{words.strategy}</label>
        <select id="group-strategy" value={strategy} onchange={changeStrategy} disabled={busy}>

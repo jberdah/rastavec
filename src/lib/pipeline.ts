@@ -8,7 +8,7 @@ import { vectorize, VectorizationCancelled, type VectorizeResult, type Vectorize
 import { createVectorizationWorkerPool, type VectorizationWorkerPool } from './engine/vectorization-worker-client'
 import { selectTraceBackend, type TraceEngine } from './engine/web-trace-engine'
 import type { Item, TraceParams } from './engine/types'
-import { app, clone, forgetUrls, outputMeasurementKey, sources } from './store.svelte'
+import { app, clone, forgetUrls, markOutsideEdit, outputMeasurementKey, sources } from './store.svelte'
 import { uniqueImportName } from './import-names.js'
 
 let activeVectorizationWorkers: VectorizationWorkerPool | null = null
@@ -293,10 +293,10 @@ export async function processAll() {
       forgetEdits(item)
       item.progress = ''
       if ('error' in pending) {
-        item.status = 'error'; item.error = pending.error; item.trials = []; item.failedTrials = undefined
+        item.status = 'error'; item.error = pending.error; item.trials = []; item.failedTrials = undefined; markOutsideEdit(item)
       } else {
         const res = pending.result
-        item.semiPct = pending.semiPct; item.notes = res.notes; item.trials = res.trials; item.chosen = res.chosen
+        item.semiPct = pending.semiPct; item.notes = res.notes; item.trials = res.trials; item.chosen = res.chosen; markOutsideEdit(item)
         item.autoTuned = res.autoTuned; item.failedTrials = res.failedTrials; item.error = undefined; item.status = 'done'
       }
     }
