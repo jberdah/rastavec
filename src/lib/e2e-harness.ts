@@ -73,7 +73,8 @@ async function run() {
         const tiles = $$<HTMLButtonElement>('.tile')
         return tiles.length === files.length && tiles.every((t) => !t.disabled) && $('.exportbar')
       },
-      300000,
+      // Stay under the test server's 240 s limit so a hang still reports errors and tile state.
+      200000,
     )
     result.seconds = Math.round(performance.now() - t0) / 1000
     result.items = $$<HTMLButtonElement>('.tile').map((t) => {
@@ -109,6 +110,8 @@ async function run() {
     }
   } catch (e) {
     result.error = String((e as Error)?.stack ?? e)
+    result.tiles = $$<HTMLElement>('.tile').map((t) => t.textContent?.replace(/\s+/g, ' ').trim().slice(0, 200))
+    result.progress = $('.progress, [role=progressbar], .status')?.textContent?.replace(/\s+/g, ' ').trim().slice(0, 300)
     await step('failure').catch(() => {})
   }
   result.consoleErrors = errors
