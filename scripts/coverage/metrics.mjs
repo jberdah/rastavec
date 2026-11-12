@@ -32,6 +32,7 @@ export function loadSharp() {
 
 export const BACKGROUNDS = { white: [255, 255, 255], black: [0, 0, 0], grey128: [128, 128, 128] };
 export const M01_THRESHOLD = 16;
+export const CLI_THRESHOLD = 32; // threshold used by the app's own pctDiff (src/lib/engine/core.ts DIFF_THRESHOLD)
 
 /**
  * Rasterize an SVG to PNG: longest side = maxSide, ratio kept, transparent background.
@@ -94,7 +95,7 @@ export function compare(src, out, width, height, { heatmapBg = 'worst' } = {}) {
   const perBg = {};
   const diffMaps = {};
   for (const [name, bg] of Object.entries(BACKGROUNDS)) {
-    let bad = 0, sq = 0;
+    let bad = 0, bad32 = 0, sq = 0;
     const map = new Uint8Array(n);
     for (let i = 0; i < n; i++) {
       const o = i * 4;
@@ -109,8 +110,9 @@ export function compare(src, out, width, height, { heatmapBg = 'worst' } = {}) {
       }
       map[i] = Math.min(255, Math.round(mx));
       if (mx > M01_THRESHOLD) bad++;
+      if (mx > CLI_THRESHOLD) bad32++;
     }
-    perBg[name] = { m01: (100 * bad) / n, m02: Math.sqrt(sq / (3 * n)) };
+    perBg[name] = { m01: (100 * bad) / n, m01t32: (100 * bad32) / n, m02: Math.sqrt(sq / (3 * n)) };
     diffMaps[name] = map;
   }
   const worstBg = Object.entries(perBg).sort((a, b) => b[1].m01 - a[1].m01)[0][0];
@@ -118,6 +120,7 @@ export function compare(src, out, width, height, { heatmapBg = 'worst' } = {}) {
     perBg,
     worstBg,
     m01Worst: perBg[worstBg].m01,
+    m01t32Worst: Math.max(...Object.values(perBg).map((v) => v.m01t32)),
     m02Worst: Math.max(...Object.values(perBg).map((v) => v.m02)),
     m04AlphaMae: hasAlpha ? alphaAbs / n : null,
     m05Iou: hasAlpha ? (union ? inter / union : 1) : null,
@@ -205,4 +208,25 @@ export async function runCli(input, outDir, { preset = 'auto', extraArgs = [], t
       }
     });
   });
+}
+
+/** Score one (source image, SVG text) pair; returns the flat metric fields used by results.json plus the raw heatmap. */
+export async function scorePair(inputPath, svgText) {
+  const src = await decode(inputPath);
+  const out = await render(svgText, src.width, src.height);
+  const cmp = compare(src.data, out, src.width, src.height);
+  const r2 = (x) => (x == null ? null : Math.round(x * 10000) / 10000);
+  return {
+    src, out, cmp,
+    fields: {
+      perBg: Object.fromEntries(Object.entries(cmp.perBg).map(([k, v]) => [k, { m01: r2(v.m01), m01t32: r2(v.m01t32), m02: r2(v.m02) }])),
+      worstBg: cmp.worstBg,
+      m01Worst: r2(cmp.m01Worst),
+      m01t32Worst: r2(cmp.m01t32Worst),
+      m02Worst: r2(cmp.m02Worst),
+      m04AlphaMae: r2(cmp.m04AlphaMae),
+      m05Iou: r2(cmp.m05Iou),
+      hasAlpha: cmp.hasAlpha,
+    },
+  };
 }

@@ -13,7 +13,7 @@
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
-import { REPO_ROOT, loadSharp, rasterize, render, decode, compare, measure, runCli, median, BACKGROUNDS } from './metrics.mjs';
+import { REPO_ROOT, loadSharp, rasterize, scorePair, measure, runCli, median, BACKGROUNDS } from './metrics.mjs';
 
 // Budget profiles from the "Protocole" sheet (exploratory targets, not validated thresholds).
 export const BUDGETS = {
@@ -112,17 +112,9 @@ async function processOne(entry, args, dirs) {
   res.svg = svgOut;
   Object.assign(res, measure(svgText));
 
-  const src = await decode(input);
+  const { src, out, cmp, fields } = await scorePair(input, svgText);
   if (src.width !== item.width || src.height !== item.height) res.sizeNote = `decoded ${src.width}x${src.height} vs cli ${item.width}x${item.height}`;
-  const out = await render(svgText, src.width, src.height);
-  const cmp = compare(src.data, out, src.width, src.height);
-  res.perBg = Object.fromEntries(Object.entries(cmp.perBg).map(([k, v]) => [k, { m01: r2(v.m01), m02: r2(v.m02) }]));
-  res.worstBg = cmp.worstBg;
-  res.m01Worst = r2(cmp.m01Worst);
-  res.m02Worst = r2(cmp.m02Worst);
-  res.m04AlphaMae = r2(cmp.m04AlphaMae);
-  res.m05Iou = r2(cmp.m05Iou);
-  res.hasAlpha = cmp.hasAlpha;
+  Object.assign(res, fields);
   res.verdict = verdict(entry.profile, res);
 
   // Diagnostics: heatmap + panel (source | render | heat) on the worst background.
@@ -142,7 +134,7 @@ async function processOne(entry, args, dirs) {
 const CSV_COLS = [
   ['id', (r) => r.id], ['name', (r) => r.name], ['corpus', (r) => r.corpus], ['profile', (r) => r.profile],
   ['input', (r) => r.input], ['status', (r) => r.status], ['trace_method', (r) => r.traceMethod],
-  ['m01_worst_pct', (r) => r.m01Worst], ['m01_worst_bg', (r) => r.worstBg],
+  ['m01_worst_pct', (r) => r.m01Worst], ['m01_worst_bg', (r) => r.worstBg], ['m01_t32_worst', (r) => r.m01t32Worst],
   ['m01_white', (r) => r.perBg?.white.m01], ['m01_black', (r) => r.perBg?.black.m01], ['m01_grey128', (r) => r.perBg?.grey128.m01],
   ['m02_worst', (r) => r.m02Worst], ['m02_white', (r) => r.perBg?.white.m02], ['m02_black', (r) => r.perBg?.black.m02], ['m02_grey128', (r) => r.perBg?.grey128.m02],
   ['m04_alpha_mae', (r) => r.m04AlphaMae], ['m05_iou', (r) => r.m05Iou],
