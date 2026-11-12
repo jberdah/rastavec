@@ -3,6 +3,7 @@
 import type { Prepared, RGBAImage, TraceBackend } from './core'
 import type { TraceParams } from './types'
 import { validateImageBytes, validateImageDimensions } from './image-limits.js'
+import { decodeTiff, isTiffBlob } from './tiff.js'
 
 /** Canvas-backed SVG renderer shared by the selected tracing engine. */
 export const browserBackend: TraceBackend = {
@@ -46,9 +47,10 @@ async function checkFileDimensions(file: File): Promise<void> {
   }
 }
 
-/** Decode a file to RGBA, applying EXIF orientation. */
+/** Decode a file to RGBA, applying EXIF orientation. TIFF is decoded in JavaScript (no native browser support). */
 export async function decodeFile(file: File): Promise<RGBAImage> {
   validateImageBytes(file.size)
+  if (await isTiffBlob(file)) return decodeTiff(await file.arrayBuffer())
   await checkFileDimensions(file)
   const bmp = await createImageBitmap(file, { imageOrientation: 'from-image', premultiplyAlpha: 'none', colorSpaceConversion: 'none' })
   try {
@@ -77,6 +79,15 @@ export async function toPngFile(img: RGBAImage, name: string): Promise<File> {
   context.putImageData(new ImageData(new Uint8ClampedArray(img.data), img.width, img.height), 0, 0)
   const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob((value) => (value ? resolve(value) : reject(new Error('PNG encoding failed'))), 'image/png'))
   return new File([blob], name, { type: 'image/png' })
+}
+
+/**
+ * Object URL of a PNG preview for sources an <img> element cannot show (TIFF outside Safari),
+ * or null when the original file can be displayed as is. The caller owns the returned URL.
+ */
+export async function previewUrlFor(file: Blob, decoded: RGBAImage): Promise<string | null> {
+  if (!(await isTiffBlob(file))) return null
+  return URL.createObjectURL(await toPngFile(decoded, 'preview.png'))
 }
 
 export function toDataUrl(img: RGBAImage): string {

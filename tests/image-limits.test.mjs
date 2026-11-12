@@ -29,12 +29,14 @@ test('decode checks dimensions before bitmap allocation and rechecks the bitmap'
     URL.revokeObjectURL = () => { revoked++ }
     globalThis.createImageBitmap = async () => { bitmapCalls++; return { width: bitmapWidth, height: 1, close() { bitmapClosed++ } } }
     const { decodeFile } = await server.ssrLoadModule('/src/lib/engine/browser-backend.ts')
-    await assert.rejects(() => decodeFile({ size: 1 }), /16,384/)
+    // decodeFile sniffs the signature to route TIFF, so pass a real (non-TIFF) file.
+    const png = () => new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], 'x.png', { type: 'image/png' })
+    await assert.rejects(() => decodeFile(png()), /16,384/)
     assert.equal(bitmapCalls, 0)
     assert.equal(revoked, 1)
     width = 100
     bitmapWidth = 20000
-    await assert.rejects(() => decodeFile({ size: 1 }), /16,384/)
+    await assert.rejects(() => decodeFile(png()), /16,384/)
     assert.equal(bitmapCalls, 1)
     assert.equal(bitmapClosed, 1)
     assert.equal(revoked, 2)

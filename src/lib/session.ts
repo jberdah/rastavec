@@ -1,6 +1,6 @@
 import type { Item, AutoTune, TraceParams } from './engine/types'
 import { app, clone, outputMeasurementKey, sources } from './store.svelte'
-import { decodeFile } from './engine/browser-backend'
+import { decodeFile, previewUrlFor } from './engine/browser-backend'
 import { analyze } from './engine/analyze'
 import { refreshOutputMetrics } from './pipeline'
 import { DEFAULT_PARAMS } from './engine/presets'
@@ -103,7 +103,8 @@ export async function restoreSession(record: SessionRecord): Promise<void> {
         }
       }
       if (image) decoded.set(saved.id, image)
-      prepared.push({ ...saved, file, srcUrl: URL.createObjectURL(file), progress: '',
+      const srcUrl = (image && await previewUrlFor(file, image)) || URL.createObjectURL(file)
+      prepared.push({ ...saved, file, srcUrl, progress: '',
         ...(decodeError ? { status: 'error' as const, error: decodeError } : {}),
         ...(image ? { width: image.width, height: image.height, analysis: saved.analysis ?? analyze(image) } : {}) })
     }
