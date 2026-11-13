@@ -17,7 +17,8 @@ import type { RGBAImage } from './core'
 
 /** Minimum per-channel (premultiplied) contrast between the two colours of an edge. */
 const MIN_CONTRAST = 64
-/** Maximum per-channel distance between a pixel and the closest mix of the two colours. */
+/** Maximum per-channel distance between a pixel and the closest mix of the two colours. Looser
+ *  than analyze's hardEdged test (6), which classifies images rather than splitting pixels. */
 const MAX_RESIDUAL = 12
 /** Ramps up to two pixels wide: the flat colours may sit two pixels away. */
 const REACH = 2

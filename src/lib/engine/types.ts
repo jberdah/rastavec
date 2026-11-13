@@ -37,6 +37,8 @@ export interface TraceParams {
   softColor: boolean
   /** Re-encode paths compactly (relative coordinates, baked translate, short numbers). Visually lossless. */
   compactPaths: boolean
+  /** Let the engine replace verified circles by exact shapes (color traces). Missing means on. */
+  detectShapes?: boolean
 }
 
 export interface Metrics {

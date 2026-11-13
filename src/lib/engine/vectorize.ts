@@ -180,12 +180,14 @@ export async function vectorize(
   // (8548 paths, 532 KB for a 121 x 120 icon). Merging shades 16 apart, as the flat preset does,
   // keeps the edges. Images with many colours (noise, photos) keep fine steps.
   const fewColours = analysis.dominantColors <= MANY_COLOURS
-  const scaledParams = settings.presetId === 'pixel' || analysis.kind === 'pixel' || !fewColours
-    ? presetById('pixel').params
-    : { ...presetById('pixel').params, layerDifference: 16 }
+  const pixelArt = settings.presetId === 'pixel' || analysis.kind === 'pixel'
+  // On pixel art the enlarged staircase must stay a staircase: shape detection fitted "circles"
+  // on pixel clusters (3 on a 32 px wizard) and its editable-share bonus outscored the exact grid.
+  const scaledParams = pixelArt
+    ? { ...presetById('pixel').params, detectShapes: false }
+    : !fewColours ? presetById('pixel').params : { ...presetById('pixel').params, layerDifference: 16 }
   // Only known pixel art may use many near shades in the exact grid: on an anti-aliased icon a
   // grid of hundreds of colours would beat a smooth trace on the score while being no vector.
-  const pixelArt = settings.presetId === 'pixel' || analysis.kind === 'pixel'
   const exactGrid = auto.enabled && (settings.presetId === 'auto' || settings.presetId === 'pixel')
     ? tracePixelGrid(src, pixelArt ? { maxColors: 1024, blockSize: pixelBlockSize(src) } : {})
     : null

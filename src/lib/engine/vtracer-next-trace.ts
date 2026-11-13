@@ -18,14 +18,15 @@ export type NextConvert = (image: RGBAImage, params: TraceParams, binary: boolea
 /**
  * Options for one VTracer-Next call. The gradient route also keeps gentle gradients as bands
  * (otherwise the engine flattens them before it can fit anything). Shape detection only
- * replaces outlines the engine has verified as circles, so every color trace asks for it.
+ * replaces outlines the engine has verified as circles, so every color trace asks for it,
+ * except traces of pixel art (`detectShapes: false`), whose round blobs are pixel clusters.
  */
 export const nextOptions = (params: TraceParams, binary: boolean, gradients: GradientMode) => ({
   ...optionsFor(params, binary),
   experimentalGradients: gradients !== false,
   preserveGradients: gradients !== false,
   ...(gradients === 'simple' ? { gradientTolerance: SIMPLE_GRADIENT_TOLERANCE } : {}),
-  detectShapes: !binary,
+  detectShapes: !binary && params.detectShapes !== false,
 })
 
 /** Keep only the paths the engine has something to say about. */

@@ -194,6 +194,10 @@ const ANTIALIAS_MIX_SHARE = 0.01
  * edge pixel is a precise mix of two frequent neighbouring colours and is rarer than both. Pixel
  * art shading ramps also sit between their neighbours, but their tones are as frequent as the
  * colours around them or come from a noisy palette, so they rarely match all three conditions.
+ * Unlike analyzeAntialiasing (antialias-resolve.ts), which only has to split pixels that are
+ * mixes and so accepts looser fits (residual 12, alpha, two-pixel ramps), this decides what the
+ * image is: it must not mistake shading for anti-aliasing, hence the strict fit (residual 6),
+ * opaque pixels only and the frequency conditions.
  */
 export function hardEdged(img: RGBAImage): boolean {
   const { data: d, width: w, height: h } = img
