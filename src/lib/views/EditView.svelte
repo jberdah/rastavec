@@ -10,7 +10,7 @@
   import GroupReview from './GroupReview.svelte'
   import ShapeEditor from './ShapeEditor.svelte'
   import { applyShapeEdit } from '../shape-editing'
-  import { crescentPath, editShape as editShapeSvg, editableShapes, type ShapePatch } from '../engine/shape-edits'
+  import { crescentPath, editShape as editShapeSvg, editableShapes, keepRing, ringPath, type ShapePatch } from '../engine/shape-edits'
   import { groupsFromShapes } from '../engine/shape-groups'
   import { canRedo, canUndo, dropLastStep, record, redo, undo } from '../edit-history.svelte'
   import { publicAsset } from '../assets'
@@ -121,7 +121,7 @@
   function animateShapes() {
     if (!item || !result || !trial?.shapes) return
     const grouping = groupsFromShapes(result.svg, trial.shapes, (hint, ordinal) =>
-      `${hint.kind === 'circle' ? t('shapeEdit.circle') : hint.kind === 'ellipse' ? t('shapeEdit.ellipse') : hint.kind === 'crescent' ? t('shapeEdit.crescent') : t('shapeEdit.gradientRegion')} ${ordinal}`)
+      `${hint.kind === 'circle' ? t('shapeEdit.circle') : hint.kind === 'ellipse' ? t('shapeEdit.ellipse') : hint.kind === 'crescent' ? t('shapeEdit.crescent') : hint.kind === 'ring' ? t('shapeEdit.ring') : t('shapeEdit.gradientRegion')} ${ordinal}`)
     if (!grouping) return
     saveGrouping(grouping)
     go('animate', item.id)
@@ -130,8 +130,9 @@
   // Direct manipulation, like a vector editor: drag the body to move, a corner or side handle to
   // resize around the centre, the top handle to rotate an ellipse. The outline follows the pointer
   // and the shape is redrawn live; one edit (one undo step) is committed on release.
-  // A crescent is edited by its two circles: the body and the outer handles act on the outer one
-  // (moving carries the inner circle along), the inner circle has its own centre and radius grips.
+  // A crescent or a ring is edited by its two circles: the body and the outer handles act on the
+  // outer one (moving carries the inner circle along), the inner circle has its own centre and
+  // radius grips.
   type Mode = 'move' | 'resize' | 'rotate' | 'inner-move' | 'inner-resize'
   type Geometry = { cx: number; cy: number; rx: number; ry: number; rotation: number; icx: number; icy: number; ir: number }
   let drag = $state<{ index: number; mode: Mode; sx: number; sy: number; startX: number; startY: number; startLx: number; startLy: number; from: Geometry; to: Geometry } | null>(null)
@@ -149,8 +150,9 @@
   })
   const liveGeometry = (hint: EngineShapeHint): Geometry => (drag && drag.index === hint.index ? drag.to : geometryOf(hint))
   const kindOf = (index: number) => trial?.shapes?.find((shape) => shape.index === index)?.kind
-  // Resized like a circle: circles, and a crescent's outer circle.
-  const isCircle = (index: number) => kindOf(index) === 'circle' || kindOf(index) === 'crescent'
+  // Resized like a circle: circles, and a crescent's or ring's outer circle.
+  const hasInner = (index: number) => kindOf(index) === 'crescent' || kindOf(index) === 'ring'
+  const isCircle = (index: number) => kindOf(index) === 'circle' || hasInner(index)
   function toUser(event: PointerEvent): [number, number] | null {
     const matrix = pickSvg?.getScreenCTM()
     if (!matrix) return null
@@ -183,7 +185,7 @@
     } else if (drag.mode === 'inner-move') {
       to = { ...from, icx: from.icx + dx, icy: from.icy + dy }
     } else if (drag.mode === 'inner-resize') {
-      to = { ...from, ir: Math.max(1, from.ir + Math.hypot(at[0] - from.icx, at[1] - from.icy) - drag.startLx) }
+      to = { ...from, ir: Math.max(Math.min(1, from.ir), from.ir + Math.hypot(at[0] - from.icx, at[1] - from.icy) - drag.startLx) }
     } else if (drag.mode === 'rotate') {
       const angle = (Math.atan2(at[1] - from.cy, at[0] - from.cx) * 180) / Math.PI + 90
       to = { ...from, rotation: round1(((angle + 540) % 360) - 180) }
@@ -201,6 +203,7 @@
       }
     }
     if (kindOf(drag.index) === 'crescent') to = keepCrescent(to, drag.mode)
+    else if (kindOf(drag.index) === 'ring') to = keepRing(to, from, drag.mode)
     drag = { ...drag, to }
     scheduleLive()
   }
@@ -235,8 +238,8 @@
     if (to.cy !== from.cy) patch.cy = round1(to.cy)
     if (isCircle(index)) {
       if (to.rx !== from.rx) patch.r = round1(to.rx)
-      if (kindOf(index) === 'crescent') {
-        // Moving the whole crescent carries the inner circle (shape-edits does that, keeping the
+      if (hasInner(index)) {
+        // Moving the whole crescent or ring carries the inner circle (shape-edits does that, keeping the
         // exact offset); only an inner-circle gesture places it explicitly.
         if (mode === 'inner-move') { patch.innerCx = round1(to.icx); patch.innerCy = round1(to.icy) }
         if (to.ir !== from.ir) patch.innerR = round1(to.ir)
@@ -463,10 +466,11 @@
                 <svg class="fit pick" bind:this={pickSvg} {viewBox} preserveAspectRatio="xMidYMid meet" onclick={(event) => { if (event.target === event.currentTarget) selectedShape = null }}>
                   {#each pickable as entry (entry.hint.index)}
                     {@const g = liveGeometry(entry.hint)}
-                    {#if entry.hint.kind === 'crescent'}
+                    {#if entry.hint.kind === 'crescent' || entry.hint.kind === 'ring'}
+                      <!-- The real outline, so a ring's hole is not part of the hit target. -->
                       <path
                         class="target" class:movable={entry.capabilities.geometry} class:hover={hoveredShape === entry.hint.index} class:on={selectedShape === entry.hint.index}
-                        d={crescentPath(g.cx, g.cy, g.rx, g.icx, g.icy, g.ir) ?? ''}
+                        d={(entry.hint.kind === 'ring' ? ringPath(g.cx, g.cy, g.rx, g.icx, g.icy, g.ir, 0) : crescentPath(g.cx, g.cy, g.rx, g.icx, g.icy, g.ir)) ?? ''}
                         onpointerenter={() => (hoveredShape = entry.hint.index)} onpointerleave={() => (hoveredShape = null)}
                         onpointerdown={(event) => startDrag(event, entry.hint, 'move')} onpointermove={moveDrag} onpointerup={endDrag} onpointercancel={cancelDrag}
                       />
@@ -503,8 +507,8 @@
                         {/each}
                       {/if}
                     </g>
-                    {#if hint.kind === 'crescent' && selectedEntry.capabilities.geometry}
-                      <!-- The disc taken out of the crescent: drag its centre to move it, its rim grip to resize it. -->
+                    {#if (hint.kind === 'crescent' || hint.kind === 'ring') && selectedEntry.capabilities.geometry}
+                      <!-- The disc taken out of the crescent or ring: drag its centre to move it, its rim grip to resize it. -->
                       <circle class="frame inner" cx={g.icx} cy={g.icy} r={g.ir} />
                       <circle class="handle" cx={g.icx} cy={g.icy} r={hs * 0.55} />
                       <circle class="hit" style:cursor="move" cx={g.icx} cy={g.icy} r={hs * 1.1}

@@ -64,11 +64,13 @@
     const circles = shapes.filter((shape) => shape.kind === 'circle').length
     const ellipses = shapes.filter((shape) => shape.kind === 'ellipse').length
     const crescents = shapes.filter((shape) => shape.kind === 'crescent').length
+    const rings = shapes.filter((shape) => shape.kind === 'ring').length
     const gradients = shapes.filter((shape) => shape.gradient && shape.overlayOf === undefined).length
     return [
       circles ? t('detail.shapesCircles', circles) : '',
       ellipses ? t('detail.shapesEllipses', ellipses) : '',
       crescents ? t('detail.shapesCrescents', crescents) : '',
+      rings ? t('detail.shapesRings', rings) : '',
       gradients ? t('detail.shapesGradients', gradients) : '',
     ].filter(Boolean).join(' · ')
   })

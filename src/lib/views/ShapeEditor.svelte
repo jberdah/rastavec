@@ -22,7 +22,7 @@
   const entries = $derived(editableShapes(svg, shapes))
   const current = $derived(entries.find((entry) => entry.hint.index === selected) ?? null)
   const label = (hint: EngineShapeHint) =>
-    hint.overlayOf !== undefined ? t('shapeEdit.overlay') : hint.kind === 'circle' ? t('shapeEdit.circle') : hint.kind === 'ellipse' ? t('shapeEdit.ellipse') : hint.kind === 'crescent' ? t('shapeEdit.crescent') : t('shapeEdit.gradientRegion')
+    hint.overlayOf !== undefined ? t('shapeEdit.overlay') : hint.kind === 'circle' ? t('shapeEdit.circle') : hint.kind === 'ellipse' ? t('shapeEdit.ellipse') : hint.kind === 'crescent' ? t('shapeEdit.crescent') : hint.kind === 'ring' ? t('shapeEdit.ring') : t('shapeEdit.gradientRegion')
   // Layer names like a vector editor: "Circle 1", "Ellipse 2"…, numbered per kind in paint order.
   const names = $derived.by(() => {
     const counts = new Map<string, number>()
@@ -41,7 +41,7 @@
     const hint = current?.hint
     if (!hint || !current?.capabilities?.geometry) return []
     const centre = [{ key: 'cx', value: hint.cx }, { key: 'cy', value: hint.cy }] as const
-    if (hint.kind === 'crescent') {
+    if (hint.kind === 'crescent' || hint.kind === 'ring') {
       return [...centre, { key: 'r', value: hint.r } as const, { key: 'innerCx', value: hint.innerCx } as const,
         { key: 'innerCy', value: hint.innerCy } as const, { key: 'innerR', value: hint.innerR } as const]
     }
@@ -53,7 +53,7 @@
     const raw = input.value
     const value = Number(raw)
     // Show the shape's value again first: an accepted edit replaces it, a refused one (say, a
-    // crescent whose circles would no longer cross) must not leave the typed number on screen.
+    // crescent whose circles would no longer cross, a ring whose hole would leave it) must not leave the typed number on screen.
     input.value = String(shown)
     if (selected === null || raw.trim() === '' || !Number.isFinite(value)) return
     onEdit(selected, { [key]: value })

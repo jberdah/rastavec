@@ -75,13 +75,13 @@ export interface Metrics {
  */
 export interface EngineShapeHint {
   index: number
-  kind: 'path' | 'circle' | 'ellipse' | 'crescent'
-  /** Centre, in viewBox units (circles and ellipses; a crescent's outer circle). */
+  kind: 'path' | 'circle' | 'ellipse' | 'crescent' | 'ring'
+  /** Centre, in viewBox units (circles and ellipses; a crescent's or ring's outer circle). */
   cx?: number
   cy?: number
-  /** Circle radius (a crescent's outer radius). */
+  /** Circle radius (a crescent's or ring's outer radius). */
   r?: number
-  /** A crescent's inner circle: the disc taken out of the outer one. */
+  /** A crescent's or ring's inner circle: the disc taken out of the outer one (wholly inside it for a ring). */
   innerCx?: number
   innerCy?: number
   innerR?: number
