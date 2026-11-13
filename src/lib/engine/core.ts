@@ -603,7 +603,9 @@ const isExact = (m: Metrics) =>
 /**
  * Pick the best trial by score. `maxBytes` is an optional size budget (0: none) that adds a soft
  * penalty above it. With `preferExactPixelGrid`, an exact pixel-grid trial rules out every trial
- * that is not exact too: on pixel art, a slightly softened trace is not a fair trade for weight.
+ * that does not reproduce the source just as exactly (zero error): on pixel art, a trace that only
+ * looks exact (mean colour error under half a level, "circles" fitted on the staircase) is not a
+ * fair trade for a few bytes or an editable-share bonus.
  */
 export function choose(
   trials: { metrics: Metrics; score: number; traceMethod?: string; comparisonOnly?: boolean }[],
@@ -624,7 +626,10 @@ export function choose(
   if (options.preferExactPixelGrid
     && trials.some((trial) => trial.traceMethod === 'pixel-grid' && isExact(trial.metrics)
       && (maxBytes <= 0 || trial.metrics.bytes <= maxBytes))) {
-    idx = idx.filter((i) => isExact(trials[i].metrics))
+    idx = idx.filter((i) => {
+      const m = trials[i].metrics
+      return trials[i].traceMethod === 'pixel-grid' ? isExact(m) : m.pctDiff === 0 && m.alphaDiff === 0 && m.rgbWhite + m.rgbDark === 0
+    })
   }
   const objective = (i: number) => trials[i].score + (maxBytes > 0
     ? BUDGET_OVERSHOOT_WEIGHT * Math.max(0, trials[i].metrics.bytes / maxBytes - 1)

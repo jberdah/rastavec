@@ -5,7 +5,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
-import init, { vectorize_rgba } from '../src/lib/engine/vtracer-next-wasm/vtracer_next.js'
+import init, { vectorize_rgba, vectorize_rgba_structured } from '../src/lib/engine/vtracer-next-wasm/vtracer_next.js'
 
 const require = createRequire(new URL('../cli/package.json', import.meta.url))
 const sharp = require('sharp')
@@ -16,18 +16,25 @@ export { analyze, pixelBlockSize } from './src/lib/engine/analyze'
 export { analyzeAntialiasing, resolveAntialiasing } from './src/lib/engine/antialias-resolve'
 export { DEFAULT_PARAMS } from './src/lib/engine/presets'
 export { withVTracerNext } from './src/lib/engine/vtracer-next-trace'
-export { optionsFor } from './src/lib/engine/trace-options'`,
+export { nextOptions } from './src/lib/engine/vtracer-next-trace'
+export { choose } from './src/lib/engine/core'`,
     resolveDir: process.cwd(),
   },
   bundle: true, write: false, platform: 'node', format: 'esm',
 }).outputFiles[0].text
-const { vectorize, analyze, pixelBlockSize, analyzeAntialiasing, resolveAntialiasing, DEFAULT_PARAMS, withVTracerNext, optionsFor } =
+const { vectorize, analyze, pixelBlockSize, analyzeAntialiasing, resolveAntialiasing, DEFAULT_PARAMS, withVTracerNext, nextOptions, choose } =
   await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`)
 await init({ module_or_path: await readFile(new URL('../src/lib/engine/vtracer-next-wasm/vtracer_next_bg.wasm', import.meta.url)) })
 const backend = withVTracerNext(
   { async rasterize(svg, width, height) { return { width, height, data: new Uint8ClampedArray(await sharp(Buffer.from(svg)).resize(width, height).ensureAlpha().raw().toBuffer()) } } },
   false,
-  async (src, p, b, g) => vectorize_rgba(new Uint8Array(src.data), src.width, src.height, { ...optionsFor(p, b), experimentalGradients: g }),
+  // The product's options and structured call: shape detection and its editable-share bonus on.
+  async (src, p, b, g) => {
+    const options = nextOptions(p, b, g)
+    if (b) return vectorize_rgba(new Uint8Array(src.data), src.width, src.height, options)
+    const [svg, report] = vectorize_rgba_structured(new Uint8Array(src.data), src.width, src.height, options)
+    return { svg, report }
+  },
   () => { throw Error('unexpected binary') },
 )
 const settings = { presetId: 'auto', params: DEFAULT_PARAMS, auto: { enabled: true, threshold: 3, maxKB: 0 } }
@@ -142,15 +149,34 @@ test('many-colour images keep fine shade steps and skip anti-aliasing resolution
   for (const trial of scaled) assert.equal(trial.params.layerDifference, 4)
 })
 
+test('on pixel art an exact grid beats a nearly exact trace, whatever the score', () => {
+  const metrics = (rgb, bytes) => ({ pctDiff: 0, alphaDiff: 0, rgbWhite: rgb, rgbDark: rgb, iou: 1, bytes, paths: 100 })
+  const trials = [
+    { traceMethod: 'pixel-grid', metrics: metrics(0, 8000), score: 20.5 },
+    // Enlarged trace: under half a level of mean error and an editable-share bonus.
+    { metrics: metrics(0.3, 7000), score: 20.4 },
+  ]
+  assert.equal(choose(trials, 0, { preferExactPixelGrid: true }), 0)
+  assert.equal(choose(trials, 0, { preferExactPixelGrid: false }), 1)
+  // A trace with no error at all may still win on score.
+  trials[1].metrics = metrics(0, 7000)
+  assert.equal(choose(trials, 0, { preferExactPixelGrid: true }), 1)
+})
+
 test('Auto traces native pixel art exactly', async () => {
-  for (const file of ['pixel-art/tiny-wizard', 'pixel-art/shield']) {
+  for (const file of ['pixel-art/tiny-wizard', 'pixel-art/shield', 'pixel-art/potion']) {
     const r = await vectorize(await decode(file), settings, backend)
-    // The exact grid is compared; it, or an enlarged trace just as exact and lighter, wins.
-    assert.ok(r.trials.some((trial) => trial.traceMethod === 'pixel-grid'), file)
+    // The exact grid wins over any trace that only looks exact.
     const chosen = r.trials[r.chosen]
+    assert.equal(chosen.traceMethod, 'pixel-grid', file)
     assert.equal(chosen.metrics.pctDiff, 0, file)
     assert.equal(chosen.metrics.alphaDiff, 0, file)
-    assert.ok((chosen.metrics.rgbWhite + chosen.metrics.rgbDark) / 2 < 0.5, file)
+    assert.equal(chosen.metrics.rgbWhite + chosen.metrics.rgbDark, 0, file)
+    // Enlarged traces of pixel art keep their staircase: no circles fitted on pixel clusters.
+    for (const trial of r.trials.filter((t) => (t.traceScale ?? 1) > 1)) {
+      assert.equal(trial.params.detectShapes, false, file)
+      assert.ok(!(trial.shapes ?? []).some((shape) => shape.kind !== 'path'), file)
+    }
   }
 })
 
