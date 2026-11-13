@@ -1,6 +1,6 @@
 {
-  "description": "VTracer-next source snapshot at a9ee402: experimental gradient fitting with a continuous smooth-field model and whole-pixel validation, drift-bounded clustering (preserve_gradients), circle and ellipse detection with overlap completion and complete underlays beneath recognised shapes, crescents and rings, occluded discs joined from their pieces and residual pieces linked to their shape (detect_shapes), Watershed transparency and partial-alpha handling, and the structured shape report.",
-  "head": "a9ee402cbb21fa67ca6271ef67ee4e3973f553f7",
+  "description": "VTracer-next source snapshot at 047a547: experimental gradient fitting with a continuous smooth-field model and whole-pixel validation, drift-bounded clustering (preserve_gradients), circle and ellipse detection with overlap completion and complete underlays beneath recognised shapes, crescents and rings, occluded discs joined from their pieces and residual pieces linked to their shape (detect_shapes), Watershed transparency and partial-alpha handling, and the structured shape report.",
+  "head": "047a5474bfaf5022b2e26459173f5390a796d9f4",
   "files": {
     "README.md": "9fbe6fa72e9693430e9fe6b977d4caaf13b49cc1cf0ab12b6d94030583e43faf",
     "crates/vtracer/Cargo.toml": "f7c363dc58516bbf0c0a4cab9b4aceee7a2f593387136671f5cc84bed417c3d7",
