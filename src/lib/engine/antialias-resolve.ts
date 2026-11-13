@@ -7,9 +7,11 @@
 // every mix as its own colour layer (a thin path per ramp: 20 shapes become 1000+ paths).
 //
 // `resolveAntialiasing` enlarges the image by an integer factor and paints each mixed pixel as a
-// block of sub-pixels in the two flat colours it mixes, in the same proportion, split across the
-// edge. The traced shapes then only carry the flat colours, with boundaries at sub-pixel
-// precision; rendered back at the original size, the vector's own anti-aliasing recreates the mix.
+// block of sub-pixels in the two flat colours it mixes, in the same proportion. The split line
+// follows the local edge direction (estimated from the neighbours' mix ratios), so consecutive
+// edge pixels join into one straight or gently curving boundary instead of a staircase. The
+// traced shapes only carry the flat colours; rendered back at the original size, the vector's own
+// anti-aliasing recreates the mix.
 
 import type { RGBAImage } from './core'
 
@@ -24,45 +26,47 @@ const REACH = 2
 // other way.
 const PAIRS: [number, number][] = [[-1, 0], [0, -1], [-1, -1], [1, -1]]
 
-export interface AntialiasResolution {
-  image: RGBAImage
-  /** Pixels painted as a mix of two neighbouring colours. */
+/** Which pixels are mixes, and of what: computed without enlarging anything. */
+export interface AntialiasAnalysis {
+  /** Pixels recognized as a mix of two neighbouring colours. */
   blended: number
   /** Visible source pixels (alpha > 0). */
   visible: number
+  /** Per pixel: index of colour A (-1: not a mix, -2: transparent outside the image). */
+  a: Int32Array
+  b: Int32Array
+  /** Share of B in the mix. */
+  t: Float32Array
+  /** Index in PAIRS of the direction the mix was found along. */
+  dir: Uint8Array
 }
 
-/**
- * Enlarge `src` by `scale`, splitting each pixel that mixes two neighbouring colours across a
- * contrasted edge into those two colours. Every other pixel becomes a uniform block.
- */
-export function resolveAntialiasing(src: RGBAImage, scale = 8): AntialiasResolution {
+/** Find the pixels that mix two contrasted neighbouring colours. Cheap: no enlargement. */
+export function analyzeAntialiasing(src: RGBAImage, minContrast = MIN_CONTRAST): AntialiasAnalysis {
   const { width: w, height: h, data: d } = src
-  const W = w * scale
-  const out = new Uint8ClampedArray(W * h * scale * 4)
-  // Premultiplied, so that a mix with transparency is a plain linear mix too.
-  const pm = new Float32Array(w * h * 4)
-  for (let p = 0; p < w * h; p++) {
+  const n = w * h
+  // Premultiplied, so that a mix with transparency is a plain linear mix too. Outside the image
+  // counts as transparent, so the edge pixels of a cut-out touching the border resolve too.
+  const pm = new Float32Array((n + 1) * 4)
+  for (let p = 0; p < n; p++) {
     const a = d[p * 4 + 3] / 255
     for (let c = 0; c < 3; c++) pm[p * 4 + c] = d[p * 4 + c] * a
     pm[p * 4 + 3] = d[p * 4 + 3]
   }
-  const paint = (x: number, y: number, i: number, j: number, from: number) =>
-    out.set(d.subarray(from * 4, from * 4 + 4), ((y * scale + j) * W + x * scale + i) * 4)
-  // Sub-pixel centres relative to the pixel centre.
-  const offsets: [number, number][] = []
-  for (let j = 0; j < scale; j++) for (let i = 0; i < scale; i++) offsets.push([(i + 0.5) / scale - 0.5, (j + 0.5) / scale - 0.5])
-  const order = offsets.map((_, k) => k)
-  const minShare = 0.5 / (scale * scale)
+  const OUTSIDE = n
+  const A = new Int32Array(n).fill(-1), B = new Int32Array(n).fill(-1), T = new Float32Array(n), D = new Uint8Array(n)
   let blended = 0, visible = 0
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
     const p = y * w + x
     if (d[p * 4 + 3] > 0) visible++
-    let best: { a: number; b: number; t: number; dx: number; dy: number; norm: number } | null = null
-    for (const [dx, dy] of PAIRS) for (let ka = 1; ka <= REACH; ka++) for (let kb = 1; kb <= REACH; kb++) {
+    let bestNorm = 0
+    for (let q = 0; q < PAIRS.length; q++) for (let ka = 1; ka <= REACH; ka++) for (let kb = 1; kb <= REACH; kb++) {
+      const [dx, dy] = PAIRS[q]
       const ax = x + dx * ka, ay = y + dy * ka, bx = x - dx * kb, by = y - dy * kb
-      if (ax < 0 || ay < 0 || bx < 0 || by < 0 || ax >= w || ay >= h || bx >= w || by >= h) continue
-      const a = ay * w + ax, b = by * w + bx
+      const aIn = ax >= 0 && ay >= 0 && ax < w && ay < h, bIn = bx >= 0 && by >= 0 && bx < w && by < h
+      // Only the nearest outside position stands for "transparent beyond the border".
+      if ((!aIn && ka > 1) || (!bIn && kb > 1) || (!aIn && !bIn)) continue
+      const a = aIn ? ay * w + ax : OUTSIDE, b = bIn ? by * w + bx : OUTSIDE
       let contrast = 0, dot = 0, norm = 0
       for (let c = 0; c < 4; c++) {
         const e = pm[b * 4 + c] - pm[a * 4 + c]
@@ -70,28 +74,84 @@ export function resolveAntialiasing(src: RGBAImage, scale = 8): AntialiasResolut
         dot += (pm[p * 4 + c] - pm[a * 4 + c]) * e
         norm += e * e
       }
-      if (contrast < MIN_CONTRAST) continue
+      if (contrast < minContrast || norm <= bestNorm) continue
       const t = dot / norm
-      // Nearly pure A or B: not worth splitting.
-      if (t <= minShare || t >= 1 - minShare) continue
+      // Nearly pure A or B: not a mix worth splitting.
+      if (t <= 0.04 || t >= 0.96) continue
       let residual = 0
       for (let c = 0; c < 4; c++) residual = Math.max(residual, Math.abs(pm[a * 4 + c] + t * (pm[b * 4 + c] - pm[a * 4 + c]) - pm[p * 4 + c]))
       // Among the mixes that explain the pixel, the most contrasted pair holds the flat colours;
       // a nearer pair may be the other half of a two-pixel ramp.
-      if (residual > MAX_RESIDUAL || (best && norm <= best.norm)) continue
-      best = { a, b, t, dx, dy, norm }
+      if (residual > MAX_RESIDUAL) continue
+      bestNorm = norm
+      A[p] = a === OUTSIDE ? -2 : a; B[p] = b === OUTSIDE ? -2 : b; T[p] = t; D[p] = q
     }
-    if (!best) {
-      for (let j = 0; j < scale; j++) for (let i = 0; i < scale; i++) paint(x, y, i, j, p)
+    if (bestNorm > 0) blended++
+  }
+  return { blended, visible, a: A, b: B, t: T, dir: D }
+}
+
+/**
+ * Enlarge `src` by `scale`, painting each mix found by `analyzeAntialiasing` as sub-pixels of its
+ * two flat colours. Every other pixel becomes a uniform block.
+ */
+export function resolveAntialiasing(src: RGBAImage, scale = 8, analysis = analyzeAntialiasing(src)): RGBAImage {
+  const { width: w, height: h } = src
+  // Whole-pixel copies below go through 32-bit views, which need an aligned buffer.
+  const d = src.data.byteOffset % 4 ? new Uint8ClampedArray(src.data) : src.data
+  const W = w * scale
+  const out = new Uint8ClampedArray(W * h * scale * 4)
+  const out32 = new Uint32Array(out.buffer)
+  const src32 = new Uint32Array(d.buffer, d.byteOffset, w * h)
+  const colour = (i: number) => (i < 0 ? 0 : src32[i])
+  const { a: A, b: B, t: T, dir: D } = analysis
+  // Mix ratio of a pixel along the A-B axis of the pixel being split, for the edge direction.
+  const pm = (i: number, c: number) => (i < 0 ? 0 : d[i * 4 + c] * (c === 3 ? 1 : d[i * 4 + 3] / 255))
+  const ratio = (q: number, a: number, b: number) => {
+    let dot = 0, norm = 0
+    for (let c = 0; c < 4; c++) { const e = pm(b, c) - pm(a, c); dot += (pm(q, c) - pm(a, c)) * e; norm += e * e }
+    return Math.max(0, Math.min(1, dot / norm))
+  }
+  const offsets = new Float32Array(scale * scale * 2)
+  for (let j = 0; j < scale; j++) for (let i = 0; i < scale; i++) {
+    offsets[(j * scale + i) * 2] = (i + 0.5) / scale - 0.5
+    offsets[(j * scale + i) * 2 + 1] = (j + 0.5) / scale - 0.5
+  }
+  const along = new Float32Array(scale * scale), sorted = new Float32Array(scale * scale)
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const p = y * w + x
+    const base = y * scale * W + x * scale
+    if (A[p] === -1) {
+      const v = src32[p]
+      for (let j = 0; j < scale; j++) out32.fill(v, base + j * W, base + j * W + scale)
       continue
     }
-    blended++
-    // The sub-pixels nearest to B take B's colour, as many as its share of the mix.
-    const { a, b, t, dx, dy } = best
-    const towardsB = (k: number) => -(offsets[k][0] * dx + offsets[k][1] * dy)
-    order.sort((k, l) => towardsB(l) - towardsB(k) || k - l)
-    const countB = Math.round(t * scale * scale)
-    order.forEach((k, rank) => paint(x, y, k % scale, Math.floor(k / scale), rank < countB ? b : a))
+    const a = A[p], b = B[p]
+    // Gradient of the mix ratio over the 3x3 neighbourhood (Sobel): it points from A to B,
+    // across the edge. Outside the image the ratio repeats the border.
+    const r = (dx: number, dy: number) => {
+      const X = Math.min(w - 1, Math.max(0, x + dx)), Y = Math.min(h - 1, Math.max(0, y + dy))
+      return ratio(Y * w + X, a, b)
+    }
+    let gx = (r(1, -1) + 2 * r(1, 0) + r(1, 1)) - (r(-1, -1) + 2 * r(-1, 0) + r(-1, 1))
+    let gy = (r(-1, 1) + 2 * r(0, 1) + r(1, 1)) - (r(-1, -1) + 2 * r(0, -1) + r(1, -1))
+    if (Math.hypot(gx, gy) < 1e-3) {
+      // No measurable slope around: split across the direction the mix was found along.
+      gx = -PAIRS[D[p]][0]; gy = -PAIRS[D[p]][1]
+    }
+    for (let k = 0; k < along.length; k++) along[k] = offsets[k * 2] * gx + offsets[k * 2 + 1] * gy
+    // The sub-pixels farthest towards B take B's colour, as many as its share of the mix.
+    const countB = Math.round(T[p] * scale * scale)
+    sorted.set(along); sorted.sort()
+    const threshold = countB > 0 ? sorted[along.length - countB] : Infinity
+    const ca = colour(a), cb = colour(b)
+    let painted = 0
+    for (let j = 0; j < scale; j++) for (let i = 0; i < scale; i++) {
+      const k = j * scale + i
+      const toB = along[k] >= threshold && painted < countB
+      if (toB) painted++
+      out32[base + j * W + i] = toB ? cb : ca
+    }
   }
-  return { image: { width: W, height: h * scale, data: out }, blended, visible }
+  return { width: W, height: h * scale, data: out }
 }

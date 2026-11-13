@@ -11,7 +11,8 @@ import { presetById } from './presets'
 import { tracePixelGrid } from './pixel-grid'
 import { needsHierarchyReview } from './hierarchy-review'
 import { needsHardEdgeReview } from './hard-edge-review'
-import { resolveAntialiasing } from './antialias-resolve'
+import { analyzeAntialiasing, resolveAntialiasing } from './antialias-resolve'
+import { pixelBlockSize } from './analyze'
 
 export interface VectorizeSettings {
   /** 'auto' derives the parameters from the image analysis; anything else uses `params`. */
@@ -133,15 +134,22 @@ async function runPixelGridTrial(src: RGBAImage, svg: string, backend: TraceBack
 
 // Enlargement used to resolve anti-aliasing into sub-pixel edges. VTracer moves polygon
 // vertices by about one traced pixel: at 8x that is 1/8 of a source pixel (at 4x, ~2 % of a
-// small icon stayed visibly off; at 8x, ~1 %). Enlarged traces only run up to 256 px.
-const ANTIALIAS_SCALE = 8
+// small icon stayed visibly off). The traced side is capped, which costs time and memory:
+// 8x up to 192 px, then less (6x at 256 px, the largest enlarged trace).
+const antialiasScale = (long: number) => Math.max(4, Math.min(8, Math.floor(1536 / long)))
 /** Share of visible pixels that must be anti-aliasing mixes before that trace is worth a try. */
 const MIN_ANTIALIAS_SHARE = 0.01
+/**
+ * Many colours (analyze's photo cut-off): photos and noise. Enlarged traces of such images keep
+ * fine shade steps (merging them turned 256 px noise 1.5 % visibly different instead of 0.2 %),
+ * while detailed icons, 100-250 colours, lose nothing visible and stay 1.3-1.7x lighter.
+ */
+const MANY_COLOURS = 400
 
 // Native color trace of the source with each anti-aliasing mix split into its two flat colours
 // at sub-pixel precision (see antialias-resolve.ts). Displayed at the original size like the
 // other enlarged traces.
-async function runAntialiasResolvedTrial(resolved: RGBAImage, src: RGBAImage, params: TraceParams, backend: TraceBackend): Promise<Trial> {
+async function runAntialiasResolvedTrial(resolved: RGBAImage, scale: number, src: RGBAImage, params: TraceParams, backend: TraceBackend): Promise<Trial> {
   params = { ...params, hierarchical: params.hierarchical ?? 'stacked' }
   const t0 = now()
   let svg = await backend.traceColorSource!(resolved, params)
@@ -149,7 +157,7 @@ async function runAntialiasResolvedTrial(resolved: RGBAImage, src: RGBAImage, pa
   svg = svg.replace(/^(<svg\b[^>]*?)\bwidth="\d+"\s+height="\d+"/, `$1width="${src.width}" height="${src.height}"`)
   const render = await backend.rasterize(svg, src.width, src.height)
   const metrics = { ...computeMetrics(src, render, svg), ...(shapes ? { editableShare: editableShare(svg, shapes) } : {}) }
-  return { base: false, params: { ...params }, traceScale: ANTIALIAS_SCALE, traceMethod: 'antialias-resolved', svg, ...(shapes ? { shapes } : {}), metrics, score: score(metrics), ms: now() - t0 }
+  return { base: false, params: { ...params }, traceScale: scale, traceMethod: 'antialias-resolved', svg, ...(shapes ? { shapes } : {}), metrics, score: score(metrics), ms: now() - t0 }
 }
 
 export async function vectorize(
@@ -179,12 +187,19 @@ export async function vectorize(
   const grid = candidates(base, { transparent, includeHighSilhouetteCut: settings.presetId === 'auto' })
   const pixelScales = (settings.presetId === 'auto' || settings.presetId === 'pixel') && Math.max(src.width, src.height) <= 256 ? [2, 4] : []
   // Enlarged traces copy every source pixel. Pixel art keeps each shade apart; on other artwork
-  // that turns every anti-aliasing ramp into one thin layer per shade (8548 paths, 532 KB for a
-  // 121 x 120 icon). Merging shades 16 apart, as the flat preset does, keeps the edges.
-  const scaledParams = settings.presetId === 'pixel' || analysis.kind === 'pixel'
+  // with a moderate palette that turns every anti-aliasing ramp into one thin layer per shade
+  // (8548 paths, 532 KB for a 121 x 120 icon). Merging shades 16 apart, as the flat preset does,
+  // keeps the edges. Images with many colours (noise, photos) keep fine steps.
+  const fewColours = analysis.dominantColors <= MANY_COLOURS
+  const scaledParams = settings.presetId === 'pixel' || analysis.kind === 'pixel' || !fewColours
     ? presetById('pixel').params
     : { ...presetById('pixel').params, layerDifference: 16 }
-  const exactGrid = auto.enabled && (settings.presetId === 'auto' || settings.presetId === 'pixel') ? tracePixelGrid(src) : null
+  // Only known pixel art may use many near shades in the exact grid: on an anti-aliased icon a
+  // grid of hundreds of colours would beat a smooth trace on the score while being no vector.
+  const pixelArt = settings.presetId === 'pixel' || analysis.kind === 'pixel'
+  const exactGrid = auto.enabled && (settings.presetId === 'auto' || settings.presetId === 'pixel')
+    ? tracePixelGrid(src, pixelArt ? { maxColors: 1024, blockSize: pixelBlockSize(src) } : {})
+    : null
   await yieldControl()
   const trials: Trial[] = [await runTrial(src, base, true, backend)]
   checkCancelled()
@@ -194,12 +209,16 @@ export async function vectorize(
   // Small anti-aliased artwork the regular trace misses: one trace with the anti-aliasing
   // resolved into flat colours at sub-pixel precision. Its few flat shapes compete with the
   // enlarged copies of every pixel; the score decides.
-  const antialiasResolved = auto.enabled && needsTune && settings.presetId === 'auto' && nativeColor
-    && analysis.kind !== 'pixel' && pixelScales.length > 0
-    ? resolveAntialiasing(withAlphaFloor(src, base.alphaFloor), ANTIALIAS_SCALE)
+  // The mixes are found first, without enlarging anything; the enlarged copy is only built for
+  // the trial itself.
+  const antialiasSource = auto.enabled && needsTune && settings.presetId === 'auto' && nativeColor
+    // Photos and noise read as mixes nearly everywhere: resolving them only costs time.
+    && analysis.kind !== 'pixel' && analysis.kind !== 'photo' && fewColours && pixelScales.length > 0
+    ? withAlphaFloor(src, base.alphaFloor)
     : null
-  const includeAntialiasReview = antialiasResolved !== null
-    && antialiasResolved.blended >= antialiasResolved.visible * MIN_ANTIALIAS_SHARE
+  const antialiasMixes = antialiasSource ? analyzeAntialiasing(antialiasSource) : null
+  const includeAntialiasReview = antialiasMixes !== null
+    && antialiasMixes.blended >= antialiasMixes.visible * MIN_ANTIALIAS_SHARE
   // Pixel-difference can undercount faint, sparse artwork: its lines may sit below the
   // 32/255 visibility threshold while the alpha>=128 silhouette shows that most shapes
   // disappeared. Try one low-complexity soft-layer fallback before accepting that result.
@@ -314,17 +333,21 @@ export async function vectorize(
       checkCancelled()
       completeTrial()
     }
-    if (includeAntialiasReview) {
+    if (includeAntialiasReview && antialiasSource && antialiasMixes) {
+      const scale = antialiasScale(Math.max(src.width, src.height))
       await yieldControl()
       try {
-        // Only flat colours are left to trace, one source pixel is ANTIALIAS_SCALE² traced
-        // pixels: drop specks under one source pixel, and keep straight sub-pixel steps
-        // (polygons) rather than fitting curves along them, which made the SVG ~4x larger.
-        trials.push(await runAntialiasResolvedTrial(antialiasResolved.image, src,
-          { ...base, mode: 'polygon', speckle: ANTIALIAS_SCALE, colorPrecision: 8, layerDifference: 16 }, backend))
+        const resolved = resolveAntialiasing(antialiasSource, scale, antialiasMixes)
+        await yieldControl()
+        // Only flat colours are left to trace, one source pixel is scale² traced pixels: drop
+        // specks under one source pixel, and keep the sub-pixel boundary as polygons; curves
+        // fitted along it made the SVG 2-4x larger for the same edges.
+        trials.push(await runAntialiasResolvedTrial(resolved, scale, src,
+          { ...base, mode: 'polygon', speckle: scale, colorPrecision: 8, layerDifference: 16 }, backend))
       } catch (error) {
+        if (error instanceof VectorizationCancelled) throw error
         checkCancelled()
-        failedTrials.push({ traceScale: ANTIALIAS_SCALE, message: error instanceof Error ? error.message : String(error) })
+        failedTrials.push({ traceScale: scale, message: error instanceof Error ? error.message : String(error) })
       }
       checkCancelled()
       completeTrial()
