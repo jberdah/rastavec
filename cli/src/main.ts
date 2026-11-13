@@ -126,6 +126,9 @@ const analysisJson = (a: Analysis) => ({
   transparentPct: r4(a.transparentPct),
   softPct: r4(a.softPct),
   grayscale: a.grayscale,
+  // Present when the image was cleaned of JPEG artifacts or noise before tracing; the analysis
+  // and the trial metrics then describe the cleaned image.
+  ...(a.cleanup ? { cleanup: { ringing: r4(a.cleanup.ringing), grain: r4(a.cleanup.grain), blocks: r4(a.cleanup.blocks), sigma: r4(a.cleanup.sigma), reach: r4(a.cleanup.reach) } } : {}),
 })
 
 // ------------------------------------------------------------------ commands

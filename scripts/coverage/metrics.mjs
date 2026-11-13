@@ -180,7 +180,7 @@ export const median = (a) => {
  * Run the RastaVec CLI once on an image. outDir is wiped and recreated by the CLI.
  * @returns {{ms:number, item?:object, svgPath?:string, error?:string, timedOut?:boolean}}
  */
-export async function runCli(input, outDir, { preset = 'auto', extraArgs = [], timeoutMs = 180000, cliPath = path.join(REPO_ROOT, 'cli', 'dist', 'rastavec.cjs') } = {}) {
+export async function runCli(input, outDir, { preset = 'auto', extraArgs = [], timeoutMs = 180000, cliPath = process.env.RASTAVEC_CLI || path.join(REPO_ROOT, 'cli', 'dist', 'rastavec.cjs') } = {}) {
   await rm(outDir, { recursive: true, force: true });
   await mkdir(path.dirname(outDir), { recursive: true });
   const args = [cliPath, 'trace', input, '--preset', preset, '--out', outDir, '--json', '-q', ...extraArgs];

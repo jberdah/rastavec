@@ -1,5 +1,6 @@
 // Deterministic image analysis -> recommended tracing parameters. Pure TS, no DOM.
 import type { RGBAImage } from './core'
+import { measureDegradation, restoreArtwork, stillRippled, type Degradation } from './degradation'
 import { DEFAULT_PARAMS } from './presets'
 import type { TraceParams } from './types'
 
@@ -23,6 +24,9 @@ export interface Analysis {
    *  gentle gradients whose per-pixel steps are too small for `gradient` to see. */
   smoothRamps: number
   grayscale: boolean
+  /** Set when the image is artwork under JPEG artifacts or noise: everything above then
+   *  describes the cleaned image (see `cleanedSource`), which is also what Auto traces. */
+  cleanup?: Degradation
 }
 
 // A ramp is RAMP_RUN opaque pixels in a row or column, each step at most RAMP_STEP (no edge),
@@ -32,9 +36,36 @@ const RAMP_RUN = 16, RAMP_STEP = 3, RAMP_MIN = 2
 const RAMP_GRID = 4
 
 /** Why Auto picked its parameters (language-neutral; rendered by the UI). */
-export type NoteCode = 'flat' | 'shaded' | 'line-binary' | 'line-color' | 'pixel' | 'photo' | 'soft' | 'edges'
+export type NoteCode = 'flat' | 'shaded' | 'line-binary' | 'line-color' | 'pixel' | 'photo' | 'soft' | 'edges' | 'cleaned'
 
+// The same source is analysed, then traced: its cleaned copy is kept with it.
+const cleanedSources = new WeakMap<Uint8ClampedArray, { image: RGBAImage; analysis: Analysis } | null>()
+
+/**
+ * The image without its JPEG artifacts or noise, with its analysis, when it is degraded artwork;
+ * null for clean images and for photos and textures, which the clean-up leaves rippled or
+ * many-coloured and which are traced as they are.
+ */
+export function cleanedSource(img: RGBAImage): { image: RGBAImage; analysis: Analysis } | null {
+  const known = cleanedSources.get(img.data)
+  if (known !== undefined) return known
+  let result: { image: RGBAImage; analysis: Analysis } | null = null
+  const degradation = measureDegradation(img)
+  if (degradation) {
+    const image = restoreArtwork(img, degradation)
+    const analysis = describe(image)
+    if (analysis.kind !== 'photo' && !stillRippled(image)) result = { image, analysis: { ...analysis, cleanup: degradation } }
+  }
+  cleanedSources.set(img.data, result)
+  return result
+}
+
+/** Analysis of an image; of its cleaned copy when it is degraded artwork (`cleanup` is then set). */
 export function analyze(img: RGBAImage): Analysis {
+  return cleanedSource(img)?.analysis ?? describe(img)
+}
+
+function describe(img: RGBAImage): Analysis {
   const { data: d, width: w, height: h } = img
   const total = w * h
   // Sample at most ~1M pixels with a fixed stride (deterministic).
@@ -256,5 +287,6 @@ export function recommend(a: Analysis): { params: TraceParams; notes: NoteCode[]
     p.softLayers = 0
     if (a.alpha === 'edges') notes.push('edges')
   }
+  if (a.cleanup) notes.push('cleaned')
   return { params: p, notes }
 }

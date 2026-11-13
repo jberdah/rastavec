@@ -1,7 +1,7 @@
 // The shared vectorisation loop: analysis -> parameters -> trace -> render -> measure ->
 // deterministic auto-tune -> choice. Pure (no DOM, no UI state): used by the web app and the CLI,
 // each with its own TraceBackend.
-import { analyze, recommend, type Analysis, type NoteCode } from './analyze'
+import { analyze, cleanedSource, recommend, type Analysis, type NoteCode } from './analyze'
 import { candidates, choose, computeMetrics, HEAVY_SVG_BYTES, prepare, score, type RGBAImage, type TraceBackend } from './core'
 import { editableShare } from './editable-share'
 import { calibrateSolidFills, snapSolidFillsToSourcePalette } from './fill-calibration'
@@ -169,7 +169,12 @@ export async function vectorize(
   const checkCancelled = () => { if (opts.shouldCancel?.()) throw new VectorizationCancelled() }
   const yieldControl = async () => { await opts.yieldControl?.(); checkCancelled() }
   checkCancelled()
-  const analysis = opts.analysis ?? analyze(src)
+  // Artwork under JPEG artifacts or noise: Auto traces the cleaned image and scores every trial
+  // against it. Against the degraded source the first trace already fits (it copies the
+  // artifacts, hundreds of paths of them) and nothing would favour the simpler, truer result.
+  const cleaned = settings.presetId === 'auto' ? cleanedSource(src) : null
+  if (cleaned) src = cleaned.image
+  const analysis = cleaned ? cleaned.analysis : opts.analysis ?? analyze(src)
   let base = { ...settings.params }
   let notes: NoteCode[] | undefined
   if (settings.presetId === 'auto') {
