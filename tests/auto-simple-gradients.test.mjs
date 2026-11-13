@@ -24,7 +24,7 @@ function recorder(src, extra = {}) {
       name: 'recorder',
       async trace() { return '<svg/>' },
       async traceColorSource(source) { calls.push({ kind: 'plain', source }); return '<svg data-kind="plain"/>' },
-      async traceColorSourceWithGradients(source, _params, simple) { calls.push({ kind: simple ? 'simple' : 'exact', source }); return `<svg data-kind="${simple ? 'simple' : 'exact'}"/>` },
+      async traceColorSourceWithGradients(source, _params, simple) { calls.push({ kind: simple ? 'simple' : 'exact', source }); return `<svg data-kind="${simple ? 'simple' : 'exact'}"><linearGradient id="g"/></svg>` },
       async rasterize(_svg, width, height) { return { width, height, data: new Uint8ClampedArray(src.data) } },
       ...extra,
     },
