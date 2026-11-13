@@ -5,7 +5,7 @@ import { createRequire } from 'node:module'
 const sharp = createRequire(new URL('../cli/package.json', import.meta.url))('sharp')
 const { buildSync } = createRequire(new URL('../cli/package.json', import.meta.url))('esbuild')
 const bundled = buildSync({ stdin: { contents: `export * from './src/lib/engine/shape-edits'; export { analyzeShapes, applyFilters, DEFAULT_FILTERS } from './src/lib/engine/palette'`, resolveDir: process.cwd(), loader: 'ts' }, bundle: true, write: false, format: 'esm', platform: 'node' }).outputFiles[0].text
-const { editShape, ellipsePath, crescentPath, ringPath, keepRing, translatePath, shapeCapabilities, analyzeShapes, applyFilters, DEFAULT_FILTERS } = await import(`data:text/javascript;base64,${Buffer.from(bundled).toString('base64')}`)
+const { editShape, ellipsePath, crescentPath, ringPath, keepRing, translatePath, overlayKind, shapeCapabilities, analyzeShapes, applyFilters, DEFAULT_FILTERS } = await import(`data:text/javascript;base64,${Buffer.from(bundled).toString('base64')}`)
 
 // Engine-style output: a background, a flat circle, a gradient-painted ellipse with one overlay.
 const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="120" viewBox="0 0 200 120">
@@ -318,5 +318,64 @@ test('a shape whose overlay cannot follow keeps its geometry locked', () => {
     .concat([{ index: 4, kind: 'path', gradient: { id: 'g', type: 'linear', stops: 2, opaque: true }, bounds: [180, 180, 190, 190] }])
   assert.equal(shapeCapabilities(moonSvg, shared, 1).geometry, false, 'its gradient is shared with another path')
   assert.equal(editShape(moonSvg, shared, 1, { cx: 90 }), null)
+})
+
+// A circle with a glow over it painted by `gradient` (whose id is "glow"); `extra` goes on the glow path.
+const glowed = (gradient, extra = '', d = 'M40,40H60V60H40Z') => `<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100">
+<defs>
+${gradient}
+</defs>
+<path d="${ellipsePath(50, 50, 20, 20)}" fill="#dc3c32"/>
+<path d="${d}" fill="url(#glow)"${extra}/>
+</svg>`
+const glowHints = (opaque = false) => [
+  { index: 0, kind: 'circle', cx: 50, cy: 50, r: 20, bounds: [30, 30, 70, 70] },
+  { index: 1, kind: 'path', gradient: { id: 'glow', type: 'radial', stops: 2, opaque }, overlayOf: 0, bounds: [40, 40, 60, 60] },
+]
+const stops = '<stop offset="0" stop-color="#ffffff" stop-opacity=".6"/><stop offset="1" stop-color="#ffffff" stop-opacity="0"/>'
+const glowGradient = (moved) => /<radialGradient[^>]*>/.exec(moved.svg)[0]
+
+test('a glow gradient is shifted only when laid out in user space, whatever its transform', () => {
+  const move = (open) => editShape(glowed(`${open}${stops}</radialGradient>`), glowHints(), 0, { cx: 60, cy: 45 })
+  // Bounding-box units (explicit or default) follow the path by themselves.
+  assert.equal(glowGradient(move('<radialGradient id="glow" gradientUnits="objectBoundingBox" cx=".5" cy=".5" r=".5">')), '<radialGradient id="glow" gradientUnits="objectBoundingBox" cx=".5" cy=".5" r=".5">')
+  assert.equal(glowGradient(move('<radialGradient id="glow" cx=".5" cy=".5" r=".5">')), '<radialGradient id="glow" cx=".5" cy=".5" r=".5">')
+  // User space: the centre and the focal point move.
+  assert.equal(glowGradient(move('<radialGradient id="glow" gradientUnits="userSpaceOnUse" cx="50" cy="50" fx="48" fy="47" r="10">')),
+    '<radialGradient id="glow" gradientUnits="userSpaceOnUse" cx="60" cy="45" fx="58" fy="42" r="10">')
+  assert.equal(glowGradient(move('<radialGradient id="glow" gradientUnits="userSpaceOnUse" cx="0" cy="0" r="1" gradientTransform="matrix(10 0 0 10 50 50)">')),
+    '<radialGradient id="glow" gradientUnits="userSpaceOnUse" cx="0" cy="0" r="1" gradientTransform="matrix(10 0 0 10 60 45)">')
+  // Other transforms get a translate in user space, merged into a leading one.
+  assert.equal(glowGradient(move('<radialGradient id="glow" gradientUnits="userSpaceOnUse" cx="0" cy="0" r="1" gradientTransform="rotate(30) scale(2)">')),
+    '<radialGradient id="glow" gradientUnits="userSpaceOnUse" cx="0" cy="0" r="1" gradientTransform="translate(10 -5) rotate(30) scale(2)">')
+  assert.equal(glowGradient(move('<radialGradient id="glow" gradientUnits="userSpaceOnUse" cx="0" cy="0" r="1" gradientTransform="translate(50,50) rotate(30)">')),
+    '<radialGradient id="glow" gradientUnits="userSpaceOnUse" cx="0" cy="0" r="1" gradientTransform="translate(60 45) rotate(30)">')
+  // Percentages (or missing coordinates) in user space: the gradient is translated as a whole.
+  assert.equal(glowGradient(move('<radialGradient id="glow" gradientUnits="userSpaceOnUse" cx="50%" cy="50%" r="10">')),
+    '<radialGradient gradientTransform="translate(10 -5)" id="glow" gradientUnits="userSpaceOnUse" cx="50%" cy="50%" r="10">')
+})
+
+test('an overlay that cannot follow its shape keeps the shape locked', () => {
+  const gradient = `<radialGradient id="glow" gradientUnits="userSpaceOnUse" cx="50" cy="50" r="10">${stops}</radialGradient>`
+  assert.equal(shapeCapabilities(glowed(gradient), glowHints(), 0).geometry, true)
+  assert.equal(shapeCapabilities(glowed(gradient, '', 'M40,40 R 5 5'), glowHints(), 0).geometry, false, 'unreadable path data')
+  assert.equal(shapeCapabilities(glowed(gradient, ' transform="translate(2 3)"'), glowHints(), 0).geometry, false, 'a transform of its own')
+  assert.equal(shapeCapabilities(glowed(`<radialGradient id="glow" href="#base" cx="50" cy="50" r="10"></radialGradient>`), glowHints(), 0).geometry, false, 'an inherited gradient')
+  assert.equal(editShape(glowed(gradient, ' transform="translate(2 3)"'), glowHints(), 0, { cx: 60 }), null)
+  // A chain of overlays (2 -> 1 -> 0) is not followed.
+  const chained = glowed(gradient).replace('</svg>', '<path d="M45,45H55V55H45Z" fill="#ffffff"/>\n</svg>')
+  const chain = [...glowHints(), { index: 2, kind: 'path', overlayOf: 1, bounds: [45, 45, 55, 55] }]
+  assert.equal(shapeCapabilities(chained, chain, 0).geometry, false)
+  assert.equal(editShape(chained, chain, 0, { cx: 60 }), null)
+})
+
+test('only a translucent gradient overlay is a glow; other overlays are pieces and allow reshaping', () => {
+  const gradient = `<radialGradient id="glow" gradientUnits="userSpaceOnUse" cx="50" cy="50" r="10">${stops}</radialGradient>`
+  assert.equal(overlayKind(glowHints()[1]), 'glow')
+  assert.equal(overlayKind(glowHints(true)[1]), 'piece', 'an opaque gradient overlay')
+  assert.equal(overlayKind(moonHints[1]), 'piece', 'a flat residual piece')
+  assert.equal(shapeCapabilities(glowed(gradient), glowHints(), 0).moveOnly, true)
+  assert.equal(shapeCapabilities(glowed(gradient), glowHints(true), 0).moveOnly, undefined)
+  assert.ok(editShape(glowed(gradient), glowHints(true), 0, { r: 25 }))
 })
 

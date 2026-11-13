@@ -2,7 +2,7 @@
   // Lists the shapes the engine recognised in the chosen trace and edits the selected one by
   // its parameters: centre and radius of a circle, axes and rotation of an ellipse, flat fill
   // or gradient stop colours.
-  import { editableShapes, type ShapePatch } from '../engine/shape-edits'
+  import { editableShapes, overlayKind, type ShapePatch } from '../engine/shape-edits'
   import type { EngineShapeHint } from '../engine/types'
   import { t } from '../i18n.svelte'
 
@@ -22,7 +22,7 @@
   const entries = $derived(editableShapes(svg, shapes))
   const current = $derived(entries.find((entry) => entry.hint.index === selected) ?? null)
   const label = (hint: EngineShapeHint) =>
-    hint.overlayOf !== undefined ? (hint.gradient ? t('shapeEdit.overlay') : t('shapeEdit.piece')) : hint.kind === 'circle' ? t('shapeEdit.circle') : hint.kind === 'ellipse' ? t('shapeEdit.ellipse') : hint.kind === 'crescent' ? t('shapeEdit.crescent') : hint.kind === 'ring' ? t('shapeEdit.ring') : t('shapeEdit.gradientRegion')
+    hint.overlayOf !== undefined ? (overlayKind(hint) === 'glow' ? t('shapeEdit.overlay') : t('shapeEdit.piece')) : hint.kind === 'circle' ? t('shapeEdit.circle') : hint.kind === 'ellipse' ? t('shapeEdit.ellipse') : hint.kind === 'crescent' ? t('shapeEdit.crescent') : hint.kind === 'ring' ? t('shapeEdit.ring') : t('shapeEdit.gradientRegion')
   // Layer names like a vector editor: "Circle 1", "Ellipse 2"…, numbered per kind in paint order.
   const names = $derived.by(() => {
     const counts = new Map<string, number>()
