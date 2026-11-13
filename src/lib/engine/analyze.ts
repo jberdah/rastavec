@@ -2,6 +2,7 @@
 import type { RGBAImage } from './core'
 import { measureDegradation, restoreArtwork, stillRippled, type Degradation } from './degradation'
 import { DEFAULT_PARAMS } from './presets'
+import { shrink } from './shrink'
 import type { TraceParams } from './types'
 
 export type ImageKind = 'flat' | 'shaded' | 'line' | 'pixel' | 'photo'
@@ -20,8 +21,9 @@ export interface Analysis {
   dominantColors: number
   /** Share (0-1) of neighbouring visible pixels with a smooth, non-zero transition. */
   gradient: number
-  /** Share (0-1) of opaque pixels starting an edge-free run of RAMP_RUN px that changes colour:
-   *  gentle gradients whose per-pixel steps are too small for `gradient` to see. */
+  /** Share (0-1) of opaque pixels starting an edge-free run of RAMP_RUN px whose colour drifts
+   *  one way, measured at a working size of at most RAMP_SIDE px: gentle gradients whose per-pixel
+   *  steps are too small for `gradient` to see. */
   smoothRamps: number
   grayscale: boolean
   /** Set when the image is artwork under JPEG artifacts or noise: everything above then
@@ -30,10 +32,52 @@ export interface Analysis {
 }
 
 // A ramp is RAMP_RUN opaque pixels in a row or column, each step at most RAMP_STEP (no edge),
-// whose ends differ by at least RAMP_MIN. Flat fills give 0; gentle gradients nearly 1.
-const RAMP_RUN = 16, RAMP_STEP = 3, RAMP_MIN = 2
+// along which the colour drifts one way: the means of its four quarters move monotonically on its
+// most changing channel, by at least RAMP_MIN levels per RAMP_SIDE px of the image's long side
+// overall (a gradient spanning the same colours over a smaller image drifts faster per pixel).
+// Quarter means see through render dither, while compression noise in a flat fill has no net
+// drift. Flat fills give 0, gradients nearly 1.
+const RAMP_RUN = 32, RAMP_STEP = 3, RAMP_MIN = 1.5
 // Ramps start from one sampled pixel in RAMP_GRID² (a share needs no more, and runs are long).
 const RAMP_GRID = 4
+// Larger images are box-filtered down to this long side first, so the share does not depend on
+// resolution (a gradient spread over more pixels has smaller steps) and noise averages out.
+const RAMP_SIDE = 512
+
+function smoothRampShare(img: RGBAImage): number {
+  const { data: d, width: w, height: h } = shrink(img, Math.ceil(Math.max(img.width, img.height) / RAMP_SIDE))
+  const step = (i: number, j: number) => Math.max(Math.abs(d[i] - d[j]), Math.abs(d[i + 1] - d[j + 1]), Math.abs(d[i + 2] - d[j + 2]))
+  const quarter = RAMP_RUN / 4
+  const minDrift = RAMP_MIN * RAMP_SIDE / Math.max(w, h) * quarter
+  const sums = new Float64Array(12)
+  // 0: no edge-free run from (x, y) in that direction, 1: a flat or wobbling run, 2: a ramp.
+  const run = (x: number, y: number, dx: number, dy: number) => {
+    if (x + dx * RAMP_RUN > w || y + dy * RAMP_RUN > h) return 0
+    sums.fill(0)
+    let prev = -1
+    for (let k = 0; k < RAMP_RUN; k++) {
+      const j = ((y + dy * k) * w + x + dx * k) * 4
+      if (d[j + 3] < 240 || (prev >= 0 && step(prev, j) > RAMP_STEP)) return 0
+      const q = Math.floor(k / quarter) * 3
+      sums[q] += d[j]; sums[q + 1] += d[j + 1]; sums[q + 2] += d[j + 2]
+      prev = j
+    }
+    let c = 0
+    for (let k = 1; k < 3; k++) if (Math.abs(sums[9 + k] - sums[k]) > Math.abs(sums[9 + c] - sums[c])) c = k
+    const net = sums[9 + c] - sums[c]
+    if (Math.abs(net) < minDrift) return 1
+    for (let q = 1; q < 4; q++) if (Math.sign(sums[q * 3 + c] - sums[(q - 1) * 3 + c]) === -Math.sign(net)) return 1
+    return 2
+  }
+  let runs = 0, ramps = 0
+  for (let y = 0; y < h; y += RAMP_GRID) for (let x = 0; x < w; x += RAMP_GRID) {
+    if (d[(y * w + x) * 4 + 3] < 240) continue
+    const best = Math.max(run(x, y, 1, 0), run(x, y, 0, 1))
+    if (best) runs++
+    if (best === 2) ramps++
+  }
+  return runs ? ramps / runs : 0
+}
 
 /** Why Auto picked its parameters (language-neutral; rendered by the UI). */
 export type NoteCode = 'flat' | 'shaded' | 'line-binary' | 'line-color' | 'pixel' | 'photo' | 'soft' | 'edges' | 'cleaned'
@@ -70,22 +114,9 @@ function describe(img: RGBAImage): Analysis {
   const total = w * h
   // Sample at most ~1M pixels with a fixed stride (deterministic).
   const stride = Math.max(1, Math.floor(Math.sqrt(total / 1_000_000)))
-  let n = 0, transparent = 0, soft = 0, partial = 0, visible = 0, colored = 0, boundary = 0, pairs = 0, smooth = 0, gray = 0, runs = 0, ramps = 0
+  let n = 0, transparent = 0, soft = 0, partial = 0, visible = 0, colored = 0, boundary = 0, fringe = 0, pairs = 0, smooth = 0, gray = 0
   const bins = new Map<number, number>()
   const vis = (x: number, y: number) => d[(y * w + x) * 4 + 3] >= 128
-  const step = (i: number, j: number) => Math.max(Math.abs(d[i] - d[j]), Math.abs(d[i + 1] - d[j + 1]), Math.abs(d[i + 2] - d[j + 2]))
-  // 0: no edge-free run from (x, y) in that direction, 1: a flat run, 2: a ramp.
-  const run = (x: number, y: number, dx: number, dy: number) => {
-    if (x + dx * RAMP_RUN >= w || y + dy * RAMP_RUN >= h) return 0
-    const i = (y * w + x) * 4
-    let prev = i
-    for (let k = 1; k <= RAMP_RUN; k++) {
-      const j = ((y + dy * k) * w + x + dx * k) * 4
-      if (d[j + 3] < 240 || step(prev, j) > RAMP_STEP) return 0
-      prev = j
-    }
-    return step(i, prev) >= RAMP_MIN ? 2 : 1
-  }
   for (let y = 0; y < h; y += stride) {
     for (let x = 0; x < w; x += stride) {
       const i = (y * w + x) * 4
@@ -102,16 +133,12 @@ function describe(img: RGBAImage): Analysis {
       bins.set(k, (bins.get(k) ?? 0) + 1)
       if (a < 128) continue
       visible++
-      // Boundary: visible pixel touching a non-visible neighbour. An antialiased pixel on the
-      // image border counts too: a shape cut by the canvas edge has its fringe there (a narrow
-      // strip would otherwise read as a wide translucent glow).
-      if ((x > 0 && !vis(x - 1, y)) || (x < w - 1 && !vis(x + 1, y)) || (y > 0 && !vis(x, y - 1)) || (y < h - 1 && !vis(x, y + 1))
-        || (a < 240 && (x === 0 || y === 0 || x === w - 1 || y === h - 1))) boundary++
-      if (a >= 240 && (x / stride) % RAMP_GRID === 0 && (y / stride) % RAMP_GRID === 0) {
-        const best = Math.max(run(x, y, 1, 0), run(x, y, 0, 1))
-        if (best) runs++
-        if (best === 2) ramps++
-      }
+      // Boundary: visible pixel touching a non-visible neighbour.
+      if ((x > 0 && !vis(x - 1, y)) || (x < w - 1 && !vis(x + 1, y)) || (y > 0 && !vis(x, y - 1)) || (y < h - 1 && !vis(x, y + 1))) boundary++
+      // An antialiased pixel on the image border: a shape cut by the canvas edge has its fringe
+      // there. Counted for the alpha profile only (a narrow strip would otherwise read as a wide
+      // translucent glow), not as outline for the thin-artwork test.
+      else if (a < 240 && (x === 0 || y === 0 || x === w - 1 || y === h - 1)) fringe++
       for (const [dx, dy] of [[1, 0], [0, 1]]) {
         const X = x + dx, Y = y + dy
         if (X >= w || Y >= h || !vis(X, Y)) continue
@@ -130,7 +157,7 @@ function describe(img: RGBAImage): Analysis {
     if (acc >= colored * 0.95) break
   }
   const gradient = pairs ? smooth / pairs : 0
-  const smoothRamps = runs ? ramps / runs : 0
+  const smoothRamps = smoothRampShare(img)
   const transparentPct = (100 * transparent) / n
   const softPct = (100 * soft) / n
   const grayscale = colored > 0 && gray / colored > 0.97
@@ -142,7 +169,7 @@ function describe(img: RGBAImage): Analysis {
   let alpha: AlphaKind
   if (!transparent && !soft) alpha = 'opaque'
   else if (softPct < 0.05) alpha = 'hard'
-  else alpha = softPct > 0.5 && (!boundary || soft / boundary > 2.5) ? 'soft' : 'edges'
+  else alpha = softPct > 0.5 && (!(boundary + fringe) || soft / (boundary + fringe) > 2.5) ? 'soft' : 'edges'
 
   const long = Math.max(w, h)
   // Native pixel art: a small sprite cut out with binary alpha, possibly enlarged by a whole

@@ -13,6 +13,7 @@ import { needsHierarchyReview } from './hierarchy-review'
 import { needsHardEdgeReview } from './hard-edge-review'
 import { analyzeAntialiasing, resolveAntialiasing } from './antialias-resolve'
 import { pixelBlockSize } from './analyze'
+import { shrink } from './shrink'
 
 export interface VectorizeSettings {
   /** 'auto' derives the parameters from the image analysis; anything else uses `params`. */
@@ -37,32 +38,20 @@ export const GENTLE_GRADIENT_RAMPS = 0.1
 export const GRADIENT_PROBE_PIXELS = 1_000_000
 const PROBE_MAX_PIXELS = 256 * 1024
 
-/** Box-filtered copy reduced by an integer factor (colours weighted by alpha), for cheap probes. */
-function shrink(src: RGBAImage, factor: number): RGBAImage {
-  const width = Math.max(1, Math.floor(src.width / factor)), height = Math.max(1, Math.floor(src.height / factor))
-  const data = new Uint8ClampedArray(width * height * 4)
-  const d = src.data
-  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
-    let r = 0, g = 0, b = 0, a = 0
-    for (let sy = y * factor; sy < (y + 1) * factor; sy++) {
-      for (let i = (sy * src.width + x * factor) * 4, end = i + factor * 4; i < end; i += 4) {
-        const w = d[i + 3]
-        r += d[i] * w; g += d[i + 1] * w; b += d[i + 2] * w; a += w
-      }
-    }
-    if (!a) continue
-    const o = (y * width + x) * 4
-    data[o] = r / a; data[o + 1] = g / a; data[o + 2] = b / a; data[o + 3] = a / (factor * factor)
-  }
-  return { width, height, data }
-}
+const HAS_GRADIENT = /<(?:linear|radial)Gradient[\s/>]/
 
-/** True when simple gradients improve the Auto score of the same trace by more than 2 %: they
- *  win on fidelity, or on simplicity when they replace bands of flat paths. */
-async function gradientsHelp(src: RGBAImage, params: TraceParams, backend: TraceBackend): Promise<boolean> {
+/** True when simple gradients, fitted over the same trace, actually produce a gradient and
+ *  either lower the average colour error by a tenth, or remove a quarter of the paths (bands of
+ *  flat fills) for at most 15 % more colour error. Both measures hold at any scale. */
+async function gradientsHelp(src: RGBAImage, params: TraceParams, backend: TraceBackend, yieldControl: () => Promise<void>): Promise<boolean> {
+  const color = (trial: Trial) => trial.metrics.rgbWhite + trial.metrics.rgbDark
   const plain = await runTrial(src, params, false, backend)
+  await yieldControl()
   const fitted = await runTrial(src, params, false, backend, 1, 'simple')
-  return fitted.score < plain.score * 0.98
+  if (!HAS_GRADIENT.test(fitted.svg)) return false
+  return color(fitted) <= color(plain) * 0.9
+    || (fitted.metrics.paths < plain.metrics.paths && fitted.metrics.paths <= plain.metrics.paths * 0.75
+      && color(fitted) <= color(plain) * 1.15)
 }
 
 const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now())
@@ -257,7 +246,7 @@ export async function vectorize(
   // Bounded same-engine trials for meaningfully shaded illustrations, on an opaque canvas or
   // cut out on a transparent one (hard or antialiased edges): gradients fitted closely, and
   // gradients simplified (fewer shapes, less fidelity). The score arbitrates. Photos, soft
-  // alpha, flat artwork without smooth ramps, and large rasters stay on the regular path. When the user forced
+  // alpha, flat artwork without smooth ramps, and very large rasters stay on the regular path. When the user forced
   // gradients the base trace already fits them closely; only the simplified one is added.
   const includeGradientReview = auto.enabled
     && settings.presetId === 'auto'
@@ -268,7 +257,9 @@ export async function vectorize(
     // apart from flat fills (near 0). The score still decides whether gradients win.
     && (analysis.kind === 'shaded' || (analysis.kind === 'flat' && (analysis.smoothRamps ?? 0) >= GENTLE_GRADIENT_RAMPS))
     && analysis.alpha !== 'soft'
-    && src.width * src.height <= 8_000_000
+    // Above 1 MP the reduced probe decides first, so 4K-5K sources can afford the full trials
+    // when they pay (a 4K landscape: one flat sky at 37 % pctDiff without them, 1 % with).
+    && src.width * src.height <= 16_000_000
   const gradientModes: (true | 'simple')[] = !includeGradientReview ? [] : backend.gradientsByDefault ? ['simple'] : [true, 'simple']
   // Photos can produce editable but oversized region mosaics. Reserve two bounded
   // simplification slots; the traces run only if existing Auto trials all exceed
@@ -436,16 +427,17 @@ export async function vectorize(
     // picked a cutout mosaic, it rejected every gradient trial as unsupported.
     const params = { ...current.params, hierarchical: 'stacked' as const }
     // On a large raster each full-size gradient fit costs seconds. Probe a reduced copy first
-    // (shrunk by a power of two to at most PROBE_MAX_PIXELS): the full trials run only when gradients
-    // clearly improve the score there.
+    // (shrunk by a power of two to at most PROBE_MAX_PIXELS): the full trials run only when
+    // gradients clearly help there.
     let worthIt = true
     if (src.width * src.height > GRADIENT_PROBE_PIXELS) {
       await yieldControl()
       try {
         let factor = 2
         while (src.width * src.height > PROBE_MAX_PIXELS * factor * factor) factor *= 2
-        worthIt = await gradientsHelp(shrink(src, factor), params, backend)
-      } catch {
+        worthIt = await gradientsHelp(shrink(src, factor), params, backend, yieldControl)
+      } catch (error) {
+        if (error instanceof VectorizationCancelled) throw error
         // An inconclusive probe keeps the full comparison.
       }
       checkCancelled()
@@ -454,7 +446,10 @@ export async function vectorize(
       if (worthIt) {
         await yieldControl()
         try {
-          trials.push(await runTrial(src, params, false, backend, 1, mode))
+          const trial = await runTrial(src, params, false, backend, 1, mode)
+          // A "gradient" trace in which the engine fitted no gradient is the plain stacked trace
+          // again: listing it under a gradient label would only mislead.
+          if (HAS_GRADIENT.test(trial.svg)) trials.push(trial)
         } catch (error) {
           checkCancelled()
           failedTrials.push({ traceScale: 1, message: error instanceof Error ? error.message : String(error) })
