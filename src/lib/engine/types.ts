@@ -58,6 +58,9 @@ export interface Metrics {
   falseEdgePct?: number
   /** Share (0-1) of the image painted by gradients or exact circles / ellipses the engine reported. */
   editableShare?: number
+  /** Drawn pixels of the render over drawn pixels of the source: those off the source's most
+   *  common colour, on white. Near 0 for an empty result; undefined when the source draws nothing. */
+  inkKept?: number
   bytes: number
   paths: number
   embeddedRaster: boolean

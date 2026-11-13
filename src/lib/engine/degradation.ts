@@ -93,7 +93,8 @@ function measure(img: RGBAImage): Degradation | null {
     if (edges % 4 === 0) { ranges.push(range); steps.push(step) }
   }
   const reach = RIPPLE_GAP + RIPPLE_RUN - 1
-  const laplacians: number[] = []
+  const laplacians = new Float32Array(Math.ceil((w * h) / (stride * stride * 6)) + 1)
+  let sampled = 0
   const luma = (i: number) => 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]
   const row = w * 4
   for (let y = 0; y < h; y += stride) for (let x = 0; x < w; x += stride) {
@@ -125,17 +126,17 @@ function measure(img: RGBAImage): Degradation | null {
     }
     // Noise level from a Laplacian that cancels constant and linear content (Immerkaer).
     if (interior % 3 === 0) {
-      laplacians.push(Math.abs(luma(i - row - 4) - 2 * luma(i - row) + luma(i - row + 4) - 2 * luma(i - 4) + 4 * luma(i)
+      laplacians[sampled++] = (Math.abs(luma(i - row - 4) - 2 * luma(i - row) + luma(i - row + 4) - 2 * luma(i - 4) + 4 * luma(i)
         - 2 * luma(i + 4) + luma(i + row - 4) - 2 * luma(i + row) + luma(i + row + 4)))
     }
   }
   const ringing = edges >= MIN_EDGES ? rippled / edges : 0
   const grain = interior ? grains / interior : 0
   const blocks = ringing >= BLOCK_RINGING_SHARE && ringing < RINGING_SHARE ? blockGrid(img, stride) : 1
-  laplacians.sort((a, b) => a - b)
+  const sorted = laplacians.subarray(0, sampled).sort()
   // The mask has norm 6, the median of |N(0, 1)| is 0.6745, and luma averages three channels
   // of independent noise down to 0.67 of each.
-  let sigma = (laplacians[laplacians.length >> 1] ?? 0) / (6 * 0.6745 * 0.67)
+  let sigma = (sampled ? sorted[sampled >> 1] : 0) / (6 * 0.6745 * 0.67)
   // Noise makes grains in proportion (0.05 to 0.1 of the pixels per level of sigma, up to a third
   // of them). A painted or photographic texture varies as much with far fewer: not noise.
   if (grain < Math.min(NOISE_GRAIN_MAX, NOISE_GRAIN * sigma)) sigma = 0
@@ -197,27 +198,36 @@ const MIX_PIXELS = 3
 const SNAP_SHARE = 0.35
 
 /** Largest max-min of any channel in the (2r+1)² neighbourhood of each pixel. */
-function localContrast(d: Uint8ClampedArray, w: number, h: number, r: number): Uint8Array {
+async function localContrast(d: Uint8ClampedArray, w: number, h: number, r: number, pause: () => Promise<void>): Promise<Uint8Array> {
   const n = w * h
   const out = new Uint8Array(n)
   const lo = new Uint8Array(n), hi = new Uint8Array(n)
+  const band = Math.max(1, Math.round(BAND_PIXELS / w))
   for (let c = 0; c < 3; c++) {
-    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-      let min = 255, max = 0
-      for (let k = Math.max(0, x - r), e = Math.min(w - 1, x + r); k <= e; k++) {
-        const v = d[(y * w + k) * 4 + c]
-        if (v < min) min = v
-        if (v > max) max = v
+    // Along rows, then down columns.
+    for (let y = 0; y < h; y++) {
+      if (y % band === 0) await pause()
+      for (let x = 0; x < w; x++) {
+        let min = 255, max = 0
+        for (let i = (y * w + Math.max(0, x - r)) * 4 + c, e = (y * w + Math.min(w - 1, x + r)) * 4 + c; i <= e; i += 4) {
+          const v = d[i]
+          if (v < min) min = v
+          if (v > max) max = v
+        }
+        lo[y * w + x] = min; hi[y * w + x] = max
       }
-      lo[y * w + x] = min; hi[y * w + x] = max
     }
-    for (let x = 0; x < w; x++) for (let y = 0; y < h; y++) {
-      let min = 255, max = 0
-      for (let k = Math.max(0, y - r), e = Math.min(h - 1, y + r); k <= e; k++) {
-        if (lo[k * w + x] < min) min = lo[k * w + x]
-        if (hi[k * w + x] > max) max = hi[k * w + x]
+    for (let y = 0; y < h; y++) {
+      if (y % band === 0) await pause()
+      const y0 = Math.max(0, y - r), y1 = Math.min(h - 1, y + r)
+      for (let x = 0; x < w; x++) {
+        let min = 255, max = 0
+        for (let k = y0 * w + x, e = y1 * w + x; k <= e; k += w) {
+          if (lo[k] < min) min = lo[k]
+          if (hi[k] > max) max = hi[k]
+        }
+        if (max - min > out[y * w + x]) out[y * w + x] = max - min
       }
-      if (max - min > out[y * w + x]) out[y * w + x] = max - min
     }
   }
   return out
@@ -229,10 +239,9 @@ function localContrast(d: Uint8ClampedArray, w: number, h: number, r: number): U
  * within twice the allowance, is the tail of the noise (a detail has no such company, or
  * company of its own): it takes the mean of that wider set.
  */
-function smooth(src: Uint8ClampedArray, w: number, h: number, allowance: Uint8Array): Uint8ClampedArray {
-  const out = new Uint8ClampedArray(src)
+function smooth(src: Uint8ClampedArray, out: Uint8ClampedArray, w: number, h: number, allowance: Uint8Array, from: number, to: number): void {
   const half = ((2 * WINDOW + 1) ** 2) >> 1
-  for (let y = 0; y < h; y++) {
+  for (let y = from; y < to; y++) {
     const y0 = Math.max(0, y - WINDOW), y1 = Math.min(h - 1, y + WINDOW)
     for (let x = 0; x < w; x++) {
       const p = y * w + x, t = allowance[p]
@@ -254,7 +263,6 @@ function smooth(src: Uint8ClampedArray, w: number, h: number, allowance: Uint8Ar
       else if (N >= half) { out[i] = R / N; out[i + 1] = G / N; out[i + 2] = B / N }
     }
   }
-  return out
 }
 
 /**
@@ -263,11 +271,10 @@ function smooth(src: Uint8ClampedArray, w: number, h: number, allowance: Uint8Ar
  * disturb and the median lands on it, while the boundary of a faint shape, a step, stays put
  * (a mean would blur it into its surroundings).
  */
-function settle(src: Uint8ClampedArray, w: number, h: number, allowance: Uint8Array): Uint8ClampedArray {
-  const out = new Uint8ClampedArray(src)
+function settle(src: Uint8ClampedArray, out: Uint8ClampedArray, w: number, h: number, allowance: Uint8Array, from: number, to: number): void {
   const size = (2 * WINDOW + 1) ** 2
   const values = [new Uint8Array(size), new Uint8Array(size), new Uint8Array(size)]
-  for (let y = 0; y < h; y++) {
+  for (let y = from; y < to; y++) {
     const y0 = Math.max(0, y - WINDOW), y1 = Math.min(h - 1, y + WINDOW)
     for (let x = 0; x < w; x++) {
       const p = y * w + x, t = allowance[p]
@@ -293,7 +300,6 @@ function settle(src: Uint8ClampedArray, w: number, h: number, allowance: Uint8Ar
       for (let c = 0; c < 3; c++) out[i + c] = n & 1 ? values[c][mid] : (values[c][mid - 1] + values[c][mid] + 1) >> 1
     }
   }
-  return out
 }
 
 /** A flat colour holds most of the pixels around it in colour space; a gradient spreads them. */
@@ -349,10 +355,22 @@ function flatColours(d: Uint8ClampedArray, pixels: number): number[][] {
   return modes
 }
 
-/** Smoothing passes against noise: each one leaves about a fifth of the grain of the one before. */
-const NOISE_PASSES = 4
+/** Smoothing passes against noise: each leaves a fraction of the grain of the one before (a fifth at first, then less and less). */
+const NOISE_PASSES = 3
 /** Passes of the median against ripples. */
 const RIPPLE_PASSES = 2
+/** Rows handled between two pauses hold about this many pixels. */
+const BAND_PIXELS = 100_000
+/**
+ * Largest image cleaned. The clean-up costs under a second per megapixel against JPEG ripples
+ * (most pixels are flat and skipped) and about three against noise (every pixel is averaged,
+ * NOISE_COST times the work): 16 MP of JPEG, 5 MP of noise. Larger images are traced as they are.
+ */
+export const RESTORE_MAX_PIXELS = 16_000_000
+const NOISE_COST = 3
+/** True when the image is small enough for `restoreArtwork` to stay within a few seconds. */
+export const restorable = (img: RGBAImage, degradation: Degradation) =>
+  img.width * img.height * (3 * degradation.sigma >= 1 ? NOISE_COST : 1) <= RESTORE_MAX_PIXELS
 
 /**
  * The image without its perturbation.
@@ -362,18 +380,29 @@ const RIPPLE_PASSES = 2
  *  3. Pixels close to a flat colour of the image are put back on it exactly, blotches of a few
  *     pixels join the flat colour around them, and edge pixels go back between their two sides.
  * Flat areas far from any edge are untouched; edges, anti-aliasing and gradients are kept.
+ * `pause` is awaited every BAND_PIXELS or so: it may yield to the caller's event loop, and
+ * throw to abandon the work (cancellation).
  */
-export function restoreArtwork(img: RGBAImage, degradation: Degradation): RGBAImage {
+export async function restoreArtwork(img: RGBAImage, degradation: Degradation, pause: () => Promise<void> = async () => {}): Promise<RGBAImage> {
   const { width: w, height: h } = img
   const n = w * h
-  const contrast = localContrast(img.data, w, h, CONTRAST_WINDOW)
+  const band = Math.max(1, Math.round(BAND_PIXELS / w))
+  const contrast = await localContrast(img.data, w, h, CONTRAST_WINDOW, pause)
   const noise = Math.min(64, 3 * degradation.sigma)
   const allowance = new Uint8Array(n)
   let data: Uint8ClampedArray = new Uint8ClampedArray(img.data)
+  const pass = async (step: typeof smooth) => {
+    const out = new Uint8ClampedArray(data)
+    for (let y = 0; y < h; y += band) {
+      await pause()
+      step(data, out, w, h, allowance, y, Math.min(h, y + band))
+    }
+    data = out
+  }
   if (noise >= 1) {
     // Exactly flat neighbourhoods have nothing to average.
     for (let p = 0; p < n; p++) allowance[p] = contrast[p] ? Math.max(2, noise) : 0
-    for (let pass = 0; pass < NOISE_PASSES; pass++) data = smooth(data, w, h, allowance)
+    for (let k = 0; k < NOISE_PASSES; k++) await pass(smooth)
   }
   const ripple = new Uint8Array(n)
   let rippled = false
@@ -382,13 +411,15 @@ export function restoreArtwork(img: RGBAImage, degradation: Degradation): RGBAIm
     allowance[p] = ripple[p] > Math.max(2, noise) ? ripple[p] : 0
     if (allowance[p]) rippled = true
   }
-  if (rippled) for (let pass = 0; pass < RIPPLE_PASSES; pass++) data = settle(data, w, h, allowance)
+  if (rippled) for (let k = 0; k < RIPPLE_PASSES; k++) await pass(settle)
+  await pause()
   const modes = flatColours(data, n)
   const floor = Math.max(2, 0.6 * degradation.sigma)
   // Flat colour each pixel sits on (NONE: an edge, a gradient).
   const NONE = 255
   const on = new Uint8Array(n).fill(NONE)
   for (let p = 0; p < n; p++) {
+    if (p % BAND_PIXELS === 0) await pause()
     const i = p * 4
     // Inside a flat area: the same colour as the pixel before.
     if (p && data[i] === data[i - 4] && data[i + 1] === data[i - 3] && data[i + 2] === data[i - 2] && on[p - 1] !== NONE) { on[p] = on[p - 1]; continue }
@@ -413,6 +444,7 @@ export function restoreArtwork(img: RGBAImage, degradation: Degradation): RGBAIm
   const visited = new Uint8Array(n)
   const queue = new Int32Array(ISLAND_PIXELS + 1)
   for (let start = 0; start < n; start++) {
+    if (start % BAND_PIXELS === 0) await pause()
     if (visited[start] || !contrast[start] || !loose(start)) continue
     let size = 0, host = NONE, alone = true
     queue[size++] = start
@@ -454,6 +486,7 @@ export function restoreArtwork(img: RGBAImage, degradation: Degradation): RGBAIm
   const near: number[] = []
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
     const p = y * w + x
+    if (p % BAND_PIXELS === 0) await pause()
     if (on[p] !== NONE || !contrast[p]) continue
     near.length = 0
     const x0 = Math.max(0, x - SIDES), x1 = Math.min(w - 1, x + SIDES), y0 = Math.max(0, y - SIDES), y1 = Math.min(h - 1, y + SIDES)

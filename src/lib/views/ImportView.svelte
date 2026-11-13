@@ -147,7 +147,8 @@
     return [...m.entries()].sort((a, b) => b[1] - a[1])
   })
   const softCount = $derived(analysed.filter((i) => i.analysis!.alpha === 'soft').length)
-  const photoCount = $derived(analysed.filter((i) => i.analysis!.kind === 'photo').length)
+  // Noisy or JPEG artwork reads as a photo until Auto cleans it: no warning for those.
+  const photoCount = $derived(analysed.filter((i) => i.analysis!.kind === 'photo' && !i.analysis!.degradation).length)
 </script>
 
 <div class="layout">

@@ -126,9 +126,10 @@ const analysisJson = (a: Analysis) => ({
   transparentPct: r4(a.transparentPct),
   softPct: r4(a.softPct),
   grayscale: a.grayscale,
-  // Present when the image was cleaned of JPEG artifacts or noise before tracing; the analysis
-  // and the trial metrics then describe the cleaned image.
-  ...(a.cleanup ? { cleanup: { ringing: r4(a.cleanup.ringing), grain: r4(a.cleanup.grain), blocks: r4(a.cleanup.blocks), sigma: r4(a.cleanup.sigma), reach: r4(a.cleanup.reach) } } : {}),
+  // JPEG artifacts or noise detected in the file (detection only).
+  ...(a.degradation ? { degradation: { ringing: r4(a.degradation.ringing), grain: r4(a.degradation.grain), blocks: r4(a.degradation.blocks), sigma: r4(a.degradation.sigma), reach: r4(a.degradation.reach) } } : {}),
+  // Auto traced a cleaned copy: the analysis then describes that copy. Metrics stay against the file.
+  ...(a.cleanup ? { cleaned: true } : {}),
 })
 
 // ------------------------------------------------------------------ commands

@@ -1,6 +1,6 @@
 // Deterministic image analysis -> recommended tracing parameters. Pure TS, no DOM.
 import type { RGBAImage } from './core'
-import { measureDegradation, restoreArtwork, stillRippled, type Degradation } from './degradation'
+import { measureDegradation, restorable, restoreArtwork, stillRippled, type Degradation } from './degradation'
 import { DEFAULT_PARAMS } from './presets'
 import { shrink } from './shrink'
 import type { TraceParams } from './types'
@@ -26,8 +26,10 @@ export interface Analysis {
    *  steps are too small for `gradient` to see. */
   smoothRamps: number
   grayscale: boolean
-  /** Set when the image is artwork under JPEG artifacts or noise: everything above then
-   *  describes the cleaned image (see `cleanedSource`), which is also what Auto traces. */
+  /** JPEG artifacts or noise found in the image (null: looked for, none). Detection only. */
+  degradation?: Degradation | null
+  /** Set by Auto when it traced a cleaned copy (see `cleanSource`): everything above then
+   *  describes that copy. */
   cleanup?: Degradation
 }
 
@@ -80,33 +82,29 @@ function smoothRampShare(img: RGBAImage): number {
 }
 
 /** Why Auto picked its parameters (language-neutral; rendered by the UI). */
-export type NoteCode = 'flat' | 'shaded' | 'line-binary' | 'line-color' | 'pixel' | 'photo' | 'soft' | 'edges' | 'cleaned'
-
-// The same source is analysed, then traced: its cleaned copy is kept with it.
-const cleanedSources = new WeakMap<Uint8ClampedArray, { image: RGBAImage; analysis: Analysis } | null>()
+export type NoteCode = 'flat' | 'shaded' | 'line-binary' | 'line-color' | 'pixel' | 'photo' | 'soft' | 'edges' | 'cleaned' | 'uncleaned'
 
 /**
- * The image without its JPEG artifacts or noise, with its analysis, when it is degraded artwork;
- * null for clean images and for photos and textures, which the clean-up leaves rippled or
- * many-coloured and which are traced as they are.
+ * The image without its JPEG artifacts or noise, with its analysis, when `degradation` (from
+ * `analyze`) is that of artwork; null for photos and textures, which the clean-up leaves rippled
+ * or many-coloured and which are traced as they are, and for images too large to clean. Costly
+ * (seconds on a large image): Auto runs it once per trace, off the UI thread, and keeps nothing.
+ * `pause` is awaited regularly and may throw to cancel.
  */
-export function cleanedSource(img: RGBAImage): { image: RGBAImage; analysis: Analysis } | null {
-  const known = cleanedSources.get(img.data)
-  if (known !== undefined) return known
-  let result: { image: RGBAImage; analysis: Analysis } | null = null
-  const degradation = measureDegradation(img)
-  if (degradation) {
-    const image = restoreArtwork(img, degradation)
-    const analysis = describe(image)
-    if (analysis.kind !== 'photo' && !stillRippled(image)) result = { image, analysis: { ...analysis, cleanup: degradation } }
-  }
-  cleanedSources.set(img.data, result)
-  return result
+export async function cleanSource(img: RGBAImage, degradation: Degradation, pause?: () => Promise<void>): Promise<{ image: RGBAImage; analysis: Analysis } | null> {
+  if (!restorable(img, degradation)) return null
+  const image = await restoreArtwork(img, degradation, pause)
+  const analysis = describe(image)
+  if (analysis.kind === 'photo' || stillRippled(image)) return null
+  return { image, analysis: { ...analysis, degradation, cleanup: degradation } }
 }
 
-/** Analysis of an image; of its cleaned copy when it is degraded artwork (`cleanup` is then set). */
+/**
+ * Analysis of the image as given. JPEG artifacts or noise are only detected here (cheap);
+ * Auto cleans the image when it traces it and then reports the analysis of the cleaned copy.
+ */
 export function analyze(img: RGBAImage): Analysis {
-  return cleanedSource(img)?.analysis ?? describe(img)
+  return { ...describe(img), degradation: measureDegradation(img) }
 }
 
 function describe(img: RGBAImage): Analysis {

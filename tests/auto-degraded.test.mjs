@@ -1,6 +1,7 @@
-// Auto on artwork under JPEG artifacts or noise: the image is cleaned before tracing, so the
-// result stays close to what the clean image gives instead of one path per ripple. Clean
-// images, textures and images with transparency are left as they are.
+// Auto on artwork under JPEG artifacts or noise: a cleaned copy is traced, so the result stays
+// close to what the clean image gives instead of one path per ripple, and it is measured against
+// the image as given. Clean images, textures and images with transparency are left as they are.
+// Analysis only detects (cheap); the clean-up runs inside Auto, can be cancelled, keeps nothing.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
@@ -11,8 +12,9 @@ const require = createRequire(new URL('../cli/package.json', import.meta.url))
 const sharp = require('sharp')
 const code = require('esbuild').buildSync({
   stdin: {
-    contents: `export { vectorize } from './src/lib/engine/vectorize'
-export { analyze, cleanedSource, recommend } from './src/lib/engine/analyze'
+    contents: `export { vectorize, VectorizationCancelled } from './src/lib/engine/vectorize'
+export { analyze, cleanSource, recommend } from './src/lib/engine/analyze'
+export { choose, computeMetrics } from './src/lib/engine/core'
 export { measureDegradation, restoreArtwork } from './src/lib/engine/degradation'
 export { DEFAULT_PARAMS } from './src/lib/engine/presets'
 export { withVTracerNext } from './src/lib/engine/vtracer-next-trace'
@@ -21,7 +23,7 @@ export { optionsFor } from './src/lib/engine/trace-options'`,
   },
   bundle: true, write: false, platform: 'node', format: 'esm',
 }).outputFiles[0].text
-const { vectorize, analyze, cleanedSource, recommend, measureDegradation, restoreArtwork, DEFAULT_PARAMS, withVTracerNext, optionsFor } =
+const { vectorize, VectorizationCancelled, analyze, cleanSource, recommend, choose, computeMetrics, measureDegradation, restoreArtwork, DEFAULT_PARAMS, withVTracerNext, optionsFor } =
   await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`)
 await init({ module_or_path: await readFile(new URL('../src/lib/engine/vtracer-next-wasm/vtracer_next_bg.wasm', import.meta.url)) })
 const backend = withVTracerNext(
@@ -30,6 +32,8 @@ const backend = withVTracerNext(
   async (src, p, b, g) => vectorize_rgba(new Uint8Array(src.data), src.width, src.height, { ...optionsFor(p, b), experimentalGradients: g }),
   () => { throw Error('unexpected binary') },
 )
+/** What Auto does to a degraded image before tracing it; null when it leaves the image alone. */
+const cleanedSource = async (img) => { const found = analyze(img).degradation; return found ? cleanSource(img, found) : null }
 const settings = { presetId: 'auto', params: DEFAULT_PARAMS, auto: { enabled: true, threshold: 3, maxKB: 0 } }
 
 const LOGO = `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="240"><rect width="320" height="240" fill="#f4f1ea"/>
@@ -70,8 +74,8 @@ test('clean artwork is not taken for degraded', async () => {
   for (const svg of [LOGO, GRADIENT]) {
     const img = await render(svg)
     assert.equal(measureDegradation(img), null)
-    assert.equal(cleanedSource(img), null)
-    assert.equal(analyze(img).cleanup, undefined)
+    assert.equal(analyze(img).degradation, null)
+    assert.equal(await cleanedSource(img), null)
   }
   // Resampling (ringing of its own, softer edges) is not degradation either.
   const half = await raw(await sharp(Buffer.from(LOGO)).resize(160).png().toBuffer())
@@ -83,8 +87,9 @@ test('JPEG artifacts are detected at any usual quality and the logo reads as fla
   assert.equal(clean.kind, 'flat')
   for (const [quality, chroma] of [[40, '4:2:0'], [75, '4:2:0'], [75, '4:4:4'], [92, '4:2:0']]) {
     const img = await jpeg(LOGO, quality, chroma)
-    const a = analyze(img)
-    assert.ok(a.cleanup, `q${quality} ${chroma} not detected`)
+    assert.ok(analyze(img).degradation, `q${quality} ${chroma} not detected`)
+    const a = (await cleanedSource(img)).analysis
+    assert.ok(a.cleanup)
     assert.equal(a.kind, 'flat', `q${quality} ${chroma}`)
     // Quality 40 leaves a few more shades along edges.
     assert.ok(a.dominantColors <= clean.dominantColors + (quality < 60 ? 4 : 1), `q${quality} ${chroma}: ${a.dominantColors} colours`)
@@ -96,7 +101,9 @@ test('noise is detected and removed; the logo reads as flat, not as a photo', as
   const clean = await render(LOGO)
   for (const sigma of [2, 5, 10]) {
     const img = noisy(clean, sigma)
-    const cleaned = cleanedSource(img)
+    // Analysis describes the file as given: grain everywhere reads as a photo until Auto cleans it.
+    assert.equal(analyze(img).kind, 'photo')
+    const cleaned = await cleanedSource(img)
     assert.ok(cleaned, `sigma ${sigma} not detected`)
     assert.ok(Math.abs(cleaned.analysis.cleanup.sigma - sigma) < sigma * 0.35, `sigma ${sigma} estimated ${cleaned.analysis.cleanup.sigma}`)
     assert.equal(cleaned.analysis.kind, 'flat')
@@ -109,7 +116,7 @@ test('cleaning brings a JPEG closer to the clean image and keeps its edges', asy
   const clean = await render(LOGO)
   for (const quality of [40, 75]) {
     const img = await jpeg(LOGO, quality)
-    const cleaned = cleanedSource(img)
+    const cleaned = await cleanedSource(img)
     assert.ok(rmse(cleaned.image, clean) < rmse(img, clean), `q${quality}`)
     assert.ok(visibleDiff(cleaned.image, clean) <= visibleDiff(img, clean) + 0.05, `q${quality}: ${visibleDiff(cleaned.image, clean)} vs ${visibleDiff(img, clean)}`)
   }
@@ -117,7 +124,7 @@ test('cleaning brings a JPEG closer to the clean image and keeps its edges', asy
 
 test('a noisy gradient stays a gradient: no bands, no flattening', async () => {
   const clean = await render(GRADIENT)
-  const cleaned = cleanedSource(noisy(clean, 4))
+  const cleaned = await cleanedSource(noisy(clean, 4))
   assert.ok(cleaned)
   assert.notEqual(cleaned.analysis.kind, 'photo')
   assert.ok(cleaned.analysis.smoothRamps > 0.8, `ramps ${cleaned.analysis.smoothRamps}`)
@@ -142,18 +149,18 @@ test('textures, photos and images with transparency are left alone', async () =>
     const v = 128 + 60 * Math.sin(x / 3.1) * Math.cos(y / 2.3) + 50 * Math.sin((x + 2 * y) / 7.7) + 90 * (rand() - 0.5)
     texture.data[i] = v; texture.data[i + 1] = v * 0.8 + 30 * rand(); texture.data[i + 2] = 255 - v; texture.data[i + 3] = 255
   }
-  assert.equal(cleanedSource(texture), null)
+  assert.equal(await cleanedSource(texture), null)
   assert.equal(analyze(texture).kind, 'photo')
   // Transparency: lossy formats that matter here have none.
   const cutout = noisy(await render(LOGO), 5)
   cutout.data[3] = 0
   assert.equal(measureDegradation(cutout), null)
-  assert.equal(cleanedSource(cutout), null)
+  assert.equal(analyze(cutout).degradation, null)
 })
 
 test('restoring leaves flat areas far from edges untouched', async () => {
   const img = await jpeg(LOGO, 75)
-  const restored = restoreArtwork(img, measureDegradation(img))
+  const restored = await restoreArtwork(img, measureDegradation(img))
   // The top-left corner is plain background, far from any shape.
   for (let y = 0; y < 12; y++) for (let x = 0; x < 12; x++) {
     const i = (y * img.width + x) * 4
@@ -176,16 +183,63 @@ test('Auto on a JPEG or noisy logo gives about what the clean logo gives', async
     assert.equal(result.analysis.kind, 'flat', name)
     assert.ok(trial.metrics.paths <= maxPaths, `${name}: ${trial.metrics.paths} paths, clean ${best.metrics.paths}`)
     assert.ok(trial.metrics.bytes <= maxBytes, `${name}: ${trial.metrics.bytes} bytes, clean ${best.metrics.bytes}`)
-    // Against the clean image, the trace of the degraded one is about as close as the degraded image itself.
+    // Reported differences are against the image as given, not against the cleaned copy.
     const rendered = await backend.rasterize(trial.svg, clean.width, clean.height)
+    assert.equal(trial.metrics.pctDiff, computeMetrics(img, rendered, trial.svg).pctDiff, name)
+    // Against the clean image, the trace of the degraded one is about as close as the degraded image itself.
     assert.ok(visibleDiff(rendered, clean) <= visibleDiff(img, clean) + 1.5, `${name}: ${visibleDiff(rendered, clean)}% vs input ${visibleDiff(img, clean)}%`)
   }
 })
 
-test('a chosen preset traces the image as given', async () => {
+test('a chosen preset traces the image as given and keeps its analysis', async () => {
   const img = await jpeg(LOGO, 75)
-  const result = await vectorize(img, { ...settings, presetId: 'flat' }, backend)
+  const given = analyze(img)
+  const result = await vectorize(img, { ...settings, presetId: 'flat' }, backend, { analysis: given })
   assert.equal(result.notes, undefined)
-  // Scored against the JPEG itself: same size, and its analysis may still say what Auto would do.
-  assert.equal(result.trials[0].metrics.width, img.width)
+  assert.equal(result.analysis.cleanup, undefined)
+  assert.equal(result.analysis.kind, given.kind)
+  assert.equal(result.analysis.dominantColors, given.dominantColors)
+  // Detection is still reported.
+  assert.ok(result.analysis.degradation)
+})
+
+test('analysis detects without cleaning, and stays cheap on a large image', async () => {
+  // 12 megapixels of noisy flat shapes.
+  const width = 4000, height = 3000
+  const big = { width, height, data: new Uint8ClampedArray(width * height * 4) }
+  let s = 99
+  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+    const i = (y * width + x) * 4
+    s = (Math.imul(s, 1664525) + 1013904223) >>> 0
+    const v = ((x >> 8) + (y >> 8)) & 1 ? 200 : 60
+    big.data[i] = v + (s & 15) - 8; big.data[i + 1] = v + ((s >> 4) & 15) - 8; big.data[i + 2] = v + ((s >> 8) & 15) - 8; big.data[i + 3] = 255
+  }
+  analyze({ width: 64, height: 64, data: new Uint8ClampedArray(64 * 64 * 4).fill(255) })
+  const started = performance.now()
+  const a = analyze(big)
+  const elapsed = performance.now() - started
+  assert.ok(a.degradation, 'not detected')
+  assert.equal(a.cleanup, undefined)
+  // About 0.3 s on a quiet machine; the clean-up itself takes over ten.
+  assert.ok(elapsed < 3000, `analysis took ${Math.round(elapsed)} ms`)
+})
+
+test('the clean-up can be cancelled while it runs, and Auto stops with it', async () => {
+  const img = noisy(await render(LOGO), 5)
+  let pauses = 0
+  await assert.rejects(restoreArtwork(img, measureDegradation(img), async () => { if (++pauses === 3) throw new Error('stop') }), /stop/)
+  let asked = 0
+  await assert.rejects(vectorize(img, settings, backend, { shouldCancel: () => ++asked > 2 }), VectorizationCancelled)
+})
+
+test('a result that lost the drawing is never chosen over one that kept it', () => {
+  const metrics = (extra) => ({ width: 100, height: 100, iou: 1, alphaDiff: 0, rgbWhite: 3, rgbDark: 3, pctDiff: 6.5, bytes: 20000, paths: 150, embeddedRaster: false, ...extra })
+  const real = { metrics: metrics({ inkKept: 0.48 }), score: 41.9 }
+  const empty = { metrics: metrics({ pctDiff: 6.8, bytes: 182, paths: 0, inkKept: 0 }), score: 40.8 }
+  const faint = { metrics: metrics({ bytes: 6700, paths: 80, inkKept: 0.07 }), score: 40.9 }
+  assert.equal(choose([empty, faint, real], 0, { preferSimplicity: true }), 2)
+  // Nothing kept anything: the usual rules apply.
+  assert.equal(choose([empty, { ...empty, score: 50 }], 0), 0)
+  // Results without the measure (older sessions) are not penalised.
+  assert.equal(choose([{ metrics: metrics({}), score: 30 }, real], 0), 0)
 })
