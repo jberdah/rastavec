@@ -257,8 +257,9 @@ test('a glow follows the shape it is cut to when the shape moves', async () => {
   assert.deepEqual(back.hints, hints)
 })
 
-// A crescent moon with two residual pieces in its colour painted right above it (a figure sitting on
-// it and a tip), as the engine reports them: overlays of the crescent.
+// A crescent moon with two residual pieces in its colour painted right above it (an outline sliver
+// and a tapered tip), as the engine links them: overlays of the crescent. Other shapes on the moon
+// (a figure sitting on it) are not linked and stay where they are.
 const moonSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">
 <path d="M0,0H200V200H0Z" fill="#fafaf5"/>
 <path d="${crescentPath(100, 100, 60, 125, 85, 50)}" fill="#25303e"/>
@@ -280,7 +281,7 @@ test('the residual pieces of a crescent move with it, and stay put relative to i
   assert.match(moved.svg, /<path d="M130,150L142,160L128,162Z" fill="#25303e"\/>/)
   assert.match(moved.svg, /<path d="M180,180H190V190H180Z" fill="#c03030"\/>/, 'other paths stay')
   assert.deepEqual(moved.hints.map((hint) => hint.bounds), [[20, 50, 140, 170], [40, 40, 52, 54], [128, 150, 142, 162]])
-  assert.deepEqual(await pixel(moved.svg, 46, 47), [37, 48, 62], 'the figure is painted at its new place')
+  assert.deepEqual(await pixel(moved.svg, 46, 47), [37, 48, 62], 'the sliver is painted at its new place')
   assert.deepEqual(await pixel(moved.svg, 70, 33), [250, 250, 245], 'and gone from the old one')
 
   // Inner circle and radius edits keep the centre: the pieces do not move.
