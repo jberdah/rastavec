@@ -2,7 +2,7 @@
   // Lists the shapes the engine recognised in the chosen trace and edits the selected one by
   // its parameters: centre and radius of a circle, axes and rotation of an ellipse, flat fill
   // or gradient stop colours.
-  import { editableShapes, type ShapePatch } from '../engine/shape-edits'
+  import { editableShapes, overlayKind, type ShapePatch } from '../engine/shape-edits'
   import type { EngineShapeHint } from '../engine/types'
   import { t } from '../i18n.svelte'
 
@@ -22,7 +22,7 @@
   const entries = $derived(editableShapes(svg, shapes))
   const current = $derived(entries.find((entry) => entry.hint.index === selected) ?? null)
   const label = (hint: EngineShapeHint) =>
-    hint.overlayOf !== undefined ? t('shapeEdit.overlay') : hint.kind === 'circle' ? t('shapeEdit.circle') : hint.kind === 'ellipse' ? t('shapeEdit.ellipse') : hint.kind === 'crescent' ? t('shapeEdit.crescent') : hint.kind === 'ring' ? t('shapeEdit.ring') : t('shapeEdit.gradientRegion')
+    hint.overlayOf !== undefined ? (overlayKind(hint) === 'glow' ? t('shapeEdit.overlay') : t('shapeEdit.piece')) : hint.kind === 'circle' ? t('shapeEdit.circle') : hint.kind === 'ellipse' ? t('shapeEdit.ellipse') : hint.kind === 'crescent' ? t('shapeEdit.crescent') : hint.kind === 'ring' ? t('shapeEdit.ring') : t('shapeEdit.gradientRegion')
   // Layer names like a vector editor: "Circle 1", "Ellipse 2"…, numbered per kind in paint order.
   const names = $derived.by(() => {
     const counts = new Map<string, number>()
@@ -41,6 +41,7 @@
     const hint = current?.hint
     if (!hint || !current?.capabilities?.geometry) return []
     const centre = [{ key: 'cx', value: hint.cx }, { key: 'cy', value: hint.cy }] as const
+    if (current.capabilities.moveOnly) return [...centre]
     if (hint.kind === 'crescent' || hint.kind === 'ring') {
       return [...centre, { key: 'r', value: hint.r } as const, { key: 'innerCx', value: hint.innerCx } as const,
         { key: 'innerCy', value: hint.innerCy } as const, { key: 'innerR', value: hint.innerR } as const]
@@ -75,7 +76,7 @@
         onclick={() => (selected = entry.hint.index)}
         onmouseenter={() => (hovered = entry.hint.index)} onmouseleave={() => (hovered = null)}>
         <span class="dot" style:background={swatch(entry)}></span><span class="nm">{names.get(entry.hint.index)}</span>
-        {#if !entry.capabilities.geometry}<span class="muted tiny lock" title={t('shapeEdit.geometryLocked')}>🔒</span>{/if}
+        {#if !entry.capabilities.geometry}<span class="muted tiny lock" title={entry.hint.overlayOf !== undefined ? t('shapeEdit.followsBase') : t('shapeEdit.geometryLocked')}>🔒</span>{/if}
       </button>
     {/each}
   </div>

@@ -145,8 +145,17 @@ function ellipseBounds(cx: number, cy: number, rx: number, ry: number, rotation:
 
 /** What can be edited on a hinted shape. */
 export interface ShapeCapabilities {
-  /** Circles and ellipses can be moved and resized, unless overlays are clipped to them. */
+  /**
+   * Circles, ellipses, crescents and rings can be moved and resized. Their overlays (pieces the
+   * engine painted right over them: translucent glows, or the residual pieces of a crescent or
+   * ring) follow them, unless one cannot (no path data, or a gradient shared with another path).
+   */
   geometry: boolean
+  /**
+   * Set when the shape can be moved but not reshaped: a translucent gradient overlay is cut to its
+   * outline, so a resized or turned shape would leave it sticking out.
+   */
+  moveOnly?: true
   /** Current flat fill, when the shape has one. */
   fill?: string
   /** Current gradient stop colours, when the shape is painted by a gradient. */
@@ -182,13 +191,27 @@ export function shapeCapabilities(svg: string, hints: EngineShapeHint[], index: 
   const tag = tags[index]?.[0]
   if (!hint || !tag) return null
   const fill = /\bfill="([^"]*)"/.exec(tag)?.[1]
-  const capabilities: ShapeCapabilities = {
-    // An overlay is a piece of its base cut by the engine; reshaping the base would leave it behind.
-    // Likewise a shape sharing its gradient definition with another: moving the definition
-    // would repaint the other.
-    geometry: hint.kind !== 'path' && !hints.some((other) => other.overlayOf === index)
-      && !(hint.gradient && hints.some((other) => other.index !== index && other.gradient?.id === hint.gradient!.id)),
+  // A shape sharing its gradient definition with another cannot move it: that would repaint the other.
+  const ownGradient = (shape: EngineShapeHint) => !shape.gradient || !hints.some((other) => other.index !== shape.index && other.gradient?.id === shape.gradient!.id)
+  // A gradient that moves with its shape: its own, and one translateGradient can shift.
+  const movableGradient = (shape: EngineShapeHint) => {
+    if (!shape.gradient) return true
+    const block = gradientBlock(svg, shape.gradient.id)
+    return ownGradient(shape) && !!block && gradientMovable(block.text)
   }
+  // Overlays follow the shape (see editShape): each needs readable path data, no transform of
+  // its own, a gradient that can move, and no overlays of its own (a chain is not followed).
+  const overlays = hints.filter((other) => other.overlayOf === index)
+  const follows = (overlay: EngineShapeHint) => {
+    const overlayTag = tags[overlay.index]?.[0]
+    const data = overlayTag ? /\bd="([^"]+)"/.exec(overlayTag)?.[1] : undefined
+    return !!data && translatePath(data, 0, 0) !== null && !/\stransform=/.test(overlayTag!)
+      && movableGradient(overlay) && !hints.some((other) => other.overlayOf === overlay.index)
+  }
+  const capabilities: ShapeCapabilities = {
+    geometry: hint.kind !== 'path' && movableGradient(hint) && overlays.every(follows),
+  }
+  if (capabilities.geometry && overlays.some(isGlow)) capabilities.moveOnly = true
   if (fill && HEX.test(fill)) capabilities.fill = fill.toLowerCase()
   if (hint.gradient) {
     const block = gradientBlock(svg, hint.gradient.id)
@@ -197,26 +220,109 @@ export function shapeCapabilities(svg: string, hints: EngineShapeHint[], index: 
   return capabilities
 }
 
+const PATH_PARAMETERS: Record<string, number> = { m: 2, l: 2, h: 1, v: 1, c: 6, s: 4, q: 4, t: 2, a: 7, z: 0 }
+const PATH_NUMBER = /^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?/
+
+/**
+ * Path data moved by (dx, dy): absolute coordinates are shifted in place, everything else
+ * (commands, separators, relative coordinates, which follow their start point) is kept exactly as
+ * written, so moving back restores the same text. `null` when the data cannot be read.
+ */
+export function translatePath(d: string, dx: number, dy: number): string | null {
+  let i = 0, command = '', first = true
+  const edits: [number, number, string][] = []
+  const skip = () => { while (i < d.length && /[\s,]/.test(d[i])) i++ }
+  const number = () => { const match = PATH_NUMBER.exec(d.slice(i)); if (!match) return null; i += match[0].length; return { text: match[0], start: i - match[0].length, end: i } }
+  const flag = () => (d[i] === '0' || d[i] === '1' ? { text: d[i], start: i, end: ++i } : null)
+  skip()
+  while (i < d.length) {
+    if (/[a-zA-Z]/.test(d[i])) {
+      command = d[i++]
+      if (!(command.toLowerCase() in PATH_PARAMETERS)) return null
+      skip()
+      if (command.toLowerCase() === 'z') continue
+    } else if (!command || command.toLowerCase() === 'z') {
+      return null
+    }
+    const lower = command.toLowerCase()
+    const values: { text: string; start: number; end: number }[] = []
+    for (let k = 0; k < PATH_PARAMETERS[lower]; k++) {
+      skip()
+      const value = lower === 'a' && (k === 3 || k === 4) ? flag() : number()
+      if (!value) return null
+      values.push(value)
+    }
+    // The first move of the data is absolute even when written relative.
+    if (command !== lower || (lower === 'm' && first)) {
+      const shift = (at: number, delta: number) => {
+        if (delta === 0) return
+        const value = values[at], text = round(Number(value.text) + delta)
+        // A sign may have stood for the separator from the previous number (unless that number,
+        // rewritten, already added one).
+        const previous = edits[edits.length - 1]
+        const glued = value.start > 0 && /[\d.]/.test(d[value.start - 1]) && !/^[-+]/.test(text) && !(previous?.[1] === value.start && previous[2].endsWith(' '))
+        // And a number written right after it with no separator (".5") must stay apart.
+        const tail = d[value.end] === '.' && !text.includes('.') ? ' ' : ''
+        edits.push([value.start, value.end, (glued ? ' ' : '') + text + tail])
+      }
+      if (lower === 'h') shift(0, dx)
+      else if (lower === 'v') shift(0, dy)
+      else if (lower === 'a') { shift(5, dx); shift(6, dy) }
+      else for (let at = 0; at < values.length; at += 2) { shift(at, dx); shift(at + 1, dy) }
+    }
+    first = false
+    // Pairs after a move are line segments.
+    if (lower === 'm') command = command === 'm' ? 'l' : 'L'
+    skip()
+  }
+  let out = d
+  for (const [from, to, text] of edits.reverse()) out = out.slice(0, from) + text + out.slice(to)
+  return out
+}
+
 /** Shift a userSpaceOnUse gradient so it follows a shape that moved by (dx, dy). */
 function translateGradient(block: string, dx: number, dy: number): string {
-  const shift = (text: string, name: string, delta: number) =>
-    text.replace(new RegExp(`(\\b${name}=")(-?[\\d.eE+-]+)(")`), (_m, head: string, value: string, tail: string) => head + round(Number(value) + delta) + tail)
   const open = /^<[^>]*>/.exec(block)![0]
+  // A bounding-box gradient (the default) is laid out on the shape itself: it follows already.
+  if (!/\bgradientUnits="userSpaceOnUse"/.test(open)) return block
+  const number = (name: string) => new RegExp(`(\\b${name}=")(-?[\\d.]+(?:[eE][+-]?\\d+)?)(")`)
+  const transform = /(\bgradientTransform=")([^"]*)(")/.exec(open)
   let moved = open
-  if (/\bgradientTransform="matrix\(/.test(open)) {
-    moved = open.replace(/(\bgradientTransform="matrix\()([^)]*)(\)")/, (_m, head: string, body: string, tail: string) => {
-      const values = body.trim().split(/[\s,]+/).map(Number)
-      if (values.length !== 6 || values.some((value) => !Number.isFinite(value))) return head + body + tail
-      values[4] += dx; values[5] += dy
-      return head + values.map(round).join(' ') + tail
-    })
-  } else if (open.startsWith('<linearGradient')) {
-    for (const [name, delta] of [['x1', dx], ['y1', dy], ['x2', dx], ['y2', dy]] as const) moved = shift(moved, name, delta)
+  const matrix = transform && /^\s*matrix\(([^)]*)\)\s*$/.exec(transform[2])
+  const coordinates = open.startsWith('<linearGradient')
+    ? [['x1', dx], ['y1', dy], ['x2', dx], ['y2', dy]] as const
+    : ([['cx', dx], ['cy', dy], ['fx', dx], ['fy', dy]] as const).filter(([name]) => name === 'cx' || name === 'cy' || new RegExp(`\\b${name}=`).test(open))
+  const values = matrix?.[1].trim().split(/[\s,]+/).map(Number)
+  if (matrix && values!.length === 6 && values!.every(Number.isFinite)) {
+    values![4] += dx; values![5] += dy
+    moved = open.replace(transform![0], `${transform![1]}matrix(${values!.map(round).join(' ')})${transform![3]}`)
+  } else if (!transform && coordinates.every(([name]) => number(name).test(open))) {
+    for (const [name, delta] of coordinates) moved = moved.replace(number(name), (_m, head: string, value: string, tail: string) => head + round(Number(value) + delta) + tail)
+  } else if (transform) {
+    // Any other transform: translate in user space after it (merged into a leading translate).
+    const lead = /^\s*translate\(\s*(-?[\d.]+(?:[eE][+-]?\d+)?)(?:[\s,]+(-?[\d.]+(?:[eE][+-]?\d+)?))?\s*\)/.exec(transform[2])
+    const body = lead
+      ? `translate(${round(Number(lead[1]) + dx)} ${round(Number(lead[2] ?? 0) + dy)})${transform[2].slice(lead[0].length)}`
+      : `translate(${round(dx)} ${round(dy)}) ${transform[2].trim()}`
+    moved = open.replace(transform[0], `${transform[1]}${body}${transform[3]}`)
   } else {
-    for (const [name, delta] of [['cx', dx], ['cy', dy]] as const) moved = shift(moved, name, delta)
+    // Missing or percentage coordinates: translate the whole gradient instead.
+    moved = open.replace(/^<(\w+)/, `<$1 gradientTransform="translate(${round(dx)} ${round(dy)})"`)
   }
   return moved + block.slice(open.length)
 }
+
+/** Whether translateGradient can move this gradient: not one inheriting its layout from another. */
+function gradientMovable(block: string): boolean {
+  const open = /^<[^>]*>/.exec(block)![0]
+  return !/\b(?:xlink:)?href=/.test(open)
+}
+
+/** A translucent gradient overlay: a glow cut to the outline of the shape it sits on. */
+const isGlow = (hint: EngineShapeHint) => !!hint.gradient && !hint.gradient.opaque
+
+/** What an overlay is, for its label: a glow (translucent gradient) or a piece of its shape. */
+export const overlayKind = (hint: EngineShapeHint): 'glow' | 'piece' => (isGlow(hint) ? 'glow' : 'piece')
 
 /**
  * Apply `patch` to the shape at `index`. Returns the rewritten SVG and updated hints, or `null`
@@ -233,6 +339,8 @@ export function editShape(svg: string, hints: EngineShapeHint[], index: number, 
   let gradientShift: [number, number] | null = null
 
   const geometryKeys = ['cx', 'cy', 'r', 'rx', 'ry', 'rotation', 'innerCx', 'innerCy', 'innerR'] as const
+  const reshapes = (['r', 'rx', 'ry', 'rotation', 'innerCx', 'innerCy', 'innerR'] as const).some((key) => patch[key] !== undefined && patch[key] !== hint[key])
+  if (capabilities.moveOnly && reshapes) return null
   if ((hint.kind === 'crescent' || hint.kind === 'ring') && geometryKeys.some((key) => patch[key] !== undefined)) {
     if (!capabilities.geometry || !/\bd="[^"]*"/.test(tag)) return null
     const cx = patch.cx ?? hint.cx ?? 0, cy = patch.cy ?? hint.cy ?? 0, r = patch.r ?? hint.r ?? 0
@@ -270,7 +378,40 @@ export function editShape(svg: string, hints: EngineShapeHint[], index: number, 
     tag = tag.replace(/\bfill="[^"]*"/, `fill="${patch.fill.toLowerCase()}"`)
   }
 
-  let out = svg.slice(0, match.index) + tag + svg.slice(match.index! + match[0].length)
+  // Overlays (glows, residual pieces) follow the shape's centre: moved with it, and kept where
+  // they sit relative to it when the shape is reshaped (never scaled). Only numbers change in
+  // their path data, so the document keeps its structure.
+  const tags = pathTags(svg)
+  const replaced = new Map<number, string>([[index, tag]])
+  const movedOverlays = new Map<number, EngineShapeHint>()
+  const overlayGradients: string[] = []
+  const dx = (next.cx ?? 0) - (hint.cx ?? 0), dy = (next.cy ?? 0) - (hint.cy ?? 0)
+  if ((dx !== 0 || dy !== 0) && Number.isFinite(dx) && Number.isFinite(dy)) {
+    for (const overlay of hints.filter((other) => other.overlayOf === index)) {
+      const overlayTag = tags[overlay.index]?.[0]
+      const data = overlayTag ? /\bd="([^"]+)"/.exec(overlayTag)?.[1] : undefined
+      const moved = data ? translatePath(data, dx, dy) : null
+      if (!overlayTag || moved === null) return null
+      replaced.set(overlay.index, overlayTag.replace(/\bd="[^"]*"/, () => `d="${moved}"`))
+      const b = overlay.bounds
+      movedOverlays.set(overlay.index, {
+        ...overlay, bounds: [b[0] + dx, b[1] + dy, b[2] + dx, b[3] + dy],
+        ...(overlay.cx !== undefined ? { cx: overlay.cx + dx } : {}), ...(overlay.cy !== undefined ? { cy: overlay.cy + dy } : {}),
+        ...(overlay.innerCx !== undefined ? { innerCx: overlay.innerCx + dx } : {}), ...(overlay.innerCy !== undefined ? { innerCy: overlay.innerCy + dy } : {}),
+      })
+      if (overlay.gradient) overlayGradients.push(overlay.gradient.id)
+    }
+  }
+  let out = svg
+  for (const at of [...replaced.keys()].sort((a, b) => b - a)) {
+    const original = tags[at]
+    out = out.slice(0, original.index) + replaced.get(at)! + out.slice(original.index! + original[0].length)
+  }
+  for (const id of overlayGradients) {
+    const block = gradientBlock(out, id)
+    if (!block) return null
+    out = out.slice(0, block.start) + translateGradient(block.text, dx, dy) + out.slice(block.start + block.text.length)
+  }
 
   if (hint.gradient && (gradientShift || patch.stops?.some((stop) => stop !== undefined))) {
     if (patch.stops?.some((stop) => stop !== undefined && !HEX.test(stop))) return null
@@ -287,5 +428,5 @@ export function editShape(svg: string, hints: EngineShapeHint[], index: number, 
     return null
   }
 
-  return { svg: out, hints: hints.map((candidate) => candidate.index === index ? next : candidate) }
+  return { svg: out, hints: hints.map((candidate) => candidate.index === index ? next : movedOverlays.get(candidate.index) ?? candidate) }
 }
