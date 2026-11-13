@@ -616,8 +616,11 @@ export function choose(
   // A result that lost most of what the source draws (an empty SVG at worst) can score as well
   // as a real one where every drawn pixel is an edge pixel, small text for instance: both are
   // "different" nearly everywhere. It never wins while another result kept twice as much of it.
-  const most = Math.max(...idx.map((i) => trials[i].metrics.inkKept ?? 0))
-  if (most > 0) idx = idx.filter((i) => (trials[i].metrics.inkKept ?? most) >= most * MIN_INK_KEPT)
+  // Capped at the whole drawing: a result that draws too much (2.2 times the source for a
+  // bloated trace) is not the measure of what a faithful one should keep.
+  const kept = (i: number) => Math.min(1, trials[i].metrics.inkKept ?? 1)
+  const most = Math.max(...idx.map(kept))
+  idx = idx.filter((i) => kept(i) >= most * MIN_INK_KEPT)
   if (options.preferExactPixelGrid
     && trials.some((trial) => trial.traceMethod === 'pixel-grid' && isExact(trial.metrics)
       && (maxBytes <= 0 || trial.metrics.bytes <= maxBytes))) {

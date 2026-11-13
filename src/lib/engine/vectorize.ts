@@ -1,8 +1,9 @@
 // The shared vectorisation loop: analysis -> parameters -> trace -> render -> measure ->
 // deterministic auto-tune -> choice. Pure (no DOM, no UI state): used by the web app and the CLI,
 // each with its own TraceBackend.
-import { analyze, cleanSource, recommend, type Analysis, type NoteCode } from './analyze'
-import { measureDegradation } from './degradation'
+import { analyze, cleanSource, photographic, recommend, type Analysis, type NoteCode } from './analyze'
+import { marginal, measureDegradation, restorable, restoreArtwork, type Degradation } from './degradation'
+import { crop } from './slice'
 import { candidates, choose, computeMetrics, HEAVY_SVG_BYTES, MIN_INK_KEPT, prepare, score, type RGBAImage, type TraceBackend } from './core'
 import { editableShare } from './editable-share'
 import { calibrateSolidFills, snapSolidFillsToSourcePalette } from './fill-calibration'
@@ -53,6 +54,46 @@ async function gradientsHelp(src: RGBAImage, params: TraceParams, backend: Trace
   return color(fitted) <= color(plain) * 0.9
     || (fitted.metrics.paths < plain.metrics.paths && fitted.metrics.paths <= plain.metrics.paths * 0.75
       && color(fitted) <= color(plain) * 1.15)
+}
+
+/** Side of the sample cleaned first when the evidence of artifacts is thin, and the image size from which it is worth it. */
+const SAMPLE_SIDE = 512, SAMPLE_MIN_PIXELS = 600_000
+/** Share of its paths the trace of the sample must lose once cleaned for the whole image to be cleaned:
+ *  a clean logo with ringing of its own loses a quarter (24 to 18), a JPEG of quality 95 three quarters (66 to 16). */
+const SAMPLE_GAIN = 0.4
+
+/**
+ * False when the evidence of artifacts is thin (see `marginal`) and cleaning the busiest
+ * SAMPLE_SIDE square of the image does not simplify its trace: a clean logo with a little
+ * ringing of its own, which the clean-up would only cost seconds on (about three per megapixel)
+ * for the same result. Small images are cleaned without asking: that is as cheap as the sample.
+ */
+async function cleaningHelps(src: RGBAImage, degradation: Degradation, backend: TraceBackend, pause: () => Promise<void>): Promise<boolean> {
+  if (!marginal(degradation) || src.width * src.height < SAMPLE_MIN_PIXELS) return true
+  const { data: d, width: w, height: h } = src
+  const side = Math.min(SAMPLE_SIDE, w, h)
+  // The square with the most edges, among those half a side apart.
+  let best = { x: 0, y: 0, w: side, h: side }, most = -1
+  for (let y = 0; ; y += side >> 1) {
+    const top = Math.min(y, h - side)
+    for (let x = 0; ; x += side >> 1) {
+      const left = Math.min(x, w - side)
+      let edges = 0
+      for (let Y = top; Y < top + side; Y += 4) for (let i = (Y * w + left) * 4, e = i + (side - 2) * 4; i < e; i += 16) {
+        if (Math.abs(d[i] - d[i + 8]) >= 64 || Math.abs(d[i + 1] - d[i + 9]) >= 64 || Math.abs(d[i + 2] - d[i + 10]) >= 64) edges++
+      }
+      if (edges > most) { most = edges; best = { x: left, y: top, w: side, h: side } }
+      if (left === w - side) break
+    }
+    if (top === h - side) break
+  }
+  const sample = crop(src, best)
+  const cleaned = await restoreArtwork(sample, degradation, pause)
+  const params = recommend(analyze(sample)).params
+  const before = await runTrial(sample, params, false, backend)
+  await pause()
+  const after = await runTrial(cleaned, params, false, backend)
+  return after.metrics.paths <= before.metrics.paths * (1 - SAMPLE_GAIN)
 }
 
 // A cleaned copy (see `cleanSource`) is traced in place of the image it came from, which stays
@@ -172,20 +213,25 @@ export async function vectorize(
   if (settings.presetId === 'auto') {
     // Analyses saved before detection existed have no `degradation` field.
     const degradation = analysis.degradation === undefined ? measureDegradation(src) : analysis.degradation
-    if (degradation) {
+    // Photographs are traced as they are, and so are images too large to clean in a few seconds.
+    if (degradation && !photographic(analysis)) {
       // The clean-up pauses every 100 000 pixels; yielding (a timer in a worker) that often would
       // cost more than the work.
       let paused = now()
-      const cleaned = await cleanSource(src, degradation, async () => {
+      const pause = async () => {
         if (now() - paused < 100) return
         await yieldControl()
         paused = now()
-      })
-      if (cleaned) {
-        references.set(cleaned.image.data, src)
-        src = cleaned.image
-        analysis = cleaned.analysis
-      } else uncleaned = true
+      }
+      if (!restorable(src, degradation)) uncleaned = true
+      else if (await cleaningHelps(src, degradation, backend, pause)) {
+        const cleaned = await cleanSource(src, degradation, pause)
+        if (cleaned) {
+          references.set(cleaned.image.data, src)
+          src = cleaned.image
+          analysis = cleaned.analysis
+        }
+      }
     }
   }
   const reference = referenceOf(src)

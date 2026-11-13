@@ -123,6 +123,7 @@ const analysisJson = (a: Analysis) => ({
   alpha: a.alpha,
   dominantColors: a.dominantColors,
   gradient: r4(a.gradient),
+  smoothRamps: r4(a.smoothRamps),
   transparentPct: r4(a.transparentPct),
   softPct: r4(a.softPct),
   grayscale: a.grayscale,

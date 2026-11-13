@@ -44,6 +44,14 @@ export const BLOCK_GRID = 1.3, BLOCK_RINGING_SHARE = 0.12
 const NOISE_GRAIN = 0.04, NOISE_GRAIN_MAX = 0.15
 /** Steps up to this size count for the block grid (larger ones are edges), and samples needed per position. */
 const BLOCK_STEP = 24, BLOCK_SAMPLES = 500
+/**
+ * Under this ripple share, with no noise and no block grid, the evidence is thin: a clean logo
+ * resampled or exported with a little ringing reaches 0.38, as a JPEG of quality 95 does. Auto
+ * then cleans a sample first and goes on only if that simplifies its trace (see `vectorize`).
+ */
+export const SURE_RINGING_SHARE = 0.45
+export const marginal = (d: Degradation) => d.ringing < SURE_RINGING_SHARE && d.blocks < BLOCK_GRID && 3 * d.sigma < 1 && d.grain < GRAIN_SHARE
+
 /** Grain share from which an image without edges is noisy: clean renders stay under 0.002, sigma 2 gives 0.1. */
 export const GRAIN_SHARE = 0.03
 

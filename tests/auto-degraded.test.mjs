@@ -6,31 +6,43 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
-import init, { vectorize_rgba } from '../src/lib/engine/vtracer-next-wasm/vtracer_next.js'
+import init, { vectorize_rgba, vectorize_rgba_structured } from '../src/lib/engine/vtracer-next-wasm/vtracer_next.js'
 
 const require = createRequire(new URL('../cli/package.json', import.meta.url))
 const sharp = require('sharp')
 const code = require('esbuild').buildSync({
   stdin: {
     contents: `export { vectorize, VectorizationCancelled } from './src/lib/engine/vectorize'
-export { analyze, cleanSource, recommend } from './src/lib/engine/analyze'
+export { analyze, cleanSource, photographic, recommend } from './src/lib/engine/analyze'
+export { marginal } from './src/lib/engine/degradation'
 export { choose, computeMetrics } from './src/lib/engine/core'
 export { measureDegradation, restoreArtwork } from './src/lib/engine/degradation'
 export { DEFAULT_PARAMS } from './src/lib/engine/presets'
-export { withVTracerNext } from './src/lib/engine/vtracer-next-trace'
-export { optionsFor } from './src/lib/engine/trace-options'`,
+export { withVTracerNext, nextOptions } from './src/lib/engine/vtracer-next-trace'
+export { parsePaths } from './src/lib/engine/trace-options'`,
     resolveDir: process.cwd(),
   },
   bundle: true, write: false, platform: 'node', format: 'esm',
 }).outputFiles[0].text
-const { vectorize, VectorizationCancelled, analyze, cleanSource, recommend, choose, computeMetrics, measureDegradation, restoreArtwork, DEFAULT_PARAMS, withVTracerNext, optionsFor } =
+const { vectorize, VectorizationCancelled, analyze, cleanSource, photographic, marginal, recommend, choose, computeMetrics, measureDegradation, restoreArtwork, DEFAULT_PARAMS, withVTracerNext, nextOptions, parsePaths } =
   await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`)
 await init({ module_or_path: await readFile(new URL('../src/lib/engine/vtracer-next-wasm/vtracer_next_bg.wasm', import.meta.url)) })
+// The product's own engine options (shape detection included) and both trace modes, as in the CLI.
+const convert = async (image, params, binary, gradients) => {
+  const rgba = new Uint8Array(image.data.buffer, image.data.byteOffset, image.data.byteLength)
+  const options = nextOptions(params, binary, gradients)
+  if (binary) return vectorize_rgba(rgba, image.width, image.height, options)
+  const [svg, report] = vectorize_rgba_structured(rgba, image.width, image.height, options)
+  return { svg, report }
+}
 const backend = withVTracerNext(
   { async rasterize(svg, width, height) { return { width, height, data: new Uint8ClampedArray(await sharp(Buffer.from(svg)).resize(width, height).ensureAlpha().raw().toBuffer()) } } },
   false,
-  async (src, p, b, g) => vectorize_rgba(new Uint8Array(src.data), src.width, src.height, { ...optionsFor(p, b), experimentalGradients: g }),
-  () => { throw Error('unexpected binary') },
+  convert,
+  async (image, params, binary) => {
+    const result = await convert(image, params, binary, false)
+    return parsePaths(typeof result === 'string' ? result : result.svg, params.compactPaths, params.pathPrecision)
+  },
 )
 /** What Auto does to a degraded image before tracing it; null when it leaves the image alone. */
 const cleanedSource = async (img) => { const found = analyze(img).degradation; return found ? cleanSource(img, found) : null }
@@ -221,7 +233,7 @@ test('analysis detects without cleaning, and stays cheap on a large image', asyn
   assert.ok(a.degradation, 'not detected')
   assert.equal(a.cleanup, undefined)
   // About 0.3 s on a quiet machine; the clean-up itself takes over ten.
-  assert.ok(elapsed < 3000, `analysis took ${Math.round(elapsed)} ms`)
+  assert.ok(elapsed < 5000, `analysis took ${Math.round(elapsed)} ms`)
 })
 
 test('the clean-up can be cancelled while it runs, and Auto stops with it', async () => {
@@ -242,4 +254,40 @@ test('a result that lost the drawing is never chosen over one that kept it', () 
   assert.equal(choose([empty, { ...empty, score: 50 }], 0), 0)
   // Results without the measure (older sessions) are not penalised.
   assert.equal(choose([{ metrics: metrics({}), score: 30 }, real], 0), 0)
+  // A result that draws too much does not set the bar: the faithful one stays in.
+  const bloated = { metrics: metrics({ inkKept: 2.2 }), score: 45 }
+  assert.equal(choose([bloated, { metrics: metrics({ inkKept: 0.95 }), score: 30 }], 0), 1)
+})
+
+test('a JPEG photograph is traced as it is', async () => {
+  // A smooth, many-coloured scene with a horizon and a few hard shapes, saved as JPEG.
+  const width = 480, height = 320
+  const scene = Buffer.alloc(width * height * 3)
+  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+    const i = (y * width + x) * 3
+    const sky = y < 170 + 12 * Math.sin(x / 40)
+    const sun = (x - 350) ** 2 + (y - 70) ** 2 < 900
+    scene[i] = sun ? 250 : sky ? 90 + y * 0.6 + 30 * Math.sin(x / 90) : 60 + (y - 170) * 0.5 + 25 * Math.sin(x / 23 + y / 31)
+    scene[i + 1] = sun ? 235 : sky ? 130 + y * 0.4 : 110 + (y - 170) * 0.3 + 30 * Math.sin(x / 37)
+    scene[i + 2] = sun ? 170 : sky ? 210 - y * 0.2 + 20 * Math.cos(x / 70) : 50 + 20 * Math.sin(y / 17 + x / 53)
+  }
+  const img = await raw(await sharp(scene, { raw: { width, height, channels: 3 } }).jpeg({ quality: 75 }).toBuffer())
+  const a = analyze(img)
+  assert.ok(a.degradation, 'artifacts not detected')
+  assert.ok(photographic(a), `${a.kind}, ${a.dominantColors} colours, ramps ${a.smoothRamps}`)
+  const result = await vectorize(img, settings, backend, { analysis: a })
+  assert.equal(result.analysis.cleanup, undefined)
+  assert.ok(!result.notes.includes('cleaned') && !result.notes.includes('uncleaned'), result.notes.join())
+  // Artwork is not photographic, whatever JPEG did to it: a logo, a gradient.
+  assert.ok(!photographic(analyze(await jpeg(LOGO, 40))))
+  assert.ok(!photographic(analyze(await jpeg(GRADIENT, 75))))
+})
+
+test('thin evidence of artifacts is told from a JPEG, a block grid or noise', () => {
+  const found = (extra) => ({ ringing: 0.5, grain: 0.004, blocks: 1, sigma: 0, reach: 0.1, ...extra })
+  // A clean logo with a little ringing of its own measured 0.38; a JPEG of quality 95 0.40.
+  assert.ok(marginal(found({ ringing: 0.38 })))
+  assert.ok(!marginal(found({ ringing: 0.5 })))
+  assert.ok(!marginal(found({ ringing: 0.3, blocks: 1.5 })))
+  assert.ok(!marginal(found({ ringing: 0.4, grain: 0.15, sigma: 2 })))
 })

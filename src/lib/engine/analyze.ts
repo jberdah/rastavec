@@ -95,9 +95,19 @@ export async function cleanSource(img: RGBAImage, degradation: Degradation, paus
   if (!restorable(img, degradation)) return null
   const image = await restoreArtwork(img, degradation, pause)
   const analysis = describe(image)
-  if (analysis.kind === 'photo' || stillRippled(image)) return null
+  if (analysis.kind === 'photo' || photographic(analysis) || stillRippled(image)) return null
   return { image, analysis: { ...analysis, degradation, cleanup: degradation } }
 }
+
+/**
+ * Many colours and smooth ramps together: a photograph (or a rendered scene), whatever its
+ * artifacts. JPEG photos keep 39 colours or more with ramps over 0.34 of their area, before and
+ * after a clean-up; artwork has either few colours (34 at most for a detailed spiral, with no
+ * ramps) or, for gradients, 21 at most. Such images are traced as they are: cleaning them only
+ * moved their trace away from the file (0.97 % to 1.30 % on a landscape).
+ */
+export const PHOTO_COLOURS = 32, PHOTO_RAMPS = 0.3
+export const photographic = (a: Analysis) => a.dominantColors > PHOTO_COLOURS && a.smoothRamps > PHOTO_RAMPS
 
 /**
  * Analysis of the image as given. JPEG artifacts or noise are only detected here (cheap);

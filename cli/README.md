@@ -124,8 +124,9 @@ output over one of its input images.
   `blocks` are what gave it away, `sigma` the noise level, `reach` the size of the ripples beside edges).
   With the Auto preset, artwork under such artifacts is traced from a cleaned copy: `analysis.cleaned` is
   then `true`, the `cleaned` note is set and the rest of `analysis` describes that copy. `metrics`,
-  `--compare` and `--diff-summary-json` always measure against the file as given. The `uncleaned` note
-  means artifacts were detected but the image was traced as is (a photo or texture, or over 16 MP).
+  `--compare` and `--diff-summary-json` always measure against the file as given. Photographs and
+  textures are traced as they are; the `uncleaned` note means artifacts were detected in an image too
+  large to clean (over 16 MP of JPEG, 5 MP of noise).
 - `status`: `ok`, `review` (above threshold or budget) or `error` (with `error`).
 - Same input and same settings give the same SVG.
 
