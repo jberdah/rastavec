@@ -1,7 +1,7 @@
 {
   "inputs": {
     "scripts/build-vtracer-next.mjs": "148a19618b286b0011dd94576be14bbbf1981cdd5e05b4d7e5ab36f903a6ba61",
-    "scripts/build-vtracer-next.sources.json": "7793f3ac17bf59ab0dd1799ed5229fda4cdea36fcd43a2cede718676ad732938",
+    "scripts/build-vtracer-next.sources.json": "7252766bf4fb8f578ded53d06e9a59d5799a0512a0b2c52ea955e1e4ef0edd3d",
     "scripts/build-vtracer-next.Cargo.lock": "d3a84e8ff6838a7cc4572da2e3a0eb4cc44f7f7db8ac279cd58a9589ce5198fa",
     "scripts/verify-vtracer-next.mjs": "f5a935dd8768999f6d24266ff8a5e4429541e5e015b29ee566fdf8f3d19a0f31",
     "wasm/vtracer/src/lib.rs": "bbfbeb6c94d1ed43470e45de3fa75c66cab3d180198eff3cbddc1fe12ce122b5",

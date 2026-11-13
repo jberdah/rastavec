@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.5.0-beta.6 — 2026-11-13
+
+### Added
+
+- Rings (annulus) are recognised as one exact shape with a real hole and can be edited in the
+  Shapes tab: move the ring, move or resize the hole, resize the outer circle.
+- Pieces the engine cuts off a shape (a crescent's tapered tips, outline slivers, glows) now move
+  with it.
+- JPEG artifacts and noise are cleaned before Auto traces opaque artwork: JPEG logos come out
+  several times lighter (a logo saved at quality 75: 233 KB → 74 KB) with a more faithful result.
+  Photographs, transparent images and clean files are left alone.
+- Coverage benchmark harness (`scripts/coverage/`).
+
+### Improved
+
+- Auto keeps simple linear and radial gradients that it used to flatten.
+- Detailed flat icons are much lighter (resolved anti-aliasing: e.g. 70 KB → 12 KB) with smoother
+  edges, and native pixel art is traced exactly.
+- A circle partly hidden and split into same-colour pieces is recognised and can be moved without
+  leaving a hole.
+
+### Fixed
+
+- Groups made in the Groups tab no longer disappear from the export after a shape or colour edit;
+  when an edit removes paths, a notice says so and undo restores them.
+- Clicking the selected shape in the list no longer deselects it.
+- A thin paper-coloured ring could appear around small discs cut by a band.
 ## 0.5.0-beta.5 — 2026-11-12
 
 ### Added
