@@ -10,7 +10,7 @@
   import GroupReview from './GroupReview.svelte'
   import ShapeEditor from './ShapeEditor.svelte'
   import { applyShapeEdit } from '../shape-editing'
-  import { RING_MIN_THICKNESS, crescentPath, editShape as editShapeSvg, editableShapes, ringPath, type ShapePatch } from '../engine/shape-edits'
+  import { crescentPath, editShape as editShapeSvg, editableShapes, keepRing, ringPath, type ShapePatch } from '../engine/shape-edits'
   import { groupsFromShapes } from '../engine/shape-groups'
   import { canRedo, canUndo, dropLastStep, record, redo, undo } from '../edit-history.svelte'
   import { publicAsset } from '../assets'
@@ -163,7 +163,7 @@
     } else if (drag.mode === 'inner-move') {
       to = { ...from, icx: from.icx + dx, icy: from.icy + dy }
     } else if (drag.mode === 'inner-resize') {
-      to = { ...from, ir: Math.max(1, from.ir + Math.hypot(at[0] - from.icx, at[1] - from.icy) - drag.startLx) }
+      to = { ...from, ir: Math.max(Math.min(1, from.ir), from.ir + Math.hypot(at[0] - from.icx, at[1] - from.icy) - drag.startLx) }
     } else if (drag.mode === 'rotate') {
       const angle = (Math.atan2(at[1] - from.cy, at[0] - from.cx) * 180) / Math.PI + 90
       to = { ...from, rotation: round1(((angle + 540) % 360) - 180) }
@@ -181,7 +181,7 @@
       }
     }
     if (kindOf(drag.index) === 'crescent') to = keepCrescent(to, drag.mode)
-    else if (kindOf(drag.index) === 'ring') to = keepRing(to, drag.mode)
+    else if (kindOf(drag.index) === 'ring') to = keepRing(to, from, drag.mode)
     drag = { ...drag, to }
     scheduleLive()
   }
@@ -205,28 +205,6 @@
       // Exactly concentric has no direction to push along: step out to the right.
       if (d === 0) return { ...g, icx: g.cx + Math.min(hi, lo) }
       const k = Math.min(hi, Math.max(lo, d)) / d
-      return { ...g, icx: g.cx + (g.icx - g.cx) * k, icy: g.cy + (g.icy - g.cy) * k }
-    }
-    return g
-  }
-  // A ring exists only while its inner circle lies inside the outer one with a band left
-  // (d + ir <= r - RING_MIN_THICKNESS). Clamp the value the gesture changes, like keepCrescent. The
-  // margin covers the rounding of the committed values to a tenth.
-  function keepRing(g: Geometry, mode: Mode): Geometry {
-    const band = RING_MIN_THICKNESS + 0.2
-    const d = Math.hypot(g.icx - g.cx, g.icy - g.cy)
-    if (mode === 'inner-resize') {
-      const hi = g.rx - d - band
-      return hi >= 1 ? { ...g, ir: Math.min(hi, Math.max(1, g.ir)) } : g
-    }
-    if (mode === 'resize') {
-      const r = Math.max(g.rx, d + g.ir + band)
-      return { ...g, rx: r, ry: r }
-    }
-    if (mode === 'inner-move') {
-      const hi = Math.max(0, g.rx - g.ir - band)
-      if (d <= hi) return g
-      const k = hi / d
       return { ...g, icx: g.cx + (g.icx - g.cx) * k, icy: g.cy + (g.icy - g.cy) * k }
     }
     return g
@@ -468,7 +446,7 @@
                       <!-- The real outline, so a ring's hole is not part of the hit target. -->
                       <path
                         class="target" class:movable={entry.capabilities.geometry} class:hover={hoveredShape === entry.hint.index} class:on={selectedShape === entry.hint.index}
-                        d={(entry.hint.kind === 'ring' ? ringPath(g.cx, g.cy, g.rx, g.icx, g.icy, g.ir) : crescentPath(g.cx, g.cy, g.rx, g.icx, g.icy, g.ir)) ?? ''}
+                        d={(entry.hint.kind === 'ring' ? ringPath(g.cx, g.cy, g.rx, g.icx, g.icy, g.ir, 0) : crescentPath(g.cx, g.cy, g.rx, g.icx, g.icy, g.ir)) ?? ''}
                         onpointerenter={() => (hoveredShape = entry.hint.index)} onpointerleave={() => (hoveredShape = null)}
                         onpointerdown={(event) => startDrag(event, entry.hint, 'move')} onpointermove={moveDrag} onpointerup={endDrag} onpointercancel={cancelDrag}
                       />

@@ -5,7 +5,7 @@ import { createRequire } from 'node:module'
 const sharp = createRequire(new URL('../cli/package.json', import.meta.url))('sharp')
 const { buildSync } = createRequire(new URL('../cli/package.json', import.meta.url))('esbuild')
 const bundled = buildSync({ stdin: { contents: `export * from './src/lib/engine/shape-edits'; export { analyzeShapes, applyFilters, DEFAULT_FILTERS } from './src/lib/engine/palette'`, resolveDir: process.cwd(), loader: 'ts' }, bundle: true, write: false, format: 'esm', platform: 'node' }).outputFiles[0].text
-const { editShape, ellipsePath, crescentPath, ringPath, shapeCapabilities, analyzeShapes, applyFilters, DEFAULT_FILTERS } = await import(`data:text/javascript;base64,${Buffer.from(bundled).toString('base64')}`)
+const { editShape, ellipsePath, crescentPath, ringPath, keepRing, shapeCapabilities, analyzeShapes, applyFilters, DEFAULT_FILTERS } = await import(`data:text/javascript;base64,${Buffer.from(bundled).toString('base64')}`)
 
 // Engine-style output: a background, a flat circle, a gradient-painted ellipse with one overlay.
 const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="120" viewBox="0 0 200 120">
@@ -183,4 +183,49 @@ test('a ring is moved as a whole, its hole moved or resized inside it, and stays
   assert.equal(editShape(donut, hints, 1, { innerR: 59 }), null, 'a hole as large as the disc is refused')
   assert.equal(editShape(donut, hints, 1, { innerCx: 140 }), null, 'a hole moved through the rim is refused')
   assert.equal(editShape(donut, hints, 1, { innerR: 0 }), null)
+})
+
+test('a ring reported a hair under the minimum band stays pickable and editable, but no thinner', () => {
+  // Born at a 1.5 band, reparsed from rounded coordinates as 1.49.
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">
+<path d="M0,0H200V200H0Z" fill="#ffffff"/>
+<path d="${ringPath(100, 100, 30, 100, 100, 28.51, 0)}" fill="#1f6feb"/>
+</svg>`
+  assert.equal(ringPath(100, 100, 30, 100, 100, 28.51), null, 'under the engine minimum by default')
+  assert.ok(ringPath(100, 100, 30, 100, 100, 28.51, 0), 'the pick outline only needs a band')
+  assert.equal(ringPath(100, 100, 30, 100, 100, 30, 0), null, 'no band, no ring')
+  const hints = [{ index: 1, kind: 'ring', cx: 100, cy: 100, r: 30, innerCx: 100, innerCy: 100, innerR: 28.51, bounds: [70, 70, 130, 130] }]
+  const moved = editShape(svg, hints, 1, { cx: 120, cy: 90 })
+  assert.ok(moved, 'a move keeps the band, so it is accepted')
+  assert.deepEqual([moved.hints[0].innerCx, moved.hints[0].innerCy, moved.hints[0].innerR], [120, 90, 28.51])
+  assert.ok(editShape(svg, hints, 1, { r: 35 }), 'a wider band is fine')
+  assert.ok(editShape(svg, hints, 1, { innerR: 28.5 }), 'a tenth-rounded value near the current band is fine')
+  assert.equal(editShape(svg, hints, 1, { innerR: 29 }), null, 'a thinner band is refused')
+  assert.equal(editShape(svg, hints, 1, { innerCx: 101 }), null)
+})
+
+test('ring gestures clamp to the band floor, never past the starting value', () => {
+  const ring = (rx, icx, ir) => ({ cx: 100, cy: 100, rx, ry: rx, icx, icy: 100, ir })
+  const band = (g) => g.rx - Math.hypot(g.icx - g.cx, g.icy - g.cy) - g.ir
+  // Inner resize of a tiny ring: clamped, not handed back unclamped.
+  const tiny = ring(2.5, 100, 0.5)
+  const grown = keepRing({ ...tiny, ir: 5 }, tiny, 'inner-resize')
+  assert.ok(Math.abs(grown.ir - 0.8) < 1e-9 && band(grown) >= 1.7 - 1e-9, JSON.stringify(grown))
+  // A sub-1 inner radius does not jump to 1, and is not shrunk past where it started below 1.
+  assert.equal(keepRing({ ...tiny, ir: 0.6 }, tiny, 'inner-resize').ir, 0.6)
+  assert.equal(keepRing({ ...tiny, ir: 0.1 }, tiny, 'inner-resize').ir, 0.5)
+  const usual = ring(50, 100, 20)
+  assert.equal(keepRing({ ...usual, ir: 0.2 }, usual, 'inner-resize').ir, 1)
+  assert.ok(Math.abs(keepRing({ ...usual, ir: 80 }, usual, 'inner-resize').ir - 48.3) < 1e-9)
+  // Resize of a ring whose band is between 1.5 and 1.7: shrinking stops where it is, never grows.
+  const thin = ring(31.6, 100, 30)
+  for (const rx of [31, 31.6, 20]) assert.ok(Math.abs(keepRing({ ...thin, rx, ry: rx }, thin, 'resize').rx - 31.6) < 1e-9, `rx ${rx}`)
+  assert.equal(keepRing({ ...thin, rx: 40, ry: 40 }, thin, 'resize').rx, 40)
+  assert.ok(Math.abs(keepRing({ ...usual, rx: 10, ry: 10 }, usual, 'resize').rx - 21.7) < 1e-9)
+  // Inner move stops at the floor, and a thin ring's hole cannot move closer to the rim.
+  const off = keepRing({ ...usual, icx: 200 }, usual, 'inner-move')
+  assert.ok(Math.abs(band(off) - 1.7) < 1e-9, JSON.stringify(off))
+  const stuck = keepRing({ ...thin, icx: 105 }, thin, 'inner-move')
+  assert.ok(Math.abs(stuck.icx - 100) < 1e-9, JSON.stringify(stuck))
+  assert.deepEqual(keepRing({ ...usual, cx: 140, icx: 140 }, usual, 'move'), { ...usual, cx: 140, icx: 140 })
 })

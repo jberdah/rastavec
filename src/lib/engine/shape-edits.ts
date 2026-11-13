@@ -79,20 +79,61 @@ export function crescentPath(cx: number, cy: number, r: number, icx: number, icy
 /** Thinnest band, in viewBox units, the engine accepts for a ring. */
 export const RING_MIN_THICKNESS = 1.5
 
+/** Narrowest width of a ring's band: where the inner circle comes closest to the outer one. */
+export const ringBand = (cx: number, cy: number, r: number, icx: number, icy: number, ir: number) => r - Math.hypot(icx - cx, icy - cy) - ir
+
+/**
+ * Thinnest band an edit may leave on a ring whose band is `band` now. The engine writes rings with
+ * at least `RING_MIN_THICKNESS`, but its report reparses rounded coordinates, so a ring born at the
+ * limit can come back a hair under it: such a ring may still be moved or edited, just not made
+ * thinner than it is (less a tenth, for edits rounded to a tenth).
+ */
+export const ringMinBand = (band: number) => Math.min(RING_MIN_THICKNESS, band - 0.1)
+
 /**
  * A ring (outer disc minus an inner disc lying wholly inside it) as the engine writes it: the outer
  * circle as four cubic arcs, then the inner one wound the other way, so the hole stays unpainted
  * under either fill rule. `null` when the inner circle does not lie inside the outer one with a
- * band of at least `RING_MIN_THICKNESS`.
+ * band of at least `minBand` (and always more than 0).
  */
-export function ringPath(cx: number, cy: number, r: number, icx: number, icy: number, ir: number): string | null {
-  const d = Math.hypot(icx - cx, icy - cy)
-  if (!(ir > 0) || !(r - d - ir >= RING_MIN_THICKNESS)) return null
+export function ringPath(cx: number, cy: number, r: number, icx: number, icy: number, ir: number, minBand = RING_MIN_THICKNESS): string | null {
+  const band = ringBand(cx, cy, r, icx, icy, ir)
+  if (!(ir > 0) || !(band > 0) || !(band >= minBand)) return null
   const k = KAPPA
   const at = (ox: number, oy: number, radius: number, u: number, v: number) => `${round(ox + radius * u)},${round(oy + radius * v)}`
   const o = (u: number, v: number) => at(icx, icy, ir, u, v)
   return ellipsePath(cx, cy, r, r)
     + `M${o(1, 0)}C${o(1, -k)} ${o(k, -1)} ${o(0, -1)}C${o(-k, -1)} ${o(-1, -k)} ${o(-1, 0)}C${o(-1, k)} ${o(-k, 1)} ${o(0, 1)}C${o(k, 1)} ${o(1, k)} ${o(1, 0)}Z`
+}
+
+/** A ring during a drag: outer centre and radius (`rx`, kept equal to `ry`), inner circle. */
+export type RingGeometry = { cx: number; cy: number; rx: number; ry: number; icx: number; icy: number; ir: number }
+
+/**
+ * Clamp a drag on a ring (from `from` to `g`) so it stays a ring: the value the gesture changes
+ * stops where the band reaches RING_MIN_THICKNESS plus a margin for the rounding of the committed
+ * values to a tenth. A ring already thinner than that keeps its band but loses no more of it. Each
+ * gesture changes one value with the others fixed, so its starting value is always within the clamp.
+ */
+export function keepRing<G extends RingGeometry>(g: G, from: G, mode: 'move' | 'resize' | 'rotate' | 'inner-move' | 'inner-resize'): G {
+  const floor = Math.min(RING_MIN_THICKNESS + 0.2, ringBand(from.cx, from.cy, from.rx, from.icx, from.icy, from.ir))
+  const d = Math.hypot(g.icx - g.cx, g.icy - g.cy)
+  if (mode === 'inner-resize') {
+    // Not below 1, or below the starting radius when that is already under 1.
+    const lo = Math.min(1, from.ir), hi = Math.max(lo, g.rx - d - floor)
+    return { ...g, ir: Math.min(hi, Math.max(lo, g.ir)) }
+  }
+  if (mode === 'resize') {
+    const r = Math.max(g.rx, d + g.ir + floor)
+    return { ...g, rx: r, ry: r }
+  }
+  if (mode === 'inner-move') {
+    const hi = Math.max(0, g.rx - g.ir - floor)
+    if (d <= hi) return g
+    const k = hi / d
+    return { ...g, icx: g.cx + (g.icx - g.cx) * k, icy: g.cy + (g.icy - g.cy) * k }
+  }
+  return g
 }
 
 /** Axis-aligned bounds of an ellipse. */
@@ -200,7 +241,11 @@ export function editShape(svg: string, hints: EngineShapeHint[], index: number, 
     const icy = patch.innerCy ?? (hint.innerCy ?? 0) + (cy - (hint.cy ?? 0))
     const ir = patch.innerR ?? hint.innerR ?? 0
     if (![cx, cy, r, icx, icy, ir].every(Number.isFinite) || r <= 0 || ir <= 0) return null
-    const d = hint.kind === 'ring' ? ringPath(cx, cy, r, icx, icy, ir) : crescentPath(cx, cy, r, icx, icy, ir)
+    // The engine only recognises crescents and rings among flat-filled layers (never a gradient
+    // paint), so unlike circles and ellipses there is no gradient to carry along when they move.
+    const d = hint.kind === 'ring'
+      ? ringPath(cx, cy, r, icx, icy, ir, ringMinBand(ringBand(hint.cx ?? 0, hint.cy ?? 0, hint.r ?? 0, hint.innerCx ?? 0, hint.innerCy ?? 0, hint.innerR ?? 0)))
+      : crescentPath(cx, cy, r, icx, icy, ir)
     if (!d) return null // a crescent whose circles no longer cross, a ring whose hole leaves the disc
     tag = tag.replace(/\bd="[^"]*"/, `d="${d}"`)
     next = { ...next, cx, cy, r, innerCx: icx, innerCy: icy, innerR: ir, bounds: ellipseBounds(cx, cy, r, r, 0) }
