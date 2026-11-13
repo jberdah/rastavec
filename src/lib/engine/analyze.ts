@@ -83,7 +83,7 @@ export function analyze(img: RGBAImage): Analysis {
   const total = w * h
   // Sample at most ~1M pixels with a fixed stride (deterministic).
   const stride = Math.max(1, Math.floor(Math.sqrt(total / 1_000_000)))
-  let n = 0, transparent = 0, soft = 0, visible = 0, colored = 0, boundary = 0, fringe = 0, pairs = 0, smooth = 0, gray = 0
+  let n = 0, transparent = 0, soft = 0, partial = 0, visible = 0, colored = 0, boundary = 0, fringe = 0, pairs = 0, smooth = 0, gray = 0
   const bins = new Map<number, number>()
   const vis = (x: number, y: number) => d[(y * w + x) * 4 + 3] >= 128
   for (let y = 0; y < h; y += stride) {
@@ -93,6 +93,7 @@ export function analyze(img: RGBAImage): Analysis {
       n++
       if (a < 8) transparent++
       else if (a < 240) soft++
+      if (a > 0 && a < 255) partial++
       if (a < 8) continue
       colored++
       const r = d[i], g = d[i + 1], b = d[i + 2]
@@ -140,10 +141,18 @@ export function analyze(img: RGBAImage): Analysis {
   else alpha = softPct > 0.5 && (!(boundary + fringe) || soft / (boundary + fringe) > 2.5) ? 'soft' : 'edges'
 
   const long = Math.max(w, h)
+  // Native pixel art: a small sprite cut out with binary alpha, possibly enlarged by a whole
+  // factor, and hard-edged inside too. Shaded sprites have many small colour steps, so the
+  // gradient test below misses them; anti-aliased icons have partially transparent edge pixels,
+  // or (alpha thresholded to 0/255) anti-aliasing mixes between their flat colours.
+  const sprite = transparent > 0 && partial === 0 && dominant <= 64
+    && (long <= 64 || long / pixelBlockSize(img) <= 64) && hardEdged(img)
   let kind: ImageKind
   if (grayscale && dominant <= 3 && (alpha === 'opaque' || thin)) kind = 'line'
   else if (dominant <= 2 && thin) kind = 'line'
-  else if (long <= 160 && gradient < 0.04 && dominant <= 48) kind = 'pixel'
+  else if (sprite) kind = 'pixel'
+  // Anti-aliased or glowing edges are not pixel art, however few colours the image has.
+  else if (long <= 160 && gradient < 0.04 && dominant <= 48 && alpha !== 'edges' && alpha !== 'soft' && hardEdged(img)) kind = 'pixel'
   else if (gradient > 0.45 || dominant > 400) kind = 'photo' // detailed illustrations reach 100-200 colours
   else if (dominant <= 12 && gradient < 0.12) kind = 'flat'
   // Two or three colors cannot be shading: what looks like gentle steps is antialiasing on a
@@ -152,6 +161,77 @@ export function analyze(img: RGBAImage): Analysis {
   else kind = 'shaded'
 
   return { width: w, height: h, kind, alpha, transparentPct, softPct, dominantColors: dominant, gradient, smoothRamps, grayscale }
+}
+
+/**
+ * Side of the uniform square blocks an image is made of: 4 for pixel art enlarged 4x with
+ * nearest-neighbour scaling, 1 for anything else. Colour changes must fall on one grid, which
+ * may be offset (padding around the enlarged sprite).
+ */
+export function pixelBlockSize(img: RGBAImage): number {
+  const { data: d, width: w, height: h } = img
+  const gcd = (a: number, b: number): number => (b ? gcd(b, a % b) : a)
+  const same = (i: number, j: number) => d[i] === d[j] && d[i + 1] === d[j + 1] && d[i + 2] === d[j + 2] && d[i + 3] === d[j + 3]
+  // Gaps between consecutive colour changes along each row and each column.
+  let size = 0
+  const lastInColumn = new Int32Array(w).fill(-1)
+  for (let y = 0; y < h && size !== 1; y++) {
+    let lastInRow = -1
+    for (let x = 0; x < w && size !== 1; x++) {
+      const i = (y * w + x) * 4
+      if (x > 0 && !same(i, i - 4)) { if (lastInRow >= 0) size = gcd(size, x - lastInRow); lastInRow = x }
+      if (y > 0 && !same(i, i - w * 4)) { if (lastInColumn[x] >= 0) size = gcd(size, y - lastInColumn[x]); lastInColumn[x] = y }
+    }
+  }
+  return Math.max(1, size)
+}
+
+/** Share of the opaque pixels a source must mix from two flat neighbours to count as anti-aliased. */
+const ANTIALIAS_MIX_SHARE = 0.01
+
+/**
+ * True when the image has (almost) no anti-aliasing between its flat colours. An anti-aliased
+ * edge pixel is a precise mix of two frequent neighbouring colours and is rarer than both. Pixel
+ * art shading ramps also sit between their neighbours, but their tones are as frequent as the
+ * colours around them or come from a noisy palette, so they rarely match all three conditions.
+ * Unlike analyzeAntialiasing (antialias-resolve.ts), which only has to split pixels that are
+ * mixes and so accepts looser fits (residual 12, alpha, two-pixel ramps), this decides what the
+ * image is: it must not mistake shading for anti-aliasing, hence the strict fit (residual 6),
+ * opaque pixels only and the frequency conditions.
+ */
+export function hardEdged(img: RGBAImage): boolean {
+  const { data: d, width: w, height: h } = img
+  const count = new Map<number, number>()
+  const key = (i: number) => (d[i] << 16) | (d[i + 1] << 8) | d[i + 2]
+  let opaque = 0
+  for (let i = 0; i < d.length; i += 4) if (d[i + 3] === 255) { opaque++; count.set(key(i), (count.get(key(i)) ?? 0) + 1) }
+  // Colours that cover at least this many pixels count as flat areas.
+  const FREQUENT = 16
+  const pairs = [[-1, 0], [0, -1], [-1, -1], [1, -1]]
+  let mixes = 0
+  for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
+    const p = (y * w + x) * 4
+    if (d[p + 3] !== 255) continue
+    const own = count.get(key(p))!
+    for (const [dx, dy] of pairs) {
+      const a = ((y + dy) * w + x + dx) * 4, b = ((y - dy) * w + x - dx) * 4
+      if (d[a + 3] !== 255 || d[b + 3] !== 255) continue
+      const na = count.get(key(a))!, nb = count.get(key(b))!
+      if (na < FREQUENT || nb < FREQUENT || own >= Math.min(na, nb)) continue
+      let contrast = 0, dot = 0, norm = 0
+      for (let c = 0; c < 3; c++) {
+        const e = d[b + c] - d[a + c]
+        contrast = Math.max(contrast, Math.abs(e)); dot += (d[p + c] - d[a + c]) * e; norm += e * e
+      }
+      if (contrast < 64) continue
+      const t = dot / norm
+      if (t <= 0.1 || t >= 0.9) continue
+      let residual = 0
+      for (let c = 0; c < 3; c++) residual = Math.max(residual, Math.abs(d[a + c] + t * (d[b + c] - d[a + c]) - d[p + c]))
+      if (residual <= 6) { mixes++; break }
+    }
+  }
+  return mixes < opaque * ANTIALIAS_MIX_SHARE
 }
 
 /** Recommended parameters for an analysed image, with a short justification. */

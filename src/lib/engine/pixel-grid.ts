@@ -3,8 +3,18 @@ import type { RGBAImage } from './core'
 /** Hard limits for a bounded, editable pixel-grid candidate. */
 const MAX_PIXELS = 16384
 const MAX_SIDE = 128
+/** Default colour limit: beyond it, a small raster is rarely pixel art. */
 const MAX_COLORS = 256
 const MAX_SEGMENTS = 8192
+
+export interface PixelGridOptions {
+  /** Colour limit. Shaded sprites use many near shades (a 32 x 32 wizard has 274): callers
+   *  that know the image is pixel art may raise it; size stays bounded by the other limits. */
+  maxColors?: number
+  /** Side of the image's uniform blocks (pixel art enlarged by a whole factor): the side and
+   *  pixel limits apply to the blocks, since runs merge whole blocks anyway. */
+  blockSize?: number
+}
 
 /**
  * Return an exact per-pixel vector, or null when it would be too complex.
@@ -12,9 +22,11 @@ const MAX_SEGMENTS = 8192
  * Transparent pixels do not need shapes. Groups retain opacity so palette editing
  * can still address the inner, ordinary filled paths.
  */
-export function tracePixelGrid(src: RGBAImage): string | null {
+export function tracePixelGrid(src: RGBAImage, options: PixelGridOptions = {}): string | null {
   const { width: w, height: h, data } = src
-  if (w < 1 || h < 1 || w > MAX_SIDE || h > MAX_SIDE || w * h > MAX_PIXELS || data.length !== w * h * 4) return null
+  const maxColors = options.maxColors ?? MAX_COLORS
+  const block = Math.max(1, Math.floor(options.blockSize ?? 1))
+  if (w < 1 || h < 1 || w > MAX_SIDE * block || h > MAX_SIDE * block || w * h > MAX_PIXELS * block * block || data.length !== w * h * 4) return null
   type Run = { x: number; y: number; w: number; h: number; rgba: string }
   const completed: Run[] = []
   let active = new Map<string, Run>()
@@ -27,7 +39,7 @@ export function tracePixelGrid(src: RGBAImage): string | null {
       if (data[i + 3] === 0) { x++; continue }
       const rgba = Array.from(data.subarray(i, i + 4), (v) => v.toString(16).padStart(2, '0')).join('')
       colors.add(rgba)
-      if (colors.size > MAX_COLORS) return null
+      if (colors.size > maxColors) return null
       const start = x++
       while (x < w) {
         const j = (y * w + x) * 4

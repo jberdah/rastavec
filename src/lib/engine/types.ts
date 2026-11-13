@@ -37,6 +37,8 @@ export interface TraceParams {
   softColor: boolean
   /** Re-encode paths compactly (relative coordinates, baked translate, short numbers). Visually lossless. */
   compactPaths: boolean
+  /** Let the engine replace verified circles by exact shapes (color traces). Missing means on. */
+  detectShapes?: boolean
 }
 
 export interface Metrics {
@@ -97,7 +99,7 @@ export interface Trial {
   /** Integer nearest-neighbour enlargement used before tracing (1 = original size). */
   traceScale?: number
   /** Identifies post-trace output variants such as pixel-grid or source-guided color correction. */
-  traceMethod?: 'pixel-grid' | 'experimental-gradients' | 'simple-gradients' | 'fill-calibrated' | 'palette-calibrated' | 'paths-merged' | 'shapes-edited'
+  traceMethod?: 'pixel-grid' | 'experimental-gradients' | 'simple-gradients' | 'fill-calibrated' | 'palette-calibrated' | 'paths-merged' | 'shapes-edited' | 'antialias-resolved'
   params: TraceParams
   svg: string
   /** Listed for comparison but never chosen automatically (see `choose`). */
