@@ -465,7 +465,8 @@
                     {@const hs = 9 * unitsPerPx}
                     <g transform={`rotate(${g.rotation} ${g.cx} ${g.cy})`}>
                       <rect class="frame" x={g.cx - g.rx} y={g.cy - g.ry} width={g.rx * 2} height={g.ry * 2} />
-                      {#if selectedEntry.capabilities.geometry}
+                      <!-- A move-only shape (a glow is cut to it) gets no resize or rotate handles. -->
+                      {#if selectedEntry.capabilities.geometry && !selectedEntry.capabilities.moveOnly}
                         {#if hint.kind === 'ellipse'}
                           <line class="frame" x1={g.cx} y1={g.cy - g.ry} x2={g.cx} y2={g.cy - g.ry - 26 * unitsPerPx} />
                           <circle class="handle" cx={g.cx} cy={g.cy - g.ry - 26 * unitsPerPx} r={hs * 0.6} />
@@ -483,7 +484,7 @@
                         {/each}
                       {/if}
                     </g>
-                    {#if (hint.kind === 'crescent' || hint.kind === 'ring') && selectedEntry.capabilities.geometry}
+                    {#if (hint.kind === 'crescent' || hint.kind === 'ring') && selectedEntry.capabilities.geometry && !selectedEntry.capabilities.moveOnly}
                       <!-- The disc taken out of the crescent or ring: drag its centre to move it, its rim grip to resize it. -->
                       <circle class="frame inner" cx={g.icx} cy={g.icy} r={g.ir} />
                       <circle class="handle" cx={g.icx} cy={g.icy} r={hs * 0.55} />

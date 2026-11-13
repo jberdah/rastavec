@@ -5,7 +5,7 @@ import { createRequire } from 'node:module'
 const sharp = createRequire(new URL('../cli/package.json', import.meta.url))('sharp')
 const { buildSync } = createRequire(new URL('../cli/package.json', import.meta.url))('esbuild')
 const bundled = buildSync({ stdin: { contents: `export * from './src/lib/engine/shape-edits'; export { analyzeShapes, applyFilters, DEFAULT_FILTERS } from './src/lib/engine/palette'`, resolveDir: process.cwd(), loader: 'ts' }, bundle: true, write: false, format: 'esm', platform: 'node' }).outputFiles[0].text
-const { editShape, ellipsePath, crescentPath, ringPath, keepRing, shapeCapabilities, analyzeShapes, applyFilters, DEFAULT_FILTERS } = await import(`data:text/javascript;base64,${Buffer.from(bundled).toString('base64')}`)
+const { editShape, ellipsePath, crescentPath, ringPath, keepRing, translatePath, shapeCapabilities, analyzeShapes, applyFilters, DEFAULT_FILTERS } = await import(`data:text/javascript;base64,${Buffer.from(bundled).toString('base64')}`)
 
 // Engine-style output: a background, a flat circle, a gradient-painted ellipse with one overlay.
 const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="120" viewBox="0 0 200 120">
@@ -36,8 +36,9 @@ const pixel = async (markup, x, y) => {
 
 test('capabilities say what each hinted shape allows', () => {
   assert.deepEqual(shapeCapabilities(svg, hints, 1), { geometry: true, fill: '#dc3c32' })
-  // The ellipse carries an overlay cut to its shape, so only its colours can change.
-  assert.deepEqual(shapeCapabilities(svg, hints, 2), { geometry: false, stops: ['#ff0000', '#0000ff'] })
+  // The ellipse carries a glow cut to its shape: the glow follows it when it moves, but a resized
+  // or turned ellipse would leave it sticking out.
+  assert.deepEqual(shapeCapabilities(svg, hints, 2), { geometry: true, moveOnly: true, stops: ['#ff0000', '#0000ff'] })
   assert.deepEqual(shapeCapabilities(svg, hints, 3), { geometry: false, stops: ['#ffffff', '#ffffff'] })
   assert.equal(shapeCapabilities(svg, hints, 0), null, 'an unhinted path is not editable here')
 })
@@ -62,7 +63,9 @@ test('gradient stops are recoloured one by one, and refused geometry leaves the 
   assert.match(recoloured.svg, /stop-opacity="0"/, 'the overlay gradient is untouched')
   const right = await pixel(recoloured.svg, 185, 60)
   assert.ok(right[1] > 200 && right[2] < 60, `the far end turned green: ${right}`)
-  assert.equal(editShape(svg, hints, 2, { cx: 120 }), null, 'geometry is refused while an overlay depends on the shape')
+  assert.equal(editShape(svg, hints, 2, { rx: 30 }), null, 'reshaping is refused while a glow is cut to the shape')
+  assert.equal(editShape(svg, hints, 2, { cx: 140, rotation: 20 }), null)
+  assert.equal(editShape(svg, hints, 2, { cx: 140, rx: 40 }).hints[1].cx, 140, 'restating the current size is a move')
   assert.equal(editShape(svg, hints, 1, { r: -3 }), null)
   assert.equal(editShape(svg, hints, 1, { fill: 'red' }), null)
   assert.equal(editShape(svg, hints, 9, { fill: '#000000' }), null)
@@ -229,3 +232,90 @@ test('ring gestures clamp to the band floor, never past the starting value', () 
   assert.ok(Math.abs(stuck.icx - 100) < 1e-9, JSON.stringify(stuck))
   assert.deepEqual(keepRing({ ...usual, cx: 140, icx: 140 }, usual, 'move'), { ...usual, cx: 140, icx: 140 })
 })
+
+test('path data is moved number by number, keeping its text otherwise', () => {
+  assert.equal(translatePath('M140,50H160V70H140Z', 10, -5), 'M150,45H170V65H150Z')
+  assert.equal(translatePath('m10 20c1 2 3 4 5 6l-3-4ZM5,5L6,6z', 1, 1), 'm11 21c1 2 3 4 5 6l-3-4ZM6,6L7,7z', 'relative coordinates follow; a first relative move is absolute')
+  assert.equal(translatePath('M10-5L1.5.5', 10, 0), 'M20-5L11.5.5')
+  assert.equal(translatePath('M10-5L1.5.5', 0, 10), 'M10 5L1.5 10.5', 'a sign that served as separator is replaced by a space')
+  assert.equal(translatePath('M1.5.5', -1.5, 0), 'M0 .5', 'a number written right after stays apart')
+  assert.equal(translatePath('M0 0A5 5 0 0110 0', 2, 3), 'M2 3A5 5 0 01 12 3', 'arc flags and radii are left alone')
+  assert.equal(translatePath('M1 1Q2 2 3 3T5 5S6 6 7 7', 1, 0), 'M2 1Q3 2 4 3T6 5S7 6 8 7')
+  for (const bad of ['10 10', 'M10', 'M1 1X2 2', 'Z1 1']) assert.equal(translatePath(bad, 1, 1), null, bad)
+  assert.equal(translatePath('M140,50H160V70H140Z', 0, 0), 'M140,50H160V70H140Z')
+})
+
+test('a glow follows the shape it is cut to when the shape moves', async () => {
+  const moved = editShape(svg, hints, 2, { cx: 130, cy: 70 })
+  assert.ok(moved)
+  assert.match(moved.svg, /<path d="M120,60H140V80H120Z" fill="url\(#vtracer-gradient-3\)"\/>/)
+  assert.match(moved.svg, /<radialGradient id="vtracer-gradient-3"[^>]*cx="130" cy="70"/)
+  assert.deepEqual(moved.hints[2].bounds, [120, 60, 140, 80])
+  assert.equal(moved.hints[2].overlayOf, 2)
+  const back = editShape(moved.svg, moved.hints, 2, { cx: 150, cy: 60 })
+  assert.equal(back.svg, svg, 'moving back restores the document byte for byte')
+  assert.deepEqual(back.hints, hints)
+})
+
+// A crescent moon with two residual pieces in its colour painted right above it (a figure sitting on
+// it and a tip), as the engine reports them: overlays of the crescent.
+const moonSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">
+<path d="M0,0H200V200H0Z" fill="#fafaf5"/>
+<path d="${crescentPath(100, 100, 60, 125, 85, 50)}" fill="#25303e"/>
+<path d="M60,30h12v14h-12Z" fill="#25303e"/>
+<path d="M150,140L162,150L148,152Z" fill="#25303e"/>
+<path d="M180,180H190V190H180Z" fill="#c03030"/>
+</svg>`
+const moonHints = [
+  { index: 1, kind: 'crescent', cx: 100, cy: 100, r: 60, innerCx: 125, innerCy: 85, innerR: 50, bounds: [40, 40, 160, 160] },
+  { index: 2, kind: 'path', overlayOf: 1, bounds: [60, 30, 72, 44] },
+  { index: 3, kind: 'path', overlayOf: 1, bounds: [148, 140, 162, 152] },
+]
+
+test('the residual pieces of a crescent move with it, and stay put relative to its centre when it is reshaped', async () => {
+  assert.deepEqual(shapeCapabilities(moonSvg, moonHints, 1), { geometry: true, fill: '#25303e' }, 'solid pieces do not stop reshaping')
+  const moved = editShape(moonSvg, moonHints, 1, { cx: 80, cy: 110 })
+  assert.ok(moved)
+  assert.match(moved.svg, /<path d="M40,40h12v14h-12Z" fill="#25303e"\/>/)
+  assert.match(moved.svg, /<path d="M130,150L142,160L128,162Z" fill="#25303e"\/>/)
+  assert.match(moved.svg, /<path d="M180,180H190V190H180Z" fill="#c03030"\/>/, 'other paths stay')
+  assert.deepEqual(moved.hints.map((hint) => hint.bounds), [[20, 50, 140, 170], [40, 40, 52, 54], [128, 150, 142, 162]])
+  assert.deepEqual(await pixel(moved.svg, 46, 47), [37, 48, 62], 'the figure is painted at its new place')
+  assert.deepEqual(await pixel(moved.svg, 70, 33), [250, 250, 245], 'and gone from the old one')
+
+  // Inner circle and radius edits keep the centre: the pieces do not move.
+  const reshaped = editShape(moonSvg, moonHints, 1, { innerCx: 120, innerR: 48, r: 62 })
+  assert.ok(reshaped)
+  assert.ok(reshaped.svg.includes('<path d="M60,30h12v14h-12Z"') && reshaped.svg.includes('<path d="M150,140L162,150L148,152Z"'))
+  assert.deepEqual(reshaped.hints.slice(1), moonHints.slice(1))
+  // Reshaped and moved: the pieces follow the centre only, unscaled.
+  const both = editShape(moonSvg, moonHints, 1, { cx: 105, r: 70 })
+  assert.ok(both.svg.includes('<path d="M65,30h12v14h-12Z"'))
+
+  // Undo: moving back restores the document and the hints exactly.
+  const back = editShape(moved.svg, moved.hints, 1, { cx: 100, cy: 100 })
+  assert.equal(back.svg, moonSvg)
+  assert.deepEqual(back.hints, moonHints)
+})
+
+test('a crescent moved with its pieces still groups with them for animation', async () => {
+  const groupsBundle = buildSync({ stdin: { contents: `export { groupsFromShapes } from './src/lib/engine/shape-groups'`, resolveDir: process.cwd(), loader: 'ts' }, bundle: true, write: false, format: 'esm', platform: 'node' }).outputFiles[0].text
+  const { groupsFromShapes } = await import(`data:text/javascript;base64,${Buffer.from(groupsBundle).toString('base64')}`)
+  const before = groupsFromShapes(moonSvg, moonHints, (hint, ordinal) => `${hint.kind} ${ordinal}`)
+  const moved = editShape(moonSvg, moonHints, 1, { cx: 80, cy: 110 })
+  const after = groupsFromShapes(moved.svg, moved.hints, (hint, ordinal) => `${hint.kind} ${ordinal}`)
+  assert.ok(before && after)
+  assert.deepEqual(after.groups.map((group) => group.pathIndices), before.groups.map((group) => group.pathIndices))
+  assert.deepEqual(after.groups[0].pathIndices, [1, 2, 3], 'the crescent and both pieces')
+  assert.deepEqual(after.groups[0].pivot, [80, 110])
+  assert.deepEqual(after.groups[0].bounds, before.groups[0].bounds.map((value, at) => value + (at % 2 ? 10 : -20)))
+  assert.equal(after.svg.replace(/<g id="rastavec-shape-\d+" data-rastavec-group="shape" data-rastavec-level="0">|<\/g>/g, ''), moved.svg)
+})
+
+test('a shape whose overlay cannot follow keeps its geometry locked', () => {
+  const shared = moonHints.map((hint) => hint.index === 2 ? { ...hint, gradient: { id: 'g', type: 'linear', stops: 2, opaque: false } } : hint)
+    .concat([{ index: 4, kind: 'path', gradient: { id: 'g', type: 'linear', stops: 2, opaque: true }, bounds: [180, 180, 190, 190] }])
+  assert.equal(shapeCapabilities(moonSvg, shared, 1).geometry, false, 'its gradient is shared with another path')
+  assert.equal(editShape(moonSvg, shared, 1, { cx: 90 }), null)
+})
+
