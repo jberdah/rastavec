@@ -123,9 +123,14 @@ const analysisJson = (a: Analysis) => ({
   alpha: a.alpha,
   dominantColors: a.dominantColors,
   gradient: r4(a.gradient),
+  smoothRamps: r4(a.smoothRamps),
   transparentPct: r4(a.transparentPct),
   softPct: r4(a.softPct),
   grayscale: a.grayscale,
+  // JPEG artifacts or noise detected in the file (detection only).
+  ...(a.degradation ? { degradation: { ringing: r4(a.degradation.ringing), grain: r4(a.degradation.grain), blocks: r4(a.degradation.blocks), sigma: r4(a.degradation.sigma), reach: r4(a.degradation.reach) } } : {}),
+  // Auto traced a cleaned copy: the analysis then describes that copy. Metrics stay against the file.
+  ...(a.cleanup ? { cleaned: true } : {}),
 })
 
 // ------------------------------------------------------------------ commands

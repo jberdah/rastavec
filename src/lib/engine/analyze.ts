@@ -1,5 +1,6 @@
 // Deterministic image analysis -> recommended tracing parameters. Pure TS, no DOM.
 import type { RGBAImage } from './core'
+import { measureDegradation, restorable, restoreArtwork, stillRippled, type Degradation } from './degradation'
 import { DEFAULT_PARAMS } from './presets'
 import { shrink } from './shrink'
 import type { TraceParams } from './types'
@@ -25,6 +26,11 @@ export interface Analysis {
    *  steps are too small for `gradient` to see. */
   smoothRamps: number
   grayscale: boolean
+  /** JPEG artifacts or noise found in the image (null: looked for, none). Detection only. */
+  degradation?: Degradation | null
+  /** Set by Auto when it traced a cleaned copy (see `cleanSource`): everything above then
+   *  describes that copy. */
+  cleanup?: Degradation
 }
 
 // A ramp is RAMP_RUN opaque pixels in a row or column, each step at most RAMP_STEP (no edge),
@@ -76,9 +82,42 @@ function smoothRampShare(img: RGBAImage): number {
 }
 
 /** Why Auto picked its parameters (language-neutral; rendered by the UI). */
-export type NoteCode = 'flat' | 'shaded' | 'line-binary' | 'line-color' | 'pixel' | 'photo' | 'soft' | 'edges'
+export type NoteCode = 'flat' | 'shaded' | 'line-binary' | 'line-color' | 'pixel' | 'photo' | 'soft' | 'edges' | 'cleaned' | 'uncleaned'
 
+/**
+ * The image without its JPEG artifacts or noise, with its analysis, when `degradation` (from
+ * `analyze`) is that of artwork; null for photos and textures, which the clean-up leaves rippled
+ * or many-coloured and which are traced as they are, and for images too large to clean. Costly
+ * (seconds on a large image): Auto runs it once per trace, off the UI thread, and keeps nothing.
+ * `pause` is awaited regularly and may throw to cancel.
+ */
+export async function cleanSource(img: RGBAImage, degradation: Degradation, pause?: () => Promise<void>): Promise<{ image: RGBAImage; analysis: Analysis } | null> {
+  if (!restorable(img, degradation)) return null
+  const image = await restoreArtwork(img, degradation, pause)
+  const analysis = describe(image)
+  if (analysis.kind === 'photo' || photographic(analysis) || stillRippled(image)) return null
+  return { image, analysis: { ...analysis, degradation, cleanup: degradation } }
+}
+
+/**
+ * Many colours and smooth ramps together: a photograph (or a rendered scene), whatever its
+ * artifacts. JPEG photos keep 39 colours or more with ramps over 0.34 of their area, before and
+ * after a clean-up; artwork has either few colours (34 at most for a detailed spiral, with no
+ * ramps) or, for gradients, 21 at most. Such images are traced as they are: cleaning them only
+ * moved their trace away from the file (0.97 % to 1.30 % on a landscape).
+ */
+export const PHOTO_COLOURS = 32, PHOTO_RAMPS = 0.3
+export const photographic = (a: Analysis) => a.dominantColors > PHOTO_COLOURS && a.smoothRamps > PHOTO_RAMPS
+
+/**
+ * Analysis of the image as given. JPEG artifacts or noise are only detected here (cheap);
+ * Auto cleans the image when it traces it and then reports the analysis of the cleaned copy.
+ */
 export function analyze(img: RGBAImage): Analysis {
+  return { ...describe(img), degradation: measureDegradation(img) }
+}
+
+function describe(img: RGBAImage): Analysis {
   const { data: d, width: w, height: h } = img
   const total = w * h
   // Sample at most ~1M pixels with a fixed stride (deterministic).
@@ -287,5 +326,6 @@ export function recommend(a: Analysis): { params: TraceParams; notes: NoteCode[]
     p.softLayers = 0
     if (a.alpha === 'edges') notes.push('edges')
   }
+  if (a.cleanup) notes.push('cleaned')
   return { params: p, notes }
 }

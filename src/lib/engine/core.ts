@@ -314,7 +314,37 @@ export function falseEdgePct(a: RGBAImage, b: RGBAImage): number {
   return (100 * falseEdges) / Math.max(1, a.width * a.height)
 }
 
+// What a source draws: its pixels further than the visibility threshold from its most common
+// colour, both seen on white. Kept with the source, which is measured against many renders.
+const inkCache = new WeakMap<Uint8ClampedArray, { paper: [number, number, number]; count: number }>()
+const onWhite = (data: Uint8ClampedArray, i: number, c: number) => (data[i + c] * data[i + 3] + 255 * (255 - data[i + 3])) / 255
+const offPaper = (data: Uint8ClampedArray, i: number, paper: [number, number, number]) =>
+  Math.abs(onWhite(data, i, 0) - paper[0]) > DIFF_THRESHOLD || Math.abs(onWhite(data, i, 1) - paper[1]) > DIFF_THRESHOLD || Math.abs(onWhite(data, i, 2) - paper[2]) > DIFF_THRESHOLD
+function sourceInk(a: RGBAImage) {
+  const cached = inkCache.get(a.data)
+  if (cached) return cached
+  const bins = new Map<number, number>()
+  let best = 0, bestCount = 0
+  for (let i = 0; i < a.data.length; i += 4) {
+    const k = ((onWhite(a.data, i, 0) >> 4) << 8) | ((onWhite(a.data, i, 1) >> 4) << 4) | (onWhite(a.data, i, 2) >> 4)
+    const n = (bins.get(k) ?? 0) + 1
+    bins.set(k, n)
+    if (n > bestCount) { best = k; bestCount = n }
+  }
+  const paper: [number, number, number] = [((best >> 8) & 15) * 16 + 8, ((best >> 4) & 15) * 16 + 8, (best & 15) * 16 + 8]
+  let count = 0
+  for (let i = 0; i < a.data.length; i += 4) if (offPaper(a.data, i, paper)) count++
+  const ink = { paper, count }
+  inkCache.set(a.data, ink)
+  return ink
+}
+
+/** Least share of the drawn pixels kept by the best-keeping result that another must keep to be chosen. */
+export const MIN_INK_KEPT = 0.5
+
 export function computeMetrics(a: RGBAImage, b: RGBAImage, svg: string): Metrics {
+  const ink = sourceInk(a)
+  let drawn = 0
   const pixels = a.width * a.height
   const A = a.data, B = b.data
   const edge = sourceEdgeMask(a)
@@ -333,6 +363,7 @@ export function computeMetrics(a: RGBAImage, b: RGBAImage, svg: string): Metrics
       if (dw > worst) worst = dw
       if (dd > worst) worst = dd
     }
+    if (ink.count && offPaper(B, i, ink.paper)) drawn++
     if (worst > DIFF_THRESHOLD) {
       big++
       const p = i / 4
@@ -349,6 +380,8 @@ export function computeMetrics(a: RGBAImage, b: RGBAImage, svg: string): Metrics
     pctDiff: (100 * big) / pixels,
     edgePctDiff: edge.count ? (100 * edgeVisible) / edge.count : undefined,
     falseEdgePct: falseEdgePct(a, b),
+    // Under 0.1 % of drawn pixels the ratio means nothing.
+    ...(ink.count >= pixels * 0.001 ? { inkKept: drawn / ink.count } : {}),
     bytes: new TextEncoder().encode(svg).length,
     paths: (svg.match(/<path\b/g) || []).length,
     embeddedRaster: /<image\b/i.test(svg),
@@ -582,6 +615,14 @@ export function choose(
   // Trials kept only for comparison never win while another trial exists.
   let idx = trials.map((_, i) => i)
   if (idx.some((i) => !trials[i].comparisonOnly)) idx = idx.filter((i) => !trials[i].comparisonOnly)
+  // A result that lost most of what the source draws (an empty SVG at worst) can score as well
+  // as a real one where every drawn pixel is an edge pixel, small text for instance: both are
+  // "different" nearly everywhere. It never wins while another result kept twice as much of it.
+  // Capped at the whole drawing: a result that draws too much (2.2 times the source for a
+  // bloated trace) is not the measure of what a faithful one should keep.
+  const kept = (i: number) => Math.min(1, trials[i].metrics.inkKept ?? 1)
+  const most = Math.max(...idx.map(kept))
+  idx = idx.filter((i) => kept(i) >= most * MIN_INK_KEPT)
   if (options.preferExactPixelGrid
     && trials.some((trial) => trial.traceMethod === 'pixel-grid' && isExact(trial.metrics)
       && (maxBytes <= 0 || trial.metrics.bytes <= maxBytes))) {

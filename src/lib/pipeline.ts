@@ -210,6 +210,9 @@ async function processItem(item: Item, settings: VectorizeSettings, traceEngine:
       analysis: item.analysis,
       onProgress: progress,
       shouldCancel: () => app.cancelRequested,
+      // On the UI thread (no worker, or a worker that failed): let the page breathe between
+      // trials and during the clean-up of a JPEG or noisy image, and see a cancel request.
+      yieldControl: () => new Promise<void>((resolve) => setTimeout(resolve, 0)),
     })
     let res: VectorizeResult
     if (workerPool) {
