@@ -349,6 +349,9 @@ const fr = {
   'edit.redo': 'Rétablir (Ctrl+Maj+Z)',
   'edit.noShapes': 'Aucun cercle ni aucune ellipse n’a été reconnu dans ce tracé. Essayez le préréglage Auto ou une image plus nette.',
   'edit.groupHint': 'Regroupez les chemins voisins en objets à nommer, avec un pivot, pour les animer. RastaVec propose des groupes géométriques (proximité ou zones), éventuellement guidés par un masque : vérifiez chaque groupe avant de l’utiliser.',
+  'edit.groupsLost': (n: number) => `Cette modification a changé les chemins de l’image : ${n === 1 ? 'votre groupe ne s’applique' : `vos ${n} groupes ne s’appliquent`} plus et ${n === 1 ? 'est absent' : 'sont absents'} de l’export. Annulez (Ctrl+Z) pour ${n === 1 ? 'le' : 'les'} retrouver.`,
+  'edit.groupsLostElsewhere': (n: number) => `${n === 1 ? 'Une autre image a' : `${n} autres images ont`} aussi perdu ${n === 1 ? 'ses' : 'leurs'} groupes avec cette modification : ils ne sont plus exportés. Ouvrez ${n === 1 ? 'cette image' : 'chacune'} et annulez (Ctrl+Z) pour les retrouver.`,
+  'edit.groupsStale': (n: number) => `${n === 1 ? 'Votre groupe a été créé' : `Vos ${n} groupes ont été créés`} pour une autre version de cette image (couleurs, détails ou essai différents) et ${n === 1 ? 'n’est pas exporté' : 'ne sont pas exportés'}. Revenez à cette version (Annuler) pour ${n === 1 ? 'le' : 'les'} retrouver, ou proposez de nouveaux groupes.`,
   'edit.applyAll': (n: number) => `Appliquer aux ${n} images`,
   'edit.appliedCount': (n: number) => `Filtres actifs sur ${n} images, inclus dans l’export .zip.`,
 
@@ -687,6 +690,9 @@ const en: Record<Key, Msg> = {
   'edit.redo': 'Redo (Ctrl+Shift+Z)',
   'edit.noShapes': 'No circle or ellipse was recognised in this trace. Try the Auto preset or a sharper image.',
   'edit.groupHint': 'Gather nearby paths into named objects with a pivot, ready to animate. RastaVec suggests geometric groups (by proximity or region), optionally guided by a mask: review each group before using it.',
+  'edit.groupsLost': (n: number) => `This change altered the image’s paths, so ${n === 1 ? 'your group no longer applies and is' : `your ${n} groups no longer apply and are`} left out of the export. Undo (Ctrl+Z) to get ${n === 1 ? 'it' : 'them'} back.`,
+  'edit.groupsLostElsewhere': (n: number) => `${n === 1 ? 'One other image' : `${n} other images`} also lost ${n === 1 ? 'its' : 'their'} groups with this change: they are left out of the export. Open ${n === 1 ? 'it' : 'each one'} and undo (Ctrl+Z) to get them back.`,
+  'edit.groupsStale': (n: number) => `${n === 1 ? 'Your group was' : `Your ${n} groups were`} made for another version of this image (different colours, detail or trial) and ${n === 1 ? 'is' : 'are'} not exported. Go back to that version (Undo) to get ${n === 1 ? 'it' : 'them'} back, or suggest new groups.`,
   'edit.applyAll': (n: number) => `Apply to all ${n} images`,
   'edit.appliedCount': (n: number) => `Filters active on ${n} images, included in the .zip export.`,
 

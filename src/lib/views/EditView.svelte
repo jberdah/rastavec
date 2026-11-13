@@ -2,10 +2,10 @@
   import { untrack } from 'svelte'
   import { app, chosenTrial, clone, doneItems, go, outputMeasurementKey, outputMetrics } from '../store.svelte'
   import { DEFAULT_FILTERS, FILTER_PRESETS, MAX_COLOURS, isDefault, type FilterSettings, type PresetId } from '../engine/palette'
-  import { filtered } from '../edit'
+  import { appliedGrouping, filtered, keepingGroups } from '../edit'
   import { refreshOutputMetrics } from '../pipeline'
   import { downloadSvg } from '../export'
-  import type { EngineShapeHint, GroupingMetadata } from '../engine/types'
+  import type { EngineShapeHint, GroupingMetadata, Item } from '../engine/types'
   import { num, pct, size, t } from '../i18n.svelte'
   import GroupReview from './GroupReview.svelte'
   import ShapeEditor from './ShapeEditor.svelte'
@@ -33,16 +33,35 @@
   const settings = $derived<FilterSettings>(item?.edit && item.edit.trial === item.chosen ? item.edit.settings : DEFAULT_FILTERS)
   function update(patch: Partial<FilterSettings>) {
     if (!item) return
-    record(item, `filter:${Object.keys(patch).join(',')}`)
-    item.edit = { settings: { ...clone(settings), ...patch }, trial: item.chosen }
-    void refreshOutputMetrics(item)
+    const target = item
+    record(target, `filter:${Object.keys(patch).join(',')}`)
+    const next = { settings: { ...clone(settings), ...patch }, trial: target.chosen }
+    changeSvg(target, () => { target.edit = next })
   }
   function preset(id: PresetId) {
     if (!item) return
-    record(item, `preset:${id}`)
-    item.edit = { settings: { ...DEFAULT_FILTERS, ...FILTER_PRESETS[id] }, trial: item.chosen }
-    void refreshOutputMetrics(item)
+    const target = item
+    record(target, `preset:${id}`)
+    changeSvg(target, () => { target.edit = { settings: { ...DEFAULT_FILTERS, ...FILTER_PRESETS[id] }, trial: target.chosen } })
   }
+
+  // Groups follow every edit that keeps the image's paths (a moved shape, new colours). An edit
+  // that changes the paths themselves (Detail drops small shapes) cannot carry them: say so.
+  // One entry per image whose groups an edit could not carry (apply-to-all can hit several). An
+  // entry only shows while those groups still do not apply; undo / redo on that image clears it.
+  let groupsLost = $state<Record<string, number>>({})
+  function changeSvg<T>(target: Item, edit: () => T): T {
+    const { result, groupsKept } = keepingGroups(target, edit)
+    if (!groupsKept) groupsLost[target.id] = target.grouping?.groups.length ?? 0
+    else if (target.id in groupsLost && appliedGrouping(target)) delete groupsLost[target.id]
+    void refreshOutputMetrics(target)
+    return result
+  }
+  const groupsApplied = $derived(item ? appliedGrouping(item) : undefined)
+  const staleGroups = $derived(item && !groupsApplied ? item.grouping?.groups.length ?? 0 : 0)
+  const lostHere = $derived(!!item && item.id in groupsLost && staleGroups > 0)
+  // Other images of the batch that lost their groups (apply-to-all), so none loses them silently.
+  const lostElsewhere = $derived(list.filter((other) => other.id !== item?.id && other.id in groupsLost && !!other.grouping?.groups.length && !appliedGrouping(other)).length)
   const activePreset = $derived(
     (Object.keys(FILTER_PRESETS) as PresetId[]).find((id) => {
       const p = { ...DEFAULT_FILTERS, ...FILTER_PRESETS[id] }
@@ -78,19 +97,22 @@
 
   function editShape(index: number, patch: ShapePatch, key = `shape:${index}:${Object.keys(patch).join(',')}`) {
     if (!item) return
-    record(item, key)
+    const target = item
+    record(target, key)
     // A refused edit (e.g. a non-positive radius typed in a field) changes nothing: no step.
-    if (!applyShapeEdit(item, index, patch)) dropLastStep(item)
+    if (!changeSvg(target, () => applyShapeEdit(target, index, patch, { refresh: false }))) dropLastStep(target)
   }
   // Undo every shape edit: go back to the traced trial the edited variant came from.
   const canResetShapes = $derived(trial?.traceMethod === 'shapes-edited' && trial.sourceTrial !== undefined)
   function resetShapes() {
     if (!item || !trial || trial.sourceTrial === undefined) return
-    record(item, 'reset-shapes')
-    if (item.edit && item.edit.trial === item.chosen) item.edit = { ...item.edit, trial: trial.sourceTrial }
-    item.chosen = trial.sourceTrial
+    const target = item, sourceTrial = trial.sourceTrial
+    record(target, 'reset-shapes')
+    changeSvg(target, () => {
+      if (target.edit && target.edit.trial === target.chosen) target.edit = { ...target.edit, trial: sourceTrial }
+      target.chosen = sourceTrial
+    })
     selectedShape = null
-    void refreshOutputMetrics(item)
   }
   // Recognised shapes are known objects: offer them to the Animate screen as ready-made groups.
   // The hints index the trace's paths, so this needs the filtered SVG to keep every path.
@@ -306,8 +328,7 @@
     const s = clone(settings)
     for (const i of list) {
       record(i, 'apply-all')
-      i.edit = { settings: clone(s), trial: i.chosen }
-      void refreshOutputMetrics(i)
+      changeSvg(i, () => { i.edit = { settings: clone(s), trial: i.chosen } })
     }
   }
   const appliedCount = $derived(list.filter((i) => i.edit && i.edit.trial === i.chosen && !isDefault(i.edit.settings)).length)
@@ -315,8 +336,8 @@
   // Bumped on undo / redo: the groups panel keeps its own copy of the groups and is remounted
   // from the restored ones, otherwise its next action would push the undone state back.
   let restored = $state(0)
-  function doUndo() { cancelDrag(); if (item && undo(item)) { selectedShape = null; restored++ } }
-  function doRedo() { cancelDrag(); if (item && redo(item)) { selectedShape = null; restored++ } }
+  function doUndo() { cancelDrag(); if (item && undo(item)) { selectedShape = null; restored++; delete groupsLost[item.id] } }
+  function doRedo() { cancelDrag(); if (item && redo(item)) { selectedShape = null; restored++; delete groupsLost[item.id] } }
 
   // Keyboard: undo / redo, Escape to deselect, arrows to nudge the selected shape.
   function onKey(event: KeyboardEvent) {
@@ -403,11 +424,14 @@
     <div class="tabs" role="tablist" aria-label={t('edit.tabs')}>
       <button type="button" role="tab" aria-selected={tab === 'colours'} onclick={() => (tab = 'colours')}>{t('edit.tab.colours')}</button>
       <button type="button" role="tab" aria-selected={tab === 'shapes'} onclick={() => (tab = 'shapes')}>{t('edit.tab.shapes')} <span class="count">{entries.length}</span></button>
-      <button type="button" role="tab" aria-selected={tab === 'groups'} onclick={() => (tab = 'groups')}>{t('edit.tab.groups')}{#if item.grouping?.groups?.length}<span class="count">{item.grouping.groups.length}</span>{/if}</button>
+      <button type="button" role="tab" aria-selected={tab === 'groups'} onclick={() => (tab = 'groups')}>{t('edit.tab.groups')}{#if groupsApplied?.groups.length}<span class="count">{groupsApplied.groups.length}</span>{:else if staleGroups}<span class="count stale" title={t('edit.groupsStale', staleGroups)}>!</span>{/if}</button>
     </div>
+    {#if lostHere}<p class="notice small" role="status">{t('edit.groupsLost', groupsLost[item.id] || staleGroups)}</p>{/if}
+    {#if lostElsewhere}<p class="notice small" role="status">{t('edit.groupsLostElsewhere', lostElsewhere)}</p>{/if}
 
     {#if tab === 'groups'}
       <p class="muted small intro">{t('edit.groupHint')}</p>
+      {#if staleGroups && !lostHere}<p class="notice small" role="status">{t('edit.groupsStale', staleGroups)}</p>{/if}
       {#key restored}
       <GroupReview embedded svg={result.svg} name={item.name} grouping={item.grouping} sourceImage={{ url: item.srcUrl, width: item.width, height: item.height }} onGroupingChange={saveGrouping} />
       {/key}
@@ -596,6 +620,8 @@
   .tabs button[aria-selected='true'] { background: var(--accent); color: #0a0b0f; }
   .tabs .count { font-family: 'Geist Mono', monospace; font-size: 12px; padding: 1px 7px; border-radius: 999px; background: rgba(255, 255, 255, 0.12); }
   .tabs button[aria-selected='true'] .count { background: rgba(10, 11, 15, 0.18); }
+  .tabs .count.stale { color: var(--warn-text); background: var(--warn-bg); border: 1px solid var(--warn-line); }
+  .notice { margin: 0; padding: 8px 12px; border-radius: 10px; color: var(--warn-text); background: var(--warn-bg); border: 1px solid var(--warn-line); }
   .stagecol { flex: 999 1 600px; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
   @media (min-width: 1000px) { .stagecol { position: sticky; top: 96px; } }
   .toolbar { gap: 12px; }

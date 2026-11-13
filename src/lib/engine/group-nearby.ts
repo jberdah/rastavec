@@ -12,7 +12,18 @@ export type NearbyStrategy = 'proximity' | 'spatial'
 export interface NearbyResult { svg: string; groups: NearbyGroup[]; considered: number; skipped: number; limit?: 'path-count' | 'geometry-size' | 'geometry-work' | 'singleton-count' }
 
 /** Small deterministic fingerprint used to attach reviewed annotations to one exact SVG. */
+// The same SVG is fingerprinted several times per edit (export, measurement key, groups check):
+// remember the last few.
+const fingerprints = new Map<string, string>()
 export function svgFingerprint(svg: string): string {
+  const known = fingerprints.get(svg)
+  if (known !== undefined) return known
+  const value = computeFingerprint(svg)
+  fingerprints.set(svg, value)
+  if (fingerprints.size > 8) fingerprints.delete(fingerprints.keys().next().value!)
+  return value
+}
+function computeFingerprint(svg: string): string {
   let hash = 0x811c9dc5
   for (let i = 0; i < svg.length; i++) { hash ^= svg.charCodeAt(i); hash = Math.imul(hash, 0x01000193) }
   return (hash >>> 0).toString(16).padStart(8, '0')
@@ -26,7 +37,7 @@ const MAX_PATH_DATA = 100000
 const MAX_TOTAL_PATH_DATA = 1000000
 const MAX_GEOMETRY_TESTS = 2_000_000
 
-type Matrix = [number, number, number, number, number, number]
+export type Matrix = [number, number, number, number, number, number]
 function isAxisAlignedTransform(matrix: Matrix | null): matrix is Matrix {
   return !!matrix && Math.abs(matrix[1]) < 1e-9 && Math.abs(matrix[2]) < 1e-9
 }
@@ -81,6 +92,90 @@ function applyTransform(polygons: number[][], matrix: Matrix): number[][] {
   })
 }
 
+/** One `<path d="…"/>` of an SVG, in document order. `pathIndices` in grouping metadata index this list. */
+export type ParsedPath = { start: number; raw: string; d: string; fill: string | null; transform: Matrix | null; parentTransform: Matrix | null; protected: boolean; reorderSafe: boolean }
+
+/** Every self-closing `<path>` with a `d`, with the fill and transform it inherits. */
+export function parsePathTags(svg: string): ParsedPath[] {
+  // Read path styles and transforms through their ancestors. VTracer emits both flat paths
+  // and paths inside fill-bearing groups; ignoring inherited styles silently left whole
+  // presets (notably Pixel art) with zero animation groups.
+  const protectedTag = new Set(['defs', 'clippath', 'mask', 'symbol', 'pattern'])
+  const tag = /<!--[\s\S]*?-->|<\/?([A-Za-z][\w:.-]*)\b[^>]*>/g
+  type Context = { name: string; fill: string | null; transform: Matrix | null; reorderSafe: boolean; protected: boolean }
+  const unsafeReorderAttributes = new Set(['filter', 'marker-start', 'marker-mid', 'marker-end', 'mix-blend-mode', 'style', 'stroke'])
+  const identity: Matrix = [1, 0, 0, 1, 0, 0]
+  const attribute = /\b([A-Za-z][\w:.-]*)="([^"]*)"/g
+  const stack: Context[] = []
+  const matches: ParsedPath[] = []
+  for (const match of svg.matchAll(tag)) {
+    const full = match[0], rawName = match[1]
+    if (!rawName) continue
+    const name = rawName.toLowerCase()
+    if (full.charCodeAt(1) === 47 /* "/" */) {
+      for (let index = stack.length - 1; index >= 0; index--) if (stack[index].name === name) { stack.length = index; break }
+      continue
+    }
+    // Plain loop instead of building entries: this runs once per tag on every colour-slider tick.
+    let d: string | undefined, ownFill: string | undefined, ownTransformText: string | undefined, unsafe = false
+    attribute.lastIndex = 0
+    for (let found = attribute.exec(full); found; found = attribute.exec(full)) {
+      const key = found[1].toLowerCase()
+      if (key === 'd') { if (d === undefined) d = found[2] }
+      else if (key === 'fill') { if (ownFill === undefined) ownFill = found[2] }
+      else if (key === 'transform') { if (ownTransformText === undefined) ownTransformText = found[2] }
+      if (unsafeReorderAttributes.has(key)) unsafe = true
+    }
+    const parent = stack.at(-1)
+    const fill = (ownFill ?? parent?.fill ?? null)?.toLowerCase() ?? null
+    const reorderSafe = (parent?.reorderSafe ?? true) && !unsafe
+    const ownTransform = ownTransformText === undefined ? [...identity] as Matrix : parseTransform(` transform="${ownTransformText}"`)
+    const transform = parent?.transform === null ? null : parent?.transform ? ownTransform ? multiplyMatrix(parent.transform, ownTransform) : null : ownTransform
+    const isProtected = (parent?.protected ?? false) || protectedTag.has(name)
+    const selfClosing = full.endsWith('/>')
+    if (name === 'path' && d !== undefined && selfClosing) {
+      matches.push({ start: match.index!, raw: full, d, fill, transform, parentTransform: parent ? parent.transform : [...identity] as Matrix, protected: parent?.protected ?? false, reorderSafe })
+    }
+    if (!selfClosing) stack.push({ name, fill, transform, reorderSafe, protected: isProtected })
+  }
+  return matches
+}
+
+/** Resolves a path's fill to a solid `#rrggbb`; a gradient counts as its mean stop colour. */
+export function solidFillResolver(svg: string): (fill: string | null) => string | null {
+  // A path painted with a gradient is grouped under the gradient's mean stop colour,
+  // so gradient regions can be grouped, named and animated like flat ones.
+  const gradientFills = new Map<string, string>()
+  for (const gradient of svg.matchAll(/<(linearGradient|radialGradient)\b[^>]*\bid="([^"]+)"[^>]*>([\s\S]*?)<\/\1>/g)) {
+    const stops = [...gradient[3].matchAll(/\bstop-color="#([0-9a-fA-F]{6})"/g)].map((stop) => stop[1])
+    if (!stops.length) continue
+    const mean = [0, 2, 4].map((offset) => Math.round(stops.reduce((sum, hex) => sum + parseInt(hex.slice(offset, offset + 2), 16), 0) / stops.length))
+    gradientFills.set(gradient[2].toLowerCase(), `#${mean.map((value) => value.toString(16).padStart(2, '0')).join('')}`)
+  }
+  return (fill: string | null): string | null => {
+    if (!fill) return null
+    if (/^#[0-9a-f]{6}$/i.test(fill)) return fill.toLowerCase()
+    const reference = /^url\(#([^)]+)\)$/i.exec(fill)
+    return reference ? gradientFills.get(reference[1].toLowerCase()) ?? null : null
+  }
+}
+
+/** Axis-aligned bounds of flattened polygons (non-finite when there are no points). */
+export function polygonBounds(polygons: number[][]): Bounds {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
+  for (const poly of polygons) for (let i = 0; i + 1 < poly.length; i += 2) {
+    x0 = Math.min(x0, poly[i]); y0 = Math.min(y0, poly[i + 1]); x1 = Math.max(x1, poly[i]); y1 = Math.max(y1, poly[i + 1])
+  }
+  return [x0, y0, x1, y1]
+}
+
+/** Bounds of one parsed path as the grouping pass measures it, or null when it cannot be grouped. */
+export function pathBounds(path: ParsedPath): Bounds | null {
+  if (!isAxisAlignedTransform(path.transform)) return null
+  const box = polygonBounds(applyTransform(flattenPath(path.d), path.transform))
+  return box.every(Number.isFinite) && box[2] > box[0] && box[3] > box[1] ? box : null
+}
+
 /** Group nearby consecutive paths without reordering, altering or moving any path.
  * Bounds approximate curves, not semantic objects; artwork in defs/masks is never touched.
  * Non-RastaVec path syntax, rotated/skewed transforms and large background-like paths are skipped.
@@ -100,36 +195,7 @@ export function groupNearbyPaths(svg: string, options: { distance?: number; colo
   const includeSingletons = options.includeSingletons ?? false
   const strategy = options.strategy ?? 'proximity'
   if (!Number.isFinite(distance) || distance < 0 || distance > Math.min(width, height) * 0.1) return fallback()
-  // Read path styles and transforms through their ancestors. VTracer emits both flat paths
-  // and paths inside fill-bearing groups; ignoring inherited styles silently left whole
-  // presets (notably Pixel art) with zero animation groups.
-  const protectedTag = new Set(['defs', 'clippath', 'mask', 'symbol', 'pattern'])
-  const tag = /<!--[\s\S]*?-->|<\/?([A-Za-z][\w:.-]*)\b[^>]*>/g
-  type Context = { name: string; fill: string | null; transform: Matrix | null; reorderSafe: boolean }
-  type ParsedPath = { start: number; raw: string; d: string; fill: string | null; transform: Matrix | null; parentTransform: Matrix | null; protected: boolean; reorderSafe: boolean }
-  const unsafeReorderAttributes = new Set(['filter', 'marker-start', 'marker-mid', 'marker-end', 'mix-blend-mode', 'style', 'stroke'])
-  const stack: Context[] = []
-  const matches: ParsedPath[] = []
-  for (const match of svg.matchAll(tag)) {
-    const full = match[0], rawName = match[1]
-    if (!rawName) continue
-    const name = rawName.toLowerCase()
-    if (full.startsWith('</')) {
-      const index = stack.map((context) => context.name).lastIndexOf(name)
-      if (index >= 0) stack.length = index
-      continue
-    }
-    const attributes = Object.fromEntries([...full.matchAll(/\b([A-Za-z][\w:.-]*)="([^"]*)"/g)].map((attribute) => [attribute[1].toLowerCase(), attribute[2]]))
-    const parent = stack.at(-1)
-    const fill = (attributes.fill ?? parent?.fill ?? null)?.toLowerCase() ?? null
-    const reorderSafe = (parent?.reorderSafe ?? true) && !Object.keys(attributes).some((attribute) => unsafeReorderAttributes.has(attribute))
-    const ownTransform = parseTransform(attributes.transform === undefined ? '' : ` transform="${attributes.transform}"`)
-    const transform = parent?.transform === null ? null : parent?.transform ? ownTransform ? multiplyMatrix(parent.transform, ownTransform) : null : ownTransform
-    if (name === 'path' && attributes.d !== undefined && full.endsWith('/>')) {
-      matches.push({ start: match.index!, raw: full, d: attributes.d, fill, transform, parentTransform: parent ? parent.transform : [1, 0, 0, 1, 0, 0], protected: stack.some((context) => protectedTag.has(context.name)), reorderSafe })
-    }
-    if (!full.endsWith('/>')) stack.push({ name, fill, transform, reorderSafe })
-  }
+  const matches = parsePathTags(svg)
   // Reject exceptionally complex documents instead of blocking the interface indefinitely.
   if (matches.length > MAX_PATHS) return { ...fallback(), skipped: matches.length, limit: 'path-count' }
   let totalPathData = 0
@@ -139,21 +205,7 @@ export function groupNearbyPaths(svg: string, options: { distance?: number; colo
       return { ...fallback(), skipped: matches.length, limit: 'geometry-size' }
   }
 
-  // A path painted with a gradient is grouped under the gradient's mean stop colour,
-  // so gradient regions can be grouped, named and animated like flat ones.
-  const gradientFills = new Map<string, string>()
-  for (const gradient of svg.matchAll(/<(linearGradient|radialGradient)\b[^>]*\bid="([^"]+)"[^>]*>([\s\S]*?)<\/\1>/g)) {
-    const stops = [...gradient[3].matchAll(/\bstop-color="#([0-9a-fA-F]{6})"/g)].map((stop) => stop[1])
-    if (!stops.length) continue
-    const mean = [0, 2, 4].map((offset) => Math.round(stops.reduce((sum, hex) => sum + parseInt(hex.slice(offset, offset + 2), 16), 0) / stops.length))
-    gradientFills.set(gradient[2].toLowerCase(), `#${mean.map((value) => value.toString(16).padStart(2, '0')).join('')}`)
-  }
-  const solidFill = (fill: string | null): string | null => {
-    if (!fill) return null
-    if (/^#[0-9a-f]{6}$/i.test(fill)) return fill.toLowerCase()
-    const reference = /^url\(#([^)]+)\)$/i.exec(fill)
-    return reference ? gradientFills.get(reference[1].toLowerCase()) ?? null : null
-  }
+  const solidFill = solidFillResolver(svg)
 
   const area = width * height
   let skipped = 0
@@ -188,12 +240,9 @@ export function groupNearbyPaths(svg: string, options: { distance?: number; colo
     const start = match.start, end = start + match.raw.length
     const fill = solidFill(match.fill)
     if (match.protected || !isAxisAlignedTransform(match.transform) || !fill) { skipped++; continue }
-    const polygons = applyTransform(flattenPath(match.d), match.transform)
-    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
-    for (const poly of polygons) for (let i = 0; i + 1 < poly.length; i += 2) {
-      x0 = Math.min(x0, poly[i]); y0 = Math.min(y0, poly[i + 1]); x1 = Math.max(x1, poly[i]); y1 = Math.max(y1, poly[i + 1])
-    }
-    const box: Bounds = [x0, y0, x1, y1]
+    const polygons = applyTransform(flattenPath(match.d), match.transform!)
+    const box = polygonBounds(polygons)
+    const [x0, y0, x1, y1] = box
     // Large silhouettes can touch almost everything, joining unrelated parts.
     // Keep them available as individual editable shapes when explicitly requested.
     if (!box.every(Number.isFinite) || x1 <= x0 || y1 <= y0) { skipped++; continue }
