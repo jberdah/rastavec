@@ -1,6 +1,6 @@
 {
-  "description": "VTracer-next source snapshot at fd615ed: experimental gradient fitting with a continuous smooth-field model and whole-pixel validation, drift-bounded clustering (preserve_gradients), circle and ellipse detection with overlap completion and complete underlays beneath recognised shapes, crescents and rings (detect_shapes), Watershed transparency and partial-alpha handling, and the structured shape report.",
-  "head": "fd615ed1ed89a25bdee8fa6879fee7b2675c22e0",
+  "description": "VTracer-next source snapshot at 9b0d623: experimental gradient fitting with a continuous smooth-field model and whole-pixel validation, drift-bounded clustering (preserve_gradients), circle and ellipse detection with overlap completion and complete underlays beneath recognised shapes, crescents and rings (detect_shapes), Watershed transparency and partial-alpha handling, and the structured shape report.",
+  "head": "9b0d62356f905817e68357ea6bab40b546ef9ed0",
   "files": {
     "README.md": "9fbe6fa72e9693430e9fe6b977d4caaf13b49cc1cf0ab12b6d94030583e43faf",
     "crates/vtracer/Cargo.toml": "f7c363dc58516bbf0c0a4cab9b4aceee7a2f593387136671f5cc84bed417c3d7",
@@ -37,7 +37,7 @@
     "crates/vtracer/src/report.rs": "2eb0ec9159f54b3cda7d855eb8d7196fe47d3eee757d8dcea0b49d89d76da233",
     "crates/vtracer/src/session.rs": "1c11235deb77cdc47405931a7edeb1949c4598077072b38664282af144c09c8f",
     "crates/vtracer/src/shapes.rs": "461af40475adaaaf510b906d832e58b7acdf19849a1d3406932f929b550fcdce",
-    "crates/vtracer/src/shapes/crescent.rs": "6c657e5471866c7f1e086c9c5e1b866bebc3318cb73d346a8a723e1a595532f6",
+    "crates/vtracer/src/shapes/crescent.rs": "df6207898e9bcae0c1cd9e836275c8cefec0afc2461e79d8117d623cef4fa1a8",
     "crates/vtracer/src/shapes/overlap.rs": "1ee9f2681f1d8b50dead87b159848eb28d7607b9f098d61451c2c50454d84f09",
     "crates/vtracer/src/shapes/ring.rs": "af67cb79634c5f52e6cdab91e919f21fb36425cd01430a1828205f81f33cb5f0",
     "crates/vtracer/src/simplify.rs": "a43482c27552aa2dfd296617a6ad422d88b94588801cd81c48caf018cb2b95d6",
