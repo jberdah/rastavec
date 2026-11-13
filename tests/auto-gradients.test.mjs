@@ -292,3 +292,22 @@ test('a gradient trace in which no gradient was fitted is not listed as a gradie
     assert.equal(result.trials.some((trial) => trial.traceMethod?.endsWith('gradients')), false)
     assert.deepEqual(result.failedTrials, [])
 })
+
+test('when the simplified gradient fit finds no gradient, the close fit is skipped', async () => {
+    const src = image(20, 20, () => [120, 100, 80, 255])
+    const analysis = { width: 20, height: 20, kind: 'shaded', alpha: 'opaque', softPct: 0, transparentPct: 0, dominantColors: 40, gradient: 0.2, smoothRamps: 0.5, grayscale: false }
+    const fits = []
+    const backend = {
+      name: 'no-gradient-anywhere-test',
+      async trace() { return '<svg/>' },
+      async traceColorSource() { return '<svg data-g="off"/>' },
+      async traceColorSourceWithGradients(_img, _params, simple) { fits.push(simple ? 'simple' : 'exact'); return '<svg data-g="off"/>' },
+      async rasterize(_svg, w, h) { return solid(w, h, [120, 100, 80, 255]) },
+    }
+    const progress = []
+    const result = await vectorize(src, autoSettings, backend, { analysis, onProgress: (done, total) => progress.push([done, total]) })
+    assert.deepEqual(fits, ['simple'])
+    assert.equal(result.trials.some((trial) => trial.traceMethod?.endsWith('gradients')), false)
+    const [done, total] = progress.at(-1)
+    assert.equal(done, total, 'progress still completes')
+})
