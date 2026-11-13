@@ -120,6 +120,10 @@ output over one of its input images.
   `experimental-gradients` means Auto selected a measured VTracer-Next gradient candidate.
 - `diffSummary`: with `--diff-summary-json`, contains a top-to-bottom grid of visible-difference percentages
   and up to eight hotspot rectangles in source-image pixels. Its 32/255 threshold matches `pctDiff`.
+- `analysis.cleanup` (with the `cleaned` note): Auto found JPEG artifacts or noise over artwork in an
+  opaque image and traced a cleaned copy. `ringing`, `grain` and `blocks` are what gave it away, `sigma`
+  the noise level and `reach` the size of the ripples beside edges. The analysis and the metrics then
+  describe the cleaned image; `--compare` and `--diff-summary-json` still show the file as given.
 - `status`: `ok`, `review` (above threshold or budget) or `error` (with `error`).
 - Same input and same settings give the same SVG.
 

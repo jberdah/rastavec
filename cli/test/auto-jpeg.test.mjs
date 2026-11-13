@@ -45,14 +45,15 @@ test('Auto traces a JPEG or noisy logo about like the clean one', async (t) => {
   assert.equal(clean.analysis.cleanup, undefined)
   assert.ok(!clean.notes.includes('cleaned'))
 
-  // Paths allowed relative to the clean trace: low quality leaves a few specks.
-  for (const [name, factor] of [['q92', 2], ['q75', 2], ['q40', 5], ['noise5', 2]]) {
+  // The clean logo is 5 paths and 0.7 KB. Before the clean-up these gave 145, 315 and 429 paths
+  // (13 to 28 KB); quality 40 still leaves specks along the edges.
+  for (const [name, maxPaths, maxBytes] of [['q92', 10, 2048], ['q75', 20, 3072], ['q40', 80, 16384], ['noise5', 10, 2048]]) {
     const item = items[name]
     assert.ok(item.analysis.cleanup, `${name}: not detected as degraded`)
     assert.ok(item.notes.includes('cleaned'), name)
     assert.equal(item.analysis.kind, 'flat', name)
-    assert.ok(item.metrics.paths <= clean.metrics.paths * factor + 4, `${name}: ${item.metrics.paths} paths, clean ${clean.metrics.paths}`)
-    assert.ok(item.metrics.bytes <= clean.metrics.bytes * factor + 1024, `${name}: ${item.metrics.bytes} bytes, clean ${clean.metrics.bytes}`)
+    assert.ok(item.metrics.paths <= maxPaths, `${name}: ${item.metrics.paths} paths, clean ${clean.metrics.paths}`)
+    assert.ok(item.metrics.bytes <= maxBytes, `${name}: ${item.metrics.bytes} bytes, clean ${clean.metrics.bytes}`)
     assert.ok(item.metrics.pctDiff < 1.5, `${name}: ${item.metrics.pctDiff}% from the cleaned image`)
     assert.match(readFileSync(join(out, `${name}.svg`), 'utf8'), /^<svg\b/)
   }

@@ -369,7 +369,7 @@ export function restoreArtwork(img: RGBAImage, degradation: Degradation): RGBAIm
   const contrast = localContrast(img.data, w, h, CONTRAST_WINDOW)
   const noise = Math.min(64, 3 * degradation.sigma)
   const allowance = new Uint8Array(n)
-  let data = new Uint8ClampedArray(img.data)
+  let data: Uint8ClampedArray = new Uint8ClampedArray(img.data)
   if (noise >= 1) {
     // Exactly flat neighbourhoods have nothing to average.
     for (let p = 0; p < n; p++) allowance[p] = contrast[p] ? Math.max(2, noise) : 0
