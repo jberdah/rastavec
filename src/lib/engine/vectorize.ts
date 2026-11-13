@@ -11,6 +11,7 @@ import { presetById } from './presets'
 import { tracePixelGrid } from './pixel-grid'
 import { needsHierarchyReview } from './hierarchy-review'
 import { needsHardEdgeReview } from './hard-edge-review'
+import { shrink } from './shrink'
 
 export interface VectorizeSettings {
   /** 'auto' derives the parameters from the image analysis; anything else uses `params`. */
@@ -26,6 +27,36 @@ export interface VectorizeResult {
   chosen: number
   autoTuned: boolean
   failedTrials: { traceScale: number; message: string }[]
+}
+
+/** Share of smooth ramps (Analysis.smoothRamps) from which flat-looking art gets gradient trials. */
+export const GENTLE_GRADIENT_RAMPS = 0.1
+
+/** Above this many pixels, gradient trials run only when a reduced probe shows they help. */
+export const GRADIENT_PROBE_PIXELS = 1_000_000
+const PROBE_MAX_PIXELS = 256 * 1024
+
+const HAS_GRADIENT = /<(?:linear|radial)Gradient[\s/>]/
+
+/** Score points by which the gradient trace must beat the winner on the reduced copy. Measured
+ *  against the full trials, the probe's predicted gain is off by 0.1-0.2 points either way: a
+ *  detailed logo (gradients lose by 0.13 at full size, the probe sees a 0.07 gain) and clean
+ *  single gradients on large canvases (they win by 0.25-0.6, the probe sees 0.17-0.48). A wrong
+ *  "yes" only costs time, a wrong "no" loses a gradient, so the margin stays small. */
+const GRADIENT_PROBE_MARGIN = 0.1
+
+/** True when, on the reduced copy, the simple-gradient trace actually contains a gradient and
+ *  beats the current winner's own configuration on Auto's score by GRADIENT_PROBE_MARGIN: the
+ *  comparison the full trials would face. Traces of a reduced copy are lighter, and the size floor
+ *  of the score would flatten their difference, so both are first scaled to the winner's weight. */
+async function gradientsWin(src: RGBAImage, winner: Trial, params: TraceParams, backend: TraceBackend, yieldControl: () => Promise<void>): Promise<boolean> {
+  const plain = await runTrial(src, winner.params, false, backend)
+  await yieldControl()
+  const fitted = await runTrial(src, params, false, backend, 1, 'simple')
+  if (!HAS_GRADIENT.test(fitted.svg)) return false
+  const weight = winner.metrics.bytes / Math.max(1, plain.metrics.bytes)
+  const atFullSize = (trial: Trial) => score({ ...trial.metrics, bytes: trial.metrics.bytes * weight })
+  return atFullSize(fitted) < atFullSize(plain) - GRADIENT_PROBE_MARGIN
 }
 
 const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now())
@@ -161,15 +192,20 @@ export async function vectorize(
   // Bounded same-engine trials for meaningfully shaded illustrations, on an opaque canvas or
   // cut out on a transparent one (hard or antialiased edges): gradients fitted closely, and
   // gradients simplified (fewer shapes, less fidelity). The score arbitrates. Photos, soft
-  // alpha, flat artwork, and large rasters stay on the regular path. When the user forced
+  // alpha, flat artwork without smooth ramps, and very large rasters stay on the regular path. When the user forced
   // gradients the base trace already fits them closely; only the simplified one is added.
   const includeGradientReview = auto.enabled
     && settings.presetId === 'auto'
     && nativeColor
     && backend.traceColorSourceWithGradients !== undefined
-    && analysis.kind === 'shaded'
+    // A few colours and no per-pixel steps read as flat, yet a gentle linear or radial
+    // gradient looks exactly like that: smooth ramps over a tenth of the opaque area tell it
+    // apart from flat fills (near 0). The score still decides whether gradients win.
+    && (analysis.kind === 'shaded' || (analysis.kind === 'flat' && (analysis.smoothRamps ?? 0) >= GENTLE_GRADIENT_RAMPS))
     && analysis.alpha !== 'soft'
-    && src.width * src.height <= 8_000_000
+    // Above 1 MP the reduced probe decides first, so 4K-5K sources can afford the full trials
+    // when they pay (a 4K landscape: one flat sky at 37 % pctDiff without them, 1 % with).
+    && src.width * src.height <= 16_000_000
   const gradientModes: (true | 'simple')[] = !includeGradientReview ? [] : backend.gradientsByDefault ? ['simple'] : [true, 'simple']
   // Photos can produce editable but oversized region mosaics. Reserve two bounded
   // simplification slots; the traces run only if existing Auto trials all exceed
@@ -312,18 +348,52 @@ export async function vectorize(
   if (includeGradientReview) {
     const native = trials.filter((trial) => !trial.traceMethod && (trial.traceScale ?? 1) === 1)
     const current = native[pick(native)]
-    for (const mode of gradientModes) {
+    // Isolate the gradient fitter: reuse the best native parameters so this
+    // comparison measures paint fitting instead of changing segmentation and geometry too.
+    // The engine fits gradients over stacked layers only: when the hierarchy review
+    // picked a cutout mosaic, it rejected every gradient trial as unsupported.
+    const params = { ...current.params, hierarchical: 'stacked' as const }
+    // On a large raster each full-size gradient fit costs seconds. Probe a reduced copy first
+    // (shrunk by a power of two to at most PROBE_MAX_PIXELS): the full trials run only when the
+    // gradient trace wins there.
+    let worthIt = true
+    if (src.width * src.height > GRADIENT_PROBE_PIXELS) {
       await yieldControl()
       try {
-        // Isolate the gradient fitter: reuse the best native parameters so this
-        // comparison measures paint fitting instead of changing segmentation and geometry too.
-        trials.push(await runTrial(src, current.params, false, backend, 1, mode))
+        let factor = 2
+        while (src.width * src.height > PROBE_MAX_PIXELS * factor * factor) factor *= 2
+        worthIt = await gradientsWin(shrink(src, factor), current, params, backend, yieldControl)
+      } catch (error) {
+        if (error instanceof VectorizationCancelled) throw error
+        // An inconclusive probe keeps the full comparison.
+      }
+      checkCancelled()
+    }
+    // A "gradient" trace in which the engine fitted no gradient is the plain stacked trace again:
+    // it is not listed under a gradient label. 'failed' when the engine refused the trial.
+    const gradientTrial = async (mode: true | 'simple'): Promise<Trial | null | 'failed'> => {
+      await yieldControl()
+      try {
+        const trial = await runTrial(src, params, false, backend, 1, mode)
+        checkCancelled()
+        return HAS_GRADIENT.test(trial.svg) ? trial : null
       } catch (error) {
         checkCancelled()
         failedTrials.push({ traceScale: 1, message: error instanceof Error ? error.message : String(error) })
+        return 'failed'
       }
-      checkCancelled()
+    }
+    if (worthIt) {
+      // The simplified fit runs first: when even its looser tolerance finds no gradient, the
+      // close fit finds none either and is skipped. Trials keep their usual order (close fit
+      // first), so ties resolve as before.
+      const simple = gradientModes.includes('simple') ? await gradientTrial('simple') : null
       completeTrial()
+      const exact = gradientModes.includes(true) && simple !== null ? await gradientTrial(true) : null
+      if (gradientModes.includes(true)) completeTrial()
+      for (const trial of [exact, simple]) if (trial && trial !== 'failed') trials.push(trial)
+    } else {
+      for (let k = 0; k < gradientModes.length; k++) completeTrial()
     }
   }
   let chosen = pick(trials)
