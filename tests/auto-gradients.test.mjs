@@ -4,10 +4,10 @@ import { createRequire } from 'node:module'
 
 const { buildSync } = createRequire(new URL('../cli/package.json', import.meta.url))('esbuild')
 const bundled = buildSync({
-  stdin: { contents: "export { vectorize } from './src/lib/engine/vectorize'; export { choose } from './src/lib/engine/core'; export { DEFAULT_PARAMS } from './src/lib/engine/presets'; export { analyze } from './src/lib/engine/analyze'", resolveDir: process.cwd() },
+  stdin: { contents: "export { vectorize } from './src/lib/engine/vectorize'; export { choose } from './src/lib/engine/core'; export { DEFAULT_PARAMS } from './src/lib/engine/presets'; export { analyze } from './src/lib/engine/analyze'; export { shrink } from './src/lib/engine/shrink'; export { VectorizationCancelled } from './src/lib/engine/vectorize'", resolveDir: process.cwd() },
   bundle: true, write: false, platform: 'node', format: 'esm',
 }).outputFiles[0].text
-const { vectorize, choose, DEFAULT_PARAMS, analyze } = await import(`data:text/javascript;base64,${Buffer.from(bundled).toString('base64')}`)
+const { vectorize, choose, DEFAULT_PARAMS, analyze, shrink, VectorizationCancelled } = await import(`data:text/javascript;base64,${Buffer.from(bundled).toString('base64')}`)
 
 test('Auto evaluates one same-engine gradient candidate for shaded opaque art even when analysis sees few gradients', async () => {
     const { width, height } = { width: 20, height: 20 }
@@ -18,7 +18,7 @@ test('Auto evaluates one same-engine gradient candidate for shaded opaque art ev
       name: 'gradient-candidate-test',
       async trace(_prepared, params) { return `<svg data-mode="${params.mode}"/>` },
       async traceColorSource() { return '<svg data-gradient="off"/>' },
-      async traceColorSourceWithGradients() { return '<svg data-gradient="on"/>' },
+      async traceColorSourceWithGradients() { return '<svg data-gradient="on"><linearGradient id="g"/></svg>' },
       async rasterize(svg, w, h) {
         const data = new Uint8ClampedArray(w * h * 4)
         for (let i = 0; i < w * h; i++) data.set(svg.includes('data-gradient="on"') ? [120, 100, 80, 255] : [0, 0, 0, 255], i * 4)
@@ -111,13 +111,50 @@ const image = (width, height, paint) => {
 
 test('analysis measures gentle gradient ramps that per-pixel smoothness misses', () => {
     // A clean linear gradient over 240 px: 0-1 levels per pixel, a dozen 12-bit colours.
-    const ramp = analyze(image(240, 120, (x) => [200 + Math.round(x / 12), 130 + Math.round(x / 8), 100, 255]))
+    const ramp = analyze(image(240, 120, (x) => [180 + Math.round(x / 6), 120 + Math.round(x / 4), 100, 255]))
     assert.equal(ramp.kind, 'flat')
     assert.ok(ramp.smoothRamps > 0.9, `ramps ${ramp.smoothRamps}`)
     // Flat shapes with hard edges: no ramps.
     const flat = analyze(image(240, 120, (x, y) => (x - 60) ** 2 + (y - 60) ** 2 < 1600 ? [115, 80, 184, 255] : x > 100 ? [233, 135, 90, 255] : [244, 245, 249, 255]))
     assert.equal(flat.kind, 'flat')
     assert.equal(flat.smoothRamps, 0)
+})
+
+test('the ramp measure does not depend on resolution', () => {
+    // The same gradient over 4x the pixels has 4x smaller steps; it must still read as ramps.
+    for (const scale of [1, 2, 4, 8]) {
+      const ramp = analyze(image(240 * scale, 120 * scale, (x) => [180 + Math.round(x / 6 / scale), 120 + Math.round(x / 4 / scale), 100, 255]))
+      assert.ok(ramp.smoothRamps > 0.9, `scale ${scale}: ramps ${ramp.smoothRamps}`)
+    }
+})
+
+test('compression noise on a flat fill is not a ramp', () => {
+    // Deterministic +-3 noise, like JPEG artefacts on a flat logo.
+    let seed = 7
+    const noise = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return (seed >> 16) % 7 - 3 }
+    const noisy = analyze(image(400, 300, (x, y) => (x - 150) ** 2 + (y - 150) ** 2 < 8000
+      ? [115 + noise(), 80 + noise(), 184 + noise(), 255]
+      : [244 + noise(), 245 + noise(), 249 + noise(), 255]))
+    assert.ok(noisy.smoothRamps < 0.05, `ramps ${noisy.smoothRamps}`)
+})
+
+test('an antialiased canvas border does not make artwork thin', () => {
+    // These classify the same as before border fringes counted for the alpha profile.
+    const fading = analyze(image(600, 5, (x) => [200, 90, 40, Math.round(255 * (1 - x / 600))]))
+    assert.notEqual(fading.kind, 'line')
+    const square = analyze(image(10, 10, () => [200, 90, 40, 200]))
+    assert.notEqual(square.kind, 'line')
+})
+
+test('shrink averages every source pixel, even for sides smaller than the factor', () => {
+    const opaque = shrink(image(3, 8, () => [10, 20, 30, 255]), 4)
+    assert.deepEqual([opaque.width, opaque.height], [1, 2])
+    assert.deepEqual([...opaque.data], [10, 20, 30, 255, 10, 20, 30, 255])
+    // Odd sides: the last column and row are folded into the last output pixels, not dropped.
+    const odd = shrink(image(5, 5, (x, y) => x === 4 || y === 4 ? [0, 0, 0, 0] : [100, 100, 100, 255]), 2)
+    assert.deepEqual([odd.width, odd.height], [2, 2])
+    assert.ok(odd.data[(1 * 2 + 1) * 4 + 3] < 255, 'the transparent last row and column count in the corner pixel')
+    assert.equal(odd.data[3], 255)
 })
 
 test('an antialiased fringe on the canvas border is an edge, not a translucent glow', () => {
@@ -133,7 +170,7 @@ test('Auto compares gradients on flat-looking art only when it has smooth ramps'
       name: 'flat-ramps-test',
       async trace() { return '<svg/>' },
       async traceColorSource() { return '<svg data-gradient="off"/>' },
-      async traceColorSourceWithGradients() { return '<svg data-gradient="on"/>' },
+      async traceColorSourceWithGradients() { return '<svg data-gradient="on"><linearGradient id="g"/></svg>' },
       async rasterize(svg, w, h) {
         const data = new Uint8ClampedArray(w * h * 4)
         for (let i = 0; i < w * h; i++) data.set(svg.includes('data-gradient="on"') ? [120, 100, 80, 255] : [0, 0, 0, 255], i * 4)
@@ -159,7 +196,7 @@ test('Auto fits gradients over stacked layers even when the hierarchy review pic
       // As the engine does: gradients are fitted over stacked layers only.
       async traceColorSourceWithGradients(_src, params) {
         if (params.hierarchical !== 'stacked') throw new Error('unsupported: experimental gradients require stacked color segmentation')
-        return '<svg data-gradient="on"/>'
+        return '<svg data-gradient="on"><linearGradient id="g"/></svg>'
       },
       async rasterize(svg, w, h) {
         const exact = svg.includes('data-gradient="on"'), near = svg.includes('data-h="cutout"')
@@ -186,7 +223,7 @@ test('on a large raster Auto runs the full gradient trials only when a reduced p
         name: 'gradient-probe-test',
         async trace() { return '<svg/>' },
         async traceColorSource(img) { sizes.push(img.width); return '<svg data-g="off"/>' },
-        async traceColorSourceWithGradients(img) { sizes.push(img.width); return '<svg data-g="on"/>' },
+        async traceColorSourceWithGradients(img) { sizes.push(img.width); return '<svg data-g="on"><radialGradient id="g"/></svg>' },
         async rasterize(svg, w, h) {
           const exact = helps && svg.includes('data-g="on"')
           const data = new Uint8ClampedArray(w * h * 4)
@@ -203,4 +240,55 @@ test('on a large raster Auto runs the full gradient trials only when a reduced p
     const useful = await run(true)
     assert.equal(useful.result.trials.filter((trial) => trial.traceMethod?.endsWith('gradients')).length, 2)
     assert.equal(useful.result.trials[useful.result.chosen].traceMethod, 'experimental-gradients')
+})
+
+const largeShaded = () => ({
+  src: image(1100, 1000, () => [120, 100, 80, 255]),
+  analysis: { width: 1100, height: 1000, kind: 'shaded', alpha: 'opaque', softPct: 0, transparentPct: 0, dominantColors: 20, gradient: 0.2, smoothRamps: 0.5, grayscale: false },
+})
+const autoSettings = { presetId: 'auto', params: DEFAULT_PARAMS, auto: { enabled: true, threshold: 3, maxKB: 0 } }
+const solid = (w, h, color) => { const data = new Uint8ClampedArray(w * h * 4); for (let i = 0; i < w * h; i++) data.set(color, i * 4); return { width: w, height: h, data } }
+
+test('a failed gradient probe keeps the full gradient comparison', async () => {
+    const { src, analysis } = largeShaded()
+    const backend = {
+      name: 'failing-probe-test',
+      async trace() { return '<svg/>' },
+      async traceColorSource() { return '<svg data-g="off"/>' },
+      async traceColorSourceWithGradients(img) {
+        if (img.width < 1100) throw new Error('probe unavailable')
+        return '<svg data-g="on"><linearGradient id="g"/></svg>'
+      },
+      async rasterize(svg, w, h) { return solid(w, h, svg.includes('data-g="on"') ? [120, 100, 80, 255] : [180, 160, 140, 255]) },
+    }
+    const result = await vectorize(src, autoSettings, backend, { analysis })
+    assert.equal(result.trials.filter((trial) => trial.traceMethod?.endsWith('gradients')).length, 2)
+})
+
+test('cancelling during the gradient probe stops Auto instead of running the full trials', async () => {
+    const { src, analysis } = largeShaded()
+    let cancelled = false
+    const backend = {
+      name: 'cancel-probe-test',
+      async trace() { return '<svg/>' },
+      async traceColorSource(img) { if (img.width < 1100) cancelled = true; return '<svg data-g="off"/>' },
+      async traceColorSourceWithGradients() { throw new Error('the probe should stop before fitting gradients') },
+      async rasterize(_svg, w, h) { return solid(w, h, [180, 160, 140, 255]) },
+    }
+    await assert.rejects(vectorize(src, autoSettings, backend, { analysis, shouldCancel: () => cancelled }), VectorizationCancelled)
+})
+
+test('a gradient trace in which no gradient was fitted is not listed as a gradient trial', async () => {
+    const src = image(20, 20, () => [120, 100, 80, 255])
+    const analysis = { width: 20, height: 20, kind: 'shaded', alpha: 'opaque', softPct: 0, transparentPct: 0, dominantColors: 40, gradient: 0.2, smoothRamps: 0.5, grayscale: false }
+    const backend = {
+      name: 'gradientless-gradient-test',
+      async trace() { return '<svg/>' },
+      async traceColorSource() { return '<svg data-g="off"/>' },
+      async traceColorSourceWithGradients() { return '<svg data-g="off"/>' },
+      async rasterize(_svg, w, h) { return solid(w, h, [120, 100, 80, 255]) },
+    }
+    const result = await vectorize(src, autoSettings, backend, { analysis })
+    assert.equal(result.trials.some((trial) => trial.traceMethod?.endsWith('gradients')), false)
+    assert.deepEqual(result.failedTrials, [])
 })
